@@ -46,9 +46,11 @@ Most Vietnamese input methods on Linux suffer from **underline hell** — pre-ed
 | **ESC Undo** | Strip all tones from the current word instantly |
 | **Smart App Memory** | Remembers Vietnamese/English per application |
 | **Macro Expansion** | Custom shortcuts (e.g., `ko` → `không`) |
-| **Uinput Injection** | Direct uinput keystroke injection (no display server needed) |
+| **Unified Injection** | Unified channel backspace and typing injection to prevent ordering race conditions |
+| **Focus Buffer Auto-Reset** | Automatically clears the engine's compose buffer on focus change between apps |
+| **Logging & Rotation** | Persistent logging at `~/.config/vietc/vietc.log` with automatic 10MB rotation |
 | **Hot Reload** | Config changes apply without restart |
-| **Zero Telemetry** | No keylogging, no disk writes, fully FOSS |
+| **Zero Telemetry** | No keylogging, no network calls, fully FOSS |
 
 ---
 
@@ -118,6 +120,7 @@ Config file: `~/.config/vietc/config.toml` or `./vietc.toml`
 input_method = "telex"
 toggle_key = "space"
 start_enabled = true
+debug = false
 
 [auto_restore]
 enabled = true
@@ -160,7 +163,6 @@ lm = "làm"
 | Component | Ubuntu/Debian | Fedora | Arch |
 |-----------|--------------|--------|------|
 | Core daemon | *(none)* | *(none)* | *(none)* |
-| Settings UI | `libgtk-4-dev libadwaita-1-dev` | `gtk4-devel libadwaita-devel` | `gtk4 libadwaita` |
 | Tray icon | `libdbus-1-dev pkg-config` | `dbus-devel pkgconf` | `dbus pkgconf` |
 
 ### AppImage (recommended)
@@ -180,7 +182,6 @@ sudo ./Viet+-0.1.0-x86_64.AppImage
 
 ```bash
 sudo make install
-sudo make install-ui    # optional
 sudo make install-tray  # optional
 ```
 
@@ -245,11 +246,10 @@ viet+/
 │   │   └── display.rs     # Display server detection
 │   └── Cargo.toml
 ├── cli/             # Interactive test harness
-├── ui/              # Settings UI + tray (GTK4/Libadwaita)
+├── ui/              # Tray icon application
 │   ├── src/
-│   │   ├── main.rs        # Settings app
-│   │   ├── window.rs      # Settings window
-│   │   ├── tray.rs        # System tray icon
+│   │   ├── main.rs        # Tray app entry point
+│   │   ├── tray.rs        # System tray icon implementation
 │   │   └── config.rs      # UI config reader
 │   └── Cargo.toml
 ├── packaging/       # Distribution packages
