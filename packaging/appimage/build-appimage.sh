@@ -139,11 +139,14 @@ export PATH="$HERE/usr/bin:$PATH"
 # Start daemon (kill old non-root one first if we have root)
 SUDO_CMD=""
 
-# Fix Wayland env for root: sudo resets XDG_RUNTIME_DIR, breaking wl-copy
+# Fix Wayland env for root: sudo resets XDG_RUNTIME_DIR, breaking wtype/wl-copy.
+# Only set WAYLAND_DISPLAY if the user actually has a Wayland session.
 if [ "$(id -u)" = "0" ] && [ -z "$XDG_RUNTIME_DIR" ] && [ -n "$SUDO_USER" ]; then
     USER_UID=$(id -u "$SUDO_USER" 2>/dev/null || echo 1000)
     export XDG_RUNTIME_DIR="/run/user/$USER_UID"
-    export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+    if [ -d "/run/user/$USER_UID" ] && ls "/run/user/$USER_UID/wayland-*" >/dev/null 2>&1; then
+        export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+    fi
 fi
 
 if command -v pkexec >/dev/null && [ -z "$WAYLAND_DISPLAY" ]; then

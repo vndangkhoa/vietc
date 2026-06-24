@@ -428,7 +428,7 @@ fn run_with_evdev(
                     }
                     if let Some(ch) = key_to_char(key) {
                         let commands = daemon.process_key(ch);
-                        execute_commands(&*injector, &commands);
+                        execute_commands(&*injector, &commands, false);
                     }
                 } else {
                     // Grabbing mode: all output goes through uinput only.
@@ -445,7 +445,7 @@ fn run_with_evdev(
                             let commands = daemon.process_key(ch);
                             if !commands.is_empty() {
                                 consumed_keys.insert(keycode);
-                                execute_commands_with_grab(&*injector, &commands);
+                                execute_commands(&*injector, &commands, true);
                             } else {
                                 injector.send_char(ch);
                             }
@@ -554,7 +554,7 @@ fn run_stdin_mode(
             Ok(_) => {
                 let ch = buffer[0] as char;
                 let commands = daemon.process_key(ch);
-                execute_commands(&*injector, &commands);
+                execute_commands(&*injector, &commands, false);
             }
             Err(e) => {
                 eprintln!("[vietc] Read error: {}", e);
@@ -566,35 +566,21 @@ fn run_stdin_mode(
     Ok(())
 }
 
-fn execute_commands(injector: &dyn vietc_protocol::KeyInjector, commands: &[OutputCommand]) {
-    for cmd in commands {
-        match cmd {
-            OutputCommand::Type(text) => {
-                injector.send_string(text);
-            }
-            OutputCommand::Backspace(count) => {
-                injector.send_backspaces(*count);
-            }
-        }
-    }
-    injector.flush();
-}
-
-/// Execute commands with keyboard grabbing active.
-/// Uses inject_replacement to send backspaces + text through a single
-/// injection call (wtype), avoiding compositor reordering between
-/// uinput (backspaces) and wtype (text).
-fn execute_commands_with_grab(injector: &dyn vietc_protocol::KeyInjector, commands: &[OutputCommand]) {
+/// Execute commands — accumulate backspaces and text, then inject through
+/// a single channel (ydotool or wtype) to avoid reordering between backspaces
+/// (uinput) and text (ydotool).
+fn execute_commands(injector: &dyn vietc_protocol::KeyInjector, commands: &[OutputCommand], grabbed: bool) {
     let mut pending_backspaces: usize = 0;
     let mut pending_text = String::new();
 
     for cmd in commands {
         match cmd {
             OutputCommand::Backspace(count) => {
-                // The engine adds +1 to account for the current character key,
-                // but with grabbing that key was never forwarded to the app,
-                // so we subtract 1.
-                let adjusted = count.saturating_sub(1);
+                // The engine adds +1 to account for the current character key.
+                // With grabbing that key was never forwarded to the app, so
+                // we subtract 1. Without grab, the key WAS forwarded, so we
+                // use the full count.
+                let adjusted = if grabbed { count.saturating_sub(1) } else { *count };
                 pending_backspaces += adjusted;
             }
             OutputCommand::Type(text) => {
