@@ -279,8 +279,67 @@ mod tests {
     #[test]
     fn telex_uy_tone() {
         let mut e = Engine::new(InputMethod::Telex);
-        // Engine applies tone to first vowel in "uy": uý
+        // Engine applies tone to second vowel (y) in "uy": uý
         assert_eq!(get_display(&process_input(&mut e, "uys")), "uý");
+    }
+
+    #[test]
+    fn telex_ua_tone_on_first_vowel() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "ua" → tone on first vowel (u): mùa → "ùa"
+        assert_eq!(get_display(&process_input(&mut e, "uaf")), "ùa");
+    }
+
+    #[test]
+    fn telex_uâ_tone_on_second_vowel() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "uâ" → tone on second vowel (â): tuấn
+        assert_eq!(get_display(&process_input(&mut e, "tuana")), "tuân");
+        assert_eq!(get_display(&process_input(&mut e, "tuanas")), "tuấn");
+    }
+
+    #[test]
+    fn telex_uê_tone_on_second_vowel() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "uê" → tone on second vowel (ê): thuế
+        assert_eq!(get_display(&process_input(&mut e, "thuee")), "thuê");
+        assert_eq!(get_display(&process_input(&mut e, "thuees")), "thuế");
+    }
+
+    // ================================================================
+    // Telex: Flexible backtrack limit
+    // ================================================================
+
+    #[test]
+    fn telex_flexible_backtrack_limit() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "dangd" + "a" should NOT modify the 'a' in "dang"
+        // (too far back, crosses a syllable boundary).
+        // The last 3 chars are "ngd" → no vowel → 'a' is appended normally.
+        assert_eq!(get_display(&process_input(&mut e, "dangda")), "dangda");
+    }
+
+    #[test]
+    fn telex_flexible_backtrack_still_works_near() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "tran" + "a" → last 3: "ran" → 'a' found at index 1 → "trân"
+        assert_eq!(get_display(&process_input(&mut e, "trana")), "trân");
+    }
+
+    #[test]
+    fn telex_flexible_backtrack_w_limit() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "dangd" + "w" should NOT modify 'a' in "dang".
+        // w becomes a pending modifier (no vowel found within backtrack)
+        // On flush, pending w is consumed without modifying anything.
+        assert_eq!(get_display(&process_input(&mut e, "dangdw")), "dangd");
+    }
+
+    #[test]
+    fn telex_flexible_backtrack_w_still_works_near() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "ngon" + "w" → last 3: "gon" → 'o' found at index 1 → "ngơn"
+        assert_eq!(get_display(&process_input(&mut e, "ngonw")), "ngơn");
     }
 
     // ================================================================
@@ -622,6 +681,20 @@ mod tests {
         let mut e = Engine::new(InputMethod::Vni);
         // "1" on empty buffer → appended
         assert_eq!(get_display(&process_input(&mut e, "1")), "1");
+    }
+
+    #[test]
+    fn vni_flexible_backtrack_limit() {
+        let mut e = Engine::new(InputMethod::Vni);
+        // "dangd" + "6" should NOT modify 'a' in "dang"
+        assert_eq!(get_display(&process_input(&mut e, "dangd6")), "dangd6");
+    }
+
+    #[test]
+    fn vni_flexible_backtrack_still_works_near() {
+        let mut e = Engine::new(InputMethod::Vni);
+        // "tran" + "6" → "trân" (within backtrack limit)
+        assert_eq!(get_display(&process_input(&mut e, "tran6")), "trân");
     }
 
     // ================================================================

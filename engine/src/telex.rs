@@ -2,6 +2,12 @@ use crate::engine::EngineEvent;
 
 const VOWELS: &[char] = &['a', 'e', 'i', 'o', 'u', 'y', 'ă', 'â', 'ê', 'ô', 'ơ', 'ư'];
 
+/// Maximum number of characters to scan backward during flexible placement.
+/// Vietnamese vowel clusters are at most 3 characters; limiting the scan
+/// prevents modifying vowels in a different syllable (e.g. `dang d` + `a`
+/// should not change the `a` in `dang`).
+const MAX_FLEXIBLE_BACKTRACK: usize = 3;
+
 fn is_vowel(c: char) -> bool {
     VOWELS.contains(&c)
 }
@@ -152,11 +158,12 @@ impl TelexEngine {
                     if i > 0 && is_vowel(chars[i - 1]) {
                         let first = chars[i - 1];
                         let second = chars[i];
-                        // For oa, oe, uy → tone on second vowel (already at position i)
-                        // For others → tone on first vowel
+                        // For oa, oe, uâ, uê, uơ, uy, iê, yê → tone on second vowel
                         let tone_on_second = matches!(
                             (first, second),
-                            ('o', 'a') | ('o', 'e') | ('u', 'y') | ('i', 'ê') | ('y', 'ê')
+                            ('o', 'a') | ('o', 'e')
+                            | ('u', 'â') | ('u', 'ê') | ('u', 'ơ') | ('u', 'y')
+                            | ('i', 'ê') | ('y', 'ê')
                         );
                         if !tone_on_second {
                             // Apply tone to first vowel
@@ -212,13 +219,15 @@ impl TelexEngine {
             }
         }
 
-        // Flexible placement: if last char is not a vowel, scan backward
-        // for a matching vowel to form a double-vowel pair.
+        // Flexible placement: if last char is not a vowel, scan the last
+        // N chars for a matching vowel to form a double-vowel pair.
+        // Limited backtrack prevents modifying vowels in a different syllable.
         if matches!(ch, 'a' | 'e' | 'o') {
             if let Some(last_ch) = self.buffer.chars().last() {
                 if !is_vowel(last_ch) {
                     let chars: Vec<char> = self.buffer.chars().collect();
-                    for i in (0..chars.len()).rev() {
+                    let start = chars.len().saturating_sub(MAX_FLEXIBLE_BACKTRACK);
+                    for i in (start..chars.len()).rev() {
                         if chars[i] == ch {
                             let replacement = match ch {
                                 'a' => 'â',
@@ -255,12 +264,13 @@ impl TelexEngine {
             }
         }
 
-        // Flexible placement: if last char is not a vowel, scan backward
-        // for a vowel to apply the w modifier.
+        // Flexible placement: if last char is not a vowel, scan the last
+        // N chars for a vowel to apply the w modifier.
         if let Some(last_ch) = self.buffer.chars().last() {
             if !is_vowel(last_ch) {
                 let chars: Vec<char> = self.buffer.chars().collect();
-                for i in (0..chars.len()).rev() {
+                let start = chars.len().saturating_sub(MAX_FLEXIBLE_BACKTRACK);
+                for i in (start..chars.len()).rev() {
                     if is_vowel(chars[i]) {
                         if let Some(modified) = apply_w_to_vowel(chars[i]) {
                             self.buffer = chars[..i].iter().collect::<String>();

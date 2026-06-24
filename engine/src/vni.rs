@@ -6,6 +6,8 @@ fn is_vowel(c: char) -> bool {
     VOWELS.contains(&c)
 }
 
+const MAX_FLEXIBLE_BACKTRACK: usize = 3;
+
 fn apply_tone_to_vowel(vowel: char, digit: char) -> Option<char> {
     // VNI: 1=sắc, 2=huyền, 3=hỏi, 4=ngã, 5=nặng
     let table: &[(char, char, char)] = &[
@@ -132,11 +134,12 @@ impl VniEngine {
             }
         }
 
-        // Flexible placement: last char not a vowel, scan backward
+        // Flexible placement: last char not a vowel, scan the last N chars
         if let Some(last_ch) = self.buffer.chars().last() {
             if !is_vowel(last_ch) {
                 let chars: Vec<char> = self.buffer.chars().collect();
-                for i in (0..chars.len()).rev() {
+                let start = chars.len().saturating_sub(MAX_FLEXIBLE_BACKTRACK);
+                for i in (start..chars.len()).rev() {
                     if is_vowel(chars[i]) {
                         // Try tone first (1-5)
                         if let Some(modified) = apply_tone_to_vowel(chars[i], digit) {
