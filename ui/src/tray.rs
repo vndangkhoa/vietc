@@ -47,10 +47,121 @@ fn ensure_icons() {
     }
 }
 
+fn show_notification(title: &str, body: &str) {
+    let _ = std::process::Command::new("notify-send")
+        .args([title, body])
+        .status();
+}
+
+#[derive(serde::Deserialize, Clone, Debug)]
+struct Asset {
+    name: String,
+    browser_download_url: String,
+}
+
+#[derive(serde::Deserialize, Clone, Debug)]
+struct Release {
+    tag_name: String,
+    html_url: String,
+    assets: Vec<Asset>,
+}
+
 struct VietTray {
     mode: String,
     im: String,
     autostart: bool,
+    update_available: Option<Release>,
+    updating: bool,
+    handle: std::sync::Arc<std::sync::Mutex<Option<ksni::Handle<Self>>>>,
+}
+
+impl VietTray {
+    fn check_for_updates(&self, handle: &ksni::Handle<Self>, verbose: bool) {
+        let handle = handle.clone();
+        std::thread::spawn(move || {
+            if verbose {
+                show_notification("Checking for updates...", "Contacting git.khoavo.myds.me...");
+            }
+            let output = std::process::Command::new("curl")
+                .args(["-s", "https://git.khoavo.myds.me/api/v1/repos/vndangkhoa/vietc/releases"])
+                .output();
+
+            match output {
+                Ok(out) if out.status.success() => {
+                    if let Ok(releases) = serde_json::from_slice::<Vec<Release>>(&out.stdout) {
+                        if let Some(latest) = releases.first() {
+                            let latest_ver = latest.tag_name.trim_start_matches('v');
+                            let curr_ver = env!("CARGO_PKG_VERSION");
+                            if latest_ver != curr_ver {
+                                show_notification(
+                                    "Viet+ Update Available",
+                                    &format!("Version {} is available! Select 'Update to {}' in the tray menu.", latest.tag_name, latest.tag_name)
+                                );
+                                let rel = latest.clone();
+                                let _ = handle.update(move |t| {
+                                    t.update_available = Some(rel);
+                                });
+                                return;
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if verbose {
+                show_notification("Viet+ is Up-to-Date", "You are running the latest version.");
+            }
+        });
+    }
+
+    fn trigger_update(&self, handle: &ksni::Handle<Self>, release: Release) {
+        let handle = handle.clone();
+        let _ = handle.update(|t| t.updating = true);
+        std::thread::spawn(move || {
+            show_notification("Downloading update...", &format!("Updating Viet+ to {}...", release.tag_name));
+            let appimage_asset = release.assets.iter().find(|a| a.name.ends_with(".AppImage"));
+            if let Some(asset) = appimage_asset {
+                if let Ok(appimage_path) = std::env::var("APPIMAGE") {
+                    let temp_path = format!("{}.tmp-update", appimage_path);
+                    let status = std::process::Command::new("curl")
+                        .args(["-L", "-o", &temp_path, &asset.browser_download_url])
+                        .status();
+                    match status {
+                        Ok(s) if s.success() => {
+                            use std::os::unix::fs::PermissionsExt;
+                            if let Ok(_) = std::fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o755)) {
+                                if let Ok(_) = std::fs::rename(&temp_path, &appimage_path) {
+                                    show_notification(
+                                        "Update Succeeded",
+                                        "Viet+ has been updated! Please restart the application."
+                                    );
+                                    let _ = handle.update(|t| {
+                                        t.updating = false;
+                                        t.update_available = None;
+                                    });
+                                    return;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    let _ = std::fs::remove_file(&temp_path);
+                    show_notification("Update Failed", "Could not overwrite the AppImage file.");
+                } else {
+                    let _ = std::process::Command::new("xdg-open")
+                        .arg(&release.html_url)
+                        .status();
+                    show_notification(
+                        "Opening Releases Page",
+                        "Please download the update manually."
+                    );
+                }
+            } else {
+                show_notification("Update Failed", "No AppImage asset found in this release.");
+            }
+            let _ = handle.update(|t| t.updating = false);
+        });
+    }
 }
 
 impl Tray for VietTray {
@@ -80,7 +191,7 @@ impl Tray for VietTray {
         let is_vn = self.mode == "vn";
         let im_index = if self.im == "telex" { 0 } else { 1 };
 
-        vec![
+        let mut items = vec![
             CheckmarkItem {
                 label: "Vietnamese Mode".into(),
                 checked: is_vn,
@@ -128,32 +239,96 @@ impl Tray for VietTray {
                 }),
                 ..Default::default()
             }.into(),
-            MenuItem::Separator,
-            StandardItem {
-                label: "Quit".into(),
-                activate: Box::new(|_| {
-                    let _ = std::process::Command::new("pkill")
-                        .arg("-x").arg("vietc").status();
-                    std::process::exit(0);
+        ];
+
+        items.push(MenuItem::Separator);
+        if let Some(ref release) = self.update_available {
+            let label = if self.updating {
+                "Updating...".into()
+            } else {
+                format!("Update to {}", release.tag_name)
+            };
+            items.push(StandardItem {
+                label,
+                activate: Box::new(|this: &mut VietTray| {
+                    if !this.updating {
+                        if let Some(ref rel) = this.update_available.clone() {
+                            let handle = this.handle.lock().unwrap().clone().unwrap();
+                            this.trigger_update(&handle, rel.clone());
+                        }
+                    }
                 }),
                 ..Default::default()
-            }.into(),
-        ]
+            }.into());
+        } else {
+            items.push(StandardItem {
+                label: if self.updating { "Updating...".into() } else { "Check for Updates".into() },
+                activate: Box::new(|this: &mut VietTray| {
+                    if !this.updating {
+                        let handle = this.handle.lock().unwrap().clone().unwrap();
+                        this.check_for_updates(&handle, true);
+                    }
+                }),
+                ..Default::default()
+            }.into());
+        }
+
+        items.push(MenuItem::Separator);
+        items.push(StandardItem {
+            label: "about me - khoavo.myds.me".into(),
+            activate: Box::new(|_| {
+                let _ = std::process::Command::new("xdg-open")
+                    .arg("https://khoavo.myds.me")
+                    .status();
+            }),
+            ..Default::default()
+        }.into());
+
+        items.push(MenuItem::Separator);
+        items.push(StandardItem {
+            label: "Quit".into(),
+            activate: Box::new(|_| {
+                let _ = std::process::Command::new("pkill")
+                    .arg("-x").arg("vietc").status();
+                std::process::exit(0);
+            }),
+            ..Default::default()
+        }.into());
+
+        items
     }
 }
 
 pub fn run() {
     ensure_icons();
 
+    let handle_holder = std::sync::Arc::new(std::sync::Mutex::new(None));
     let tray = VietTray {
         mode: read_status(),
         im: current_im(),
         autostart: config::is_autostart_installed(),
+        update_available: None,
+        updating: false,
+        handle: handle_holder.clone(),
     };
 
     let service = ksni::TrayService::new(tray);
     let handle = service.handle();
+    *handle_holder.lock().unwrap() = Some(handle.clone());
     service.spawn();
+
+    // Check updates silently on startup
+    {
+        let tray_dummy = VietTray {
+            mode: read_status(),
+            im: current_im(),
+            autostart: config::is_autostart_installed(),
+            update_available: None,
+            updating: false,
+            handle: handle_holder.clone(),
+        };
+        tray_dummy.check_for_updates(&handle, false);
+    }
 
     // Poll for changes
     std::thread::spawn(move || {
