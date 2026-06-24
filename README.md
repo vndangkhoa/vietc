@@ -50,6 +50,8 @@ Most Vietnamese input methods on Linux suffer from **underline hell** — pre-ed
 | **Focus Buffer Auto-Reset** | Automatically clears the engine's compose buffer on focus change between apps |
 | **Logging & Rotation** | Persistent logging at `~/.config/vietc/vietc.log` with automatic 10MB rotation |
 | **Hot Reload** | Config changes apply without restart |
+| **Casing Preservation** | Syllable substitutions preserve your exact typing casing (e.g. `Saa` → `Sả`, `SAA` → `SẢ`) |
+| **High-Performance Injection** | Direct native setuid/setgid user context switching to run injection tools instantly with no slow sudo/PAM overhead |
 | **Zero Telemetry** | No keylogging, no network calls, fully FOSS |
 
 ---
