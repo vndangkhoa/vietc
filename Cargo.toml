@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = ["engine", "protocol", "daemon", "cli"]
+exclude = ["ui"]
+
+[workspace.dependencies]
+vietc-engine = { path = "engine" }
+vietc-protocol = { path = "protocol" }

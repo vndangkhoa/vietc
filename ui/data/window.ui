@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <requires lib="libadwaita" version="1.0"/>
+  <template class="VietTuxWindow" class="AdwApplicationWindow" parent="AdwApplicationWindow">
+    <property name="default-width">600</property>
+    <property name="default-height">700</property>
+    <property name="title">VietTux Settings</property>
+    <property name="content">
+      <object class="GtkBox">
+        <property name="orientation">vertical</property>
+        <child>
+          <object class="AdwHeaderBar">
+            <child type="end">
+              <object class="GtkButton" id="save_button">
+                <property name="label">Save</property>
+                <property name="css_classes">suggested-action</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="Adwclamp">
+            <property name="maximum-size">600</property>
+            <property name="child">
+              <object class="GtkScrolledWindow">
+                <property name="vexpand">true</property>
+                <property name="child">
+                  <object class="AdwPreferencesGroup">
+                    <property name="title">Input Method</property>
+                    <child>
+                      <object class="AdwComboRow" id="method_row">
+                        <property name="title">Keyboard Layout</property>
+                        <property name="subtitle">Choose Telex or VNI input method</property>
+                        <property name="model">
+                          <object class="GtkStringList">
+                            <items>
+                              <item>Telex</item>
+                              <item>VNI</item>
+                            </items>
+                          </object>
+                        </property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="AdwComboRow" id="toggle_row">
+                        <property name="title">Toggle Key</property>
+                        <property name="subtitle">Key combination to toggle Vietnamese mode</property>
+                        <property name="model">
+                          <object class="GtkStringList">
+                            <items>
+                              <item>Ctrl + Space</item>
+                              <item>Ctrl + Shift</item>
+                              <item>Caps Lock</item>
+                            </items>
+                          </object>
+                        </property>
+                      </object>
+                    </child>
+                  </object>
+                </property>
+              </object>
+            </property>
+          </object>
+        </child>
+      </object>
+    </property>
+  </template>
+</interface>

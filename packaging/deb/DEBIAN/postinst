@@ -1,0 +1,42 @@
+#!/bin/bash
+set -e
+
+# Create vinput group for uinput access
+if ! getent group vinput > /dev/null 2>&1; then
+    groupadd -r vinput
+fi
+
+# Add root to vinput group (for uinput device access)
+usermod -aG vinput root 2>/dev/null || true
+
+# Create config directory
+mkdir -p /etc/vietc
+if [ ! -f /etc/vietc/config.toml ]; then
+    cp /usr/share/doc/vietc/config.toml /etc/vietc/config.toml 2>/dev/null || true
+fi
+
+# Set uinput device permissions
+if [ -e /dev/uinput ]; then
+    chmod 660 /dev/uinput 2>/dev/null || true
+    chown root:vinput /dev/uinput 2>/dev/null || true
+fi
+
+# Enable lingering for systemd user services
+if command -v loginctl &>/dev/null; then
+    loginctl enable-linger root 2>/dev/null || true
+fi
+
+echo ""
+echo "Viet+ installed successfully!"
+echo ""
+echo "Quick start:"
+echo "  1. Add your user to the vinput group:"
+echo "     sudo usermod -aG vinput \$USER"
+echo "  2. Log out and back in"
+echo "  3. Start the daemon:"
+echo "     vietc"
+echo "  4. Or enable the systemd user service:"
+echo "     systemctl --user enable --now vietc"
+echo ""
+echo "Configure: /etc/vietc/config.toml"
+echo "Settings UI: vietc-settings (if GTK4 installed)"

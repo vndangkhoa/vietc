@@ -1,0 +1,9 @@
+[package]
+name = "vietc-engine"
+version = "0.1.0"
+edition = "2021"
+description = "Viet+ Vietnamese IME Core Engine"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

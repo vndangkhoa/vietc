@@ -1,0 +1,68 @@
+{
+    "app-id": "io.github.vietc.VietPlus",
+    "runtime": "org.gnome.Platform",
+    "runtime-version": "46",
+    "sdk": "org.gnome.Sdk",
+    "sdk-extensions": ["org.rust-lang.Rust"],
+    "command": "vietc-settings",
+    "finish-args": [
+        "--share=ipc",
+        "--share=network",
+        "--socket=x11",
+        "--socket=wayland",
+        "--device=all",
+        "--talk-name=org.kde.StatusNotifierWatcher"
+    ],
+    "build-options": {
+        "append-path": "/usr/lib/sdk/rust/bin",
+        "env": {
+            "CARGO_HOME": "/run/build/vietc/cargo"
+        }
+    },
+    "modules": [
+        {
+            "name": "vietc",
+            "buildsystem": "simple",
+            "build-commands": [
+                "cargo build --release --features x11",
+                "install -Dm755 target/release/vietc /app/bin/vietc",
+                "install -Dm644 vietc.toml /app/etc/vietc/config.toml"
+            ],
+            "sources": [
+                {
+                    "type": "dir",
+                    "path": "../.."
+                }
+            ]
+        },
+        {
+            "name": "vietc-ui",
+            "buildsystem": "simple",
+            "build-commands": [
+                "cd ui && cargo build --release",
+                "install -Dm755 ui/target/release/vietc-settings /app/bin/vietc-settings",
+                "install -Dm755 ui/target/release/vietc-tray /app/bin/vietc-tray"
+            ],
+            "sources": [
+                {
+                    "type": "dir",
+                    "path": "../.."
+                }
+            ]
+        },
+        {
+            "name": "systemd-user-units",
+            "buildsystem": "simple",
+            "build-commands": [
+                "install -Dm644 vietc.service /app/share/systemd/user/vietc.service"
+            ],
+            "sources": [
+                {
+                    "type": "dir",
+                    "path": "../..",
+                    "only": ["vietc.service"]
+                }
+            ]
+        }
+    ]
+}

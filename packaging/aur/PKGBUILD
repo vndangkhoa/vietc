@@ -1,0 +1,35 @@
+# Maintainer: Viet+ Contributors
+pkgname=vietc
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Vietnamese Input Method for Linux — Zero underline, native Wayland/X11'
+arch=('x86_64' 'aarch64')
+url='https://github.com/vietplus/vietplus'
+license=('MIT')
+depends=('evdev' 'libx11' 'libxtst' 'dbus')
+makedepends=('rust' 'cargo' 'pkg-config')
+optdepends=(
+    'libgtk-4: for settings UI'
+    'libadwaita: for settings UI'
+    'wayland: for Wayland IM protocol'
+)
+provides=('vietc')
+conflicts=('vietc-git')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/vietplus/vietplus/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "$srcdir/$pkgname-$pkgver"
+    cargo build --release --features "x11,wayland"
+    cd ui && cargo build --release && cd ..
+}
+
+package() {
+    cd "$srcdir/$pkgname-$pkgver"
+    install -Dm755 "target/release/vietc" "$pkgdir/usr/bin/vietc"
+    install -Dm755 "ui/target/release/vietc-settings" "$pkgdir/usr/bin/vietc-settings"
+    install -Dm755 "ui/target/release/vietc-tray" "$pkgdir/usr/bin/vietc-tray"
+    install -Dm644 "vietc.toml" "$pkgdir/etc/vietc/config.toml"
+    install -Dm644 "vietc.service" "$pkgdir/usr/lib/systemd/user/vietc.service"
+    install -Dm644 "README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

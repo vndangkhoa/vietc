@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Viet+
+GenericName=Vietnamese Input Method
+Comment=Vietnamese Input Method for Linux — Zero underline, native Wayland/X11
+Exec=vietc
+Icon=vietc
+Terminal=false
+Categories=Utility;System;
+Keywords=vietnamese;input;ime;keyboard;
+StartupNotify=false

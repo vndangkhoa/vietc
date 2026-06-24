@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+
+# Remove vinput group if empty
+if getent group vinput > /dev/null 2>&1; then
+    if ! getent group vinput | grep -q ':'; then
+        groupdel vinput 2>/dev/null || true
+    fi
+fi
+
+echo "Viet+ removed. Config kept at /etc/vietc/"

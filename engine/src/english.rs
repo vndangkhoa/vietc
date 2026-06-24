@@ -1,0 +1,97 @@
+use std::collections::HashSet;
+
+pub struct EnglishDict {
+    /// Common English words that shouldn't be converted to Vietnamese
+    words: HashSet<String>,
+    /// Words that are definitely Vietnamese (even if they look like English)
+    vietnamese_overrides: HashSet<String>,
+}
+
+impl EnglishDict {
+    pub fn new() -> Self {
+        let mut words = HashSet::new();
+
+        // Common English words that users type frequently
+        // These would trigger false Vietnamese conversions
+        let common_words = [
+            // Programming/tech
+            "the", "and", "for", "are", "but", "not", "you", "all", "can", "had",
+            "her", "was", "one", "our", "out", "day", "get", "has", "him", "his",
+            "how", "its", "may", "new", "now", "old", "see", "way", "who", "did",
+            "does", "each", "from", "have", "here", "just", "like", "long", "look",
+            "made", "make", "many", "most", "over", "such", "take", "than", "them",
+            "then", "that", "this", "time", "very", "when", "what", "will", "with",
+            "also", "back", "been", "call", "came", "come", "could", "does", "done",
+            "down", "each", "even", "find", "first", "from", "give", "goes", "going",
+            "good", "great", "hand", "have", "head", "help", "high", "home", "hope",
+            "into", "keep", "know", "last", "left", "life", "like", "line", "live",
+            "look", "made", "make", "many", "mean", "more", "most", "much", "must",
+            "name", "need", "next", "only", "open", "part", "place", "point", "right",
+            "same", "said", "second", "should", "show", "small", "some", "something",
+            "still", "such", "sure", "take", "tell", "than", "that", "them", "then",
+            "there", "these", "they", "thing", "think", "this", "those", "time",
+            "turn", "upon", "very", "want", "well", "went", "were", "what", "when",
+            "where", "which", "while", "will", "with", "work", "would", "year", "your",
+            // Common words that conflict with Vietnamese
+            "ok", "no", "so", "do", "go", "to", "in", "on", "at", "by", "up",
+            "an", "as", "be", "he", "if", "is", "it", "me", "my", "of", "or",
+            "am", "we", "us", "set", "run", "put", "get", "let", "say",
+            "ask", "try", "use", "add", "end", "few", "far", "got", "big", "off",
+            "old", "own", "red", "hot", "top", "far", "low", "six", "ten", "red",
+            // Greetings & common
+            "hello", "hi", "hey", "bye", "thanks", "thank", "please", "sorry",
+            "yes", "yeah", "no", "ok", "okay", "sure", "well", "too", "also",
+            // More common English
+            "about", "after", "again", "being", "below", "between", "both",
+            "came", "come", "could", "does", "done", "down", "each", "even",
+            "find", "first", "from", "give", "goes", "going", "good", "great",
+            "hand", "have", "head", "help", "high", "home", "hope", "into",
+            "keep", "kind", "know", "last", "left", "life", "like", "line",
+            "live", "long", "look", "made", "make", "many", "mean", "more",
+            "most", "much", "must", "name", "need", "next", "only", "open",
+            "part", "place", "point", "right", "same", "said", "second",
+            "should", "show", "small", "some", "something", "still", "sure",
+            "take", "tell", "than", "that", "them", "then", "there", "these",
+            "they", "thing", "think", "this", "those", "time", "turn", "upon",
+            "very", "want", "well", "went", "were", "what", "when", "where",
+            "which", "while", "will", "with", "work", "would", "year", "your",
+        ];
+
+        for word in common_words {
+            words.insert(word.to_string());
+        }
+
+        let mut vietnamese_overrides = HashSet::new();
+        // Common Vietnamese words that look like English
+        let overrides = ["không", "xin", "chào", "cảm", "ơn", "tôi", "bạn"];
+        for word in overrides {
+            vietnamese_overrides.insert(word.to_string());
+        }
+
+        Self {
+            words,
+            vietnamese_overrides,
+        }
+    }
+
+    pub fn is_english_word(&self, word: &str) -> bool {
+        self.words.contains(word)
+    }
+
+    pub fn should_restore(&self, word: &str) -> bool {
+        if self.vietnamese_overrides.contains(word) {
+            return false;
+        }
+        self.is_english_word(word)
+    }
+
+    #[allow(dead_code)]
+    pub fn add_word(&mut self, word: String) {
+        self.words.insert(word);
+    }
+
+    #[allow(dead_code)]
+    pub fn remove_word(&mut self, word: &str) {
+        self.words.remove(word);
+    }
+}

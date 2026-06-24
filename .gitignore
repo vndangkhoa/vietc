@@ -1,0 +1,12 @@
+/target
+/ui/target
+Cargo.lock
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.deb
+*.AppImage
+packaging/appimage/AppDir/
+packaging/deb/vietc_*/

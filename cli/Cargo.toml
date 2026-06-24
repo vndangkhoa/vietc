@@ -1,0 +1,8 @@
+[package]
+name = "vietc-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Viet+ CLI Test Harness"
+
+[dependencies]
+vietc-engine = { path = "../engine" }

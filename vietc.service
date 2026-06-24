@@ -1,0 +1,11 @@
+[Unit]
+Description=Viet+ Vietnamese IME Daemon
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/vietc
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

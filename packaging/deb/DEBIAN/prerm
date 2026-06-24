@@ -1,0 +1,15 @@
+#!/bin/bash
+set -e
+
+# Stop and disable systemd user service
+if systemctl --user is-active vietc.service 2>/dev/null; then
+    systemctl --user stop vietc.service 2>/dev/null || true
+fi
+if systemctl --user is-enabled vietc.service 2>/dev/null; then
+    systemctl --user disable vietc.service 2>/dev/null || true
+fi
+
+# Kill any running vietc
+pkill -x vietc 2>/dev/null || true
+
+echo "Viet+ daemon stopped."
