@@ -439,6 +439,19 @@ fn run_with_evdev(
                     // as separate channels have no ordering guarantee.
                     let keycode = key.0;
 
+                    // Backspace in grab mode: pop engine, inject via uinput.
+                    // send_char('\x08') can't emit a keycode and falls through
+                    // to paste_string, which is wrong.
+                    if key == evdev::Key::KEY_BACKSPACE && grabbed {
+                        if value == 1 || value == 2 {
+                            daemon.engine.process_key('\x08');
+                            injector.send_key_event(14, 1);
+                            injector.send_key_event(14, 0);
+                        }
+                        consumed_keys.insert(keycode);
+                        continue;
+                    }
+
                     if value == 1 {
                         // Press: process through engine
                         if consumed_keys.contains(&keycode) {
