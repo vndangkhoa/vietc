@@ -167,9 +167,35 @@ impl X11Injector {
         if ydotool_ok {
             return;
         }
-        let _ = std::process::Command::new("xdotool")
+        let xdotool_ok = std::process::Command::new("xdotool")
             .args(["type", "--clearmodifiers", &s])
-            .output();
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if xdotool_ok {
+            return;
+        }
+        // Clipboard fallback: xclip + Ctrl+V via XTEST
+        let copied = std::process::Command::new("xclip")
+            .args(["-selection", "clipboard"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write;
+                child.stdin.take().unwrap().write_all(s.as_bytes())?;
+                child.wait()
+            })
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if copied {
+            unsafe {
+                (self.lib.x_test_fake_key_event)(self.display, 29, 1, 0); // Ctrl press
+                (self.lib.x_test_fake_key_event)(self.display, 47, 1, 0); // V press
+                (self.lib.x_test_fake_key_event)(self.display, 47, 0, 0); // V release
+                (self.lib.x_test_fake_key_event)(self.display, 29, 0, 0); // Ctrl release
+                (self.lib.x_flush)(self.display);
+            }
+        }
     }
 }
 
@@ -194,6 +220,97 @@ impl KeyInjector for X11Injector {
             self.send_char(ch);
         }
         InjectResult::Success
+    }
+
+    fn inject_replacement(&self, backspaces: usize, text: &str) -> InjectResult {
+        let is_ascii = text.chars().all(|c| char_to_keycode(c).is_some());
+
+        if is_ascii {
+            if backspaces > 0 {
+                for _ in 0..backspaces {
+                    self.send_keycode(14, false); // KEY_BACKSPACE
+                }
+            }
+            for ch in text.chars() {
+                if let Some((keycode, shift)) = char_to_keycode(ch) {
+                    self.send_keycode(keycode, shift);
+                }
+            }
+            return InjectResult::Success;
+        }
+
+        // Contains Unicode: try xdotool with both backspaces and text in a single command
+        let has_xdotool = std::process::Command::new("which")
+            .arg("xdotool")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if has_xdotool {
+            let mut args = Vec::new();
+            if backspaces > 0 {
+                args.push("key".to_string());
+                for _ in 0..backspaces {
+                    args.push("BackSpace".to_string());
+                }
+            }
+            if !text.is_empty() {
+                args.push("type".to_string());
+                args.push("--clearmodifiers".to_string());
+                args.push(text.to_string());
+            }
+
+            let ok = std::process::Command::new("xdotool")
+                .args(&args)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if ok {
+                return InjectResult::Success;
+            }
+        }
+
+        // Fallback: Clipboard copy + paste.
+        // Send backspaces via XTEST, then copy to clipboard, then paste (Ctrl+V) via XTEST.
+        // Since all XTEST key events go through the same display connection, their ordering is guaranteed.
+        let mut clipboard_cmd = std::process::Command::new("xclip");
+        clipboard_cmd.args(["-selection", "clipboard"]);
+        clipboard_cmd.stdin(std::process::Stdio::piped());
+        let copied = clipboard_cmd.spawn()
+            .and_then(|mut child| {
+                use std::io::Write;
+                child.stdin.take().unwrap().write_all(text.as_bytes())?;
+                child.wait()
+            })
+            .map(|status| status.success())
+            .unwrap_or(false);
+
+        if copied {
+            if backspaces > 0 {
+                for _ in 0..backspaces {
+                    self.send_keycode(14, false); // KEY_BACKSPACE
+                }
+            }
+            unsafe {
+                (self.lib.x_test_fake_key_event)(self.display, 29, 1, 0); // Ctrl press
+                (self.lib.x_test_fake_key_event)(self.display, 47, 1, 0); // V press
+                (self.lib.x_test_fake_key_event)(self.display, 47, 0, 0); // V release
+                (self.lib.x_test_fake_key_event)(self.display, 29, 0, 0); // Ctrl release
+                (self.lib.x_flush)(self.display);
+            }
+            InjectResult::Success
+        } else {
+            // Absolute last resort: backspaces via XTEST followed by individual unicode send_unicode_via_xdotool
+            if backspaces > 0 {
+                for _ in 0..backspaces {
+                    self.send_keycode(14, false); // KEY_BACKSPACE
+                }
+            }
+            for ch in text.chars() {
+                self.send_char(ch);
+            }
+            InjectResult::Success
+        }
     }
 
     fn flush(&self) -> InjectResult {

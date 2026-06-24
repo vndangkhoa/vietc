@@ -645,6 +645,52 @@ mod tests {
     }
 
     // ================================================================
+    // Telex: Smart "uo" → "ươ" cluster
+    // ================================================================
+
+    #[test]
+    fn telex_smart_uo_to_uơ_shortcut() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // Single w at end converts "uo" → "ươ" through trailing "ng"
+        assert_eq!(get_display(&process_input(&mut e, "chuongw")), "chương");
+    }
+
+    #[test]
+    fn telex_smart_uo_to_uơ_traditional() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // Traditional uw+ow still works
+        assert_eq!(get_display(&process_input(&mut e, "chuwowng")), "chương");
+    }
+
+    #[test]
+    fn telex_smart_uo_to_uơ_with_tone_after_w() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "chuongws" → w first (cluster→ươ), then s (tone on ơ)
+        assert_eq!(get_display(&process_input(&mut e, "chuongws")), "chướng");
+    }
+
+    #[test]
+    fn telex_smart_uo_to_uơ_with_tone_before_w() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "chuongsw" → s first (tone on u), then w (cluster→ươ, tone→ơ)
+        assert_eq!(get_display(&process_input(&mut e, "chuongsw")), "chướng");
+    }
+
+    #[test]
+    fn telex_smart_uo_to_uơ_thuong_after_w() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "thuowngf" → w first (cluster→ươ), then f (huyền on ơ)
+        assert_eq!(get_display(&process_input(&mut e, "thuowngf")), "thường");
+    }
+
+    #[test]
+    fn telex_smart_uo_to_uơ_thuong_before_w() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "thuongfw" → f first (tone on u), then w (cluster→ươ, tone→ơ)
+        assert_eq!(get_display(&process_input(&mut e, "thuongfw")), "thường");
+    }
+
+    // ================================================================
     // VNI: Flexible diacritic placement
     // ================================================================
 
@@ -695,6 +741,38 @@ mod tests {
         let mut e = Engine::new(InputMethod::Vni);
         // "tran" + "6" → "trân" (within backtrack limit)
         assert_eq!(get_display(&process_input(&mut e, "tran6")), "trân");
+    }
+
+    // ================================================================
+    // VNI: Smart "uo" → "ươ" cluster
+    // ================================================================
+
+    #[test]
+    fn vni_smart_uo_to_uơ_shortcut() {
+        let mut e = Engine::new(InputMethod::Vni);
+        // Single 7 at end converts "uo" → "ươ" through trailing "ng"
+        assert_eq!(get_display(&process_input(&mut e, "chuong7")), "chương");
+    }
+
+    #[test]
+    fn vni_smart_uo_to_uơ_traditional() {
+        let mut e = Engine::new(InputMethod::Vni);
+        // Traditional u7+o7 still works
+        assert_eq!(get_display(&process_input(&mut e, "chu7o7ng")), "chương");
+    }
+
+    #[test]
+    fn vni_smart_uo_to_uơ_with_tone_after_7() {
+        let mut e = Engine::new(InputMethod::Vni);
+        // "chuong71" → 7 first (cluster→ươ), then 1 (sắc on ơ) → "chướng"
+        assert_eq!(get_display(&process_input(&mut e, "chuong71")), "chướng");
+    }
+
+    #[test]
+    fn vni_smart_uo_to_uơ_with_tone_before_7() {
+        let mut e = Engine::new(InputMethod::Vni);
+        // "chuong17" → 1 first (tone on o), then 7 (cluster→ươ, tone→ơ) → "chướng"
+        assert_eq!(get_display(&process_input(&mut e, "chuong17")), "chướng");
     }
 
     // ================================================================
@@ -941,15 +1019,15 @@ mod tests {
     #[test]
     fn esc_undo_after_multiple_tones() {
         let mut e = Engine::new(InputMethod::Telex);
-        // "as" → á, then "f" has no tone mapping for á, so f is appended
-        // Buffer becomes "áf", ESC strips diacritics → "af"
+        // "as" → á, then "f" overrides tone: sắc → huyền → "à"
+        // ESC strips diacritics → "a"
         e.process_key('a');
         e.process_key('s');
         e.process_key('f');
         let event = e.process_escape();
         match event {
             Some(EngineEvent::UndoTones { restored, .. }) => {
-                assert_eq!(restored, "af");
+                assert_eq!(restored, "a");
             }
             _ => panic!("Expected UndoTones, got {:?}", event),
         }
@@ -1737,19 +1815,145 @@ mod tests {
 
     #[test]
     fn backspace_count_then_second_tone_replaces_previous() {
-        // Type "as" → á, then "f" → f goes to 'á': but 'á' is not in VOWELS
-        // So 'f' is just appended: "áf"
+        // Type "as" → á, then "f" → f overrides sắc with huyền → "à"
         let mut e = Engine::new(InputMethod::Telex);
         let events = process_input(&mut e, "asf");
         let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
             EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
             _ => None,
         }).collect();
-        // "as" → Replace {2, "á"}, "f" → buffer = "áf" (no vowel change) → no event
-        assert_eq!(replace_events.len(), 1, "Expected 1 Replace: {:?}", replace_events);
+        // "as" → Replace {2, "á"}, "f" → Replace {2, "à"}
+        assert_eq!(replace_events.len(), 2, "Expected 2 Replace: {:?}", replace_events);
         assert_eq!(replace_events[0].0, 2);
         assert_eq!(replace_events[0].1, "á");
-        assert_eq!(get_display(&events), "áf");
+        assert_eq!(replace_events[1].0, 2);
+        assert_eq!(replace_events[1].1, "à");
+        assert_eq!(get_display(&events), "à");
+    }
+
+    // ================================================================
+    // Smart Modifier Overriding (Diacritic Replacement)
+    // ================================================================
+
+    // Category 1: The 'A' Vowel Group (a, â, ă)
+
+    #[test]
+    fn telex_override_a_aa_then_w() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "traan" → aa makes â → "trân", then w overrides â→ă → "trăn"
+        assert_eq!(get_display(&process_input(&mut e, "traanw")), "trăn");
+    }
+
+    #[test]
+    fn telex_override_a_aw_then_a() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "tranw" → w modifies a→ă → "trăn", then a overrides ă→â → "trân"
+        assert_eq!(get_display(&process_input(&mut e, "tranwa")), "trân");
+    }
+
+    #[test]
+    fn vni_override_a_6_then_8() {
+        let mut e = Engine::new(InputMethod::Vni);
+        // "tran6" → 6 makes â → "trân", then 8 overrides â→ă → "trăn"
+        assert_eq!(get_display(&process_input(&mut e, "tran68")), "trăn");
+    }
+
+    #[test]
+    fn vni_override_a_8_then_6() {
+        let mut e = Engine::new(InputMethod::Vni);
+        // "tran8" → 8 makes ă → "trăn", then 6 overrides ă→â → "trân"
+        assert_eq!(get_display(&process_input(&mut e, "tran86")), "trân");
+    }
+
+    // Category 2: The 'O' Vowel Group (o, ô, ơ)
+
+    #[test]
+    fn telex_override_o_oo_then_w() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "coon" → oo makes ô → "côn", then w overrides ô→ơ → "cơn"
+        assert_eq!(get_display(&process_input(&mut e, "coonw")), "cơn");
+    }
+
+    #[test]
+    fn telex_override_o_ow_then_o() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "conw" → w modifies o→ơ → "cơn", then o overrides ơ→ô → "côn"
+        assert_eq!(get_display(&process_input(&mut e, "conwo")), "côn");
+    }
+
+    #[test]
+    fn vni_override_o_6_then_7() {
+        let mut e = Engine::new(InputMethod::Vni);
+        // "con6" → 6 makes ô → "côn", then 7 overrides ô→ơ → "cơn"
+        assert_eq!(get_display(&process_input(&mut e, "con67")), "cơn");
+    }
+
+    #[test]
+    fn vni_override_o_7_then_6() {
+        let mut e = Engine::new(InputMethod::Vni);
+        // "con7" → 7 makes ơ → "cơn", then 6 overrides ơ→ô → "côn"
+        assert_eq!(get_display(&process_input(&mut e, "con76")), "côn");
+    }
+
+    // Category 3: Complex Double Vowels (uo → uô / ươ)
+
+    #[test]
+    fn telex_override_uo_oo_then_w() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "chuoon" → oo makes ô → "chuôn", then w overrides ô→ơ → "chươn"
+        assert_eq!(get_display(&process_input(&mut e, "chuoonw")), "chươn");
+    }
+
+    #[test]
+    fn telex_override_uo_ow_then_o() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "chuonw" → w modifies o→ơ → "chươn", then o overrides ơ→ô → "chuôn"
+        assert_eq!(get_display(&process_input(&mut e, "chuonwo")), "chuôn");
+    }
+
+    #[test]
+    fn vni_override_uo_6_then_7() {
+        let mut e = Engine::new(InputMethod::Vni);
+        // "chuon6" → 6 makes ô → "chuôn", then 7 overrides ô→ơ → "chươn"
+        assert_eq!(get_display(&process_input(&mut e, "chuon67")), "chươn");
+    }
+
+    #[test]
+    fn vni_override_uo_7_then_6() {
+        let mut e = Engine::new(InputMethod::Vni);
+        // "chuon7" → 7 makes ơ → "chươn", then 6 overrides ơ→ô → "chuôn"
+        assert_eq!(get_display(&process_input(&mut e, "chuon76")), "chuôn");
+    }
+
+    // Category 4: Modifier Overriding while Preserving Tones
+
+    #[test]
+    fn telex_override_with_tone_preserved_aa_s_w() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "traans" → aa→â, s→sắc → "trấn", then w overrides â→ă, sắc preserved → "trắn"
+        assert_eq!(get_display(&process_input(&mut e, "traansw")), "trắn");
+    }
+
+    #[test]
+    fn telex_override_with_tone_preserved_oo_f_w() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "coonsf" → oo→ô, s→sắc then f overrides sắc→huyền → "cồn", then w overrides ô→ơ, huyền preserved → "cờn"
+        assert_eq!(get_display(&process_input(&mut e, "coonsfw")), "cờn");
+    }
+
+    #[test]
+    fn vni_override_with_tone_preserved_6_1_then_8() {
+        let mut e = Engine::new(InputMethod::Vni);
+        // "tran61" → 6→â, 1→sắc → "trấn", then 8 overrides â→ă, sắc preserved → "trắn"
+        assert_eq!(get_display(&process_input(&mut e, "tran618")), "trắn");
+    }
+
+    #[test]
+    fn vni_override_with_tone_preserved_6_2_then_7() {
+        let mut e = Engine::new(InputMethod::Vni);
+        // "con62" → 6→ô, 2→huyền → "cồn", then 7 overrides ô→ơ, huyền preserved → "cờn"
+        // Note: input is "con62" then "7", but the tone 2 comes first, then modifier 7
+        assert_eq!(get_display(&process_input(&mut e, "con627")), "cờn");
     }
 
     // ================================================================
@@ -1774,5 +1978,128 @@ mod tests {
         assert_eq!(replace_events[0], 5, "chaof→chào should be 5");
         assert_eq!(replace_events[1], 4, "banj→bạn should be 4");
         assert_eq!(get_display(&events), "xin chào bạn");
+    }
+
+    // ================================================================
+    // Core Edge Case Test Suite (from specification)
+    // ================================================================
+
+    // Standard
+    #[test]
+    fn core_test_traafn() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "traafn")), "trần");
+    }
+    #[test]
+    fn core_test_tranaf() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "tranaf")), "trần");
+    }
+    #[test]
+    fn core_test_tran62() {
+        let mut e = Engine::new(InputMethod::Vni);
+        assert_eq!(get_display(&process_input(&mut e, "tran62")), "trần");
+    }
+
+    // Double vowel / smart cluster
+    #[test]
+    fn core_test_chuwowng() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "chuwowng")), "chương");
+    }
+    #[test]
+    fn core_test_chuongw() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "chuongw")), "chương");
+    }
+    #[test]
+    fn core_test_chuong7() {
+        let mut e = Engine::new(InputMethod::Vni);
+        assert_eq!(get_display(&process_input(&mut e, "chuong7")), "chương");
+    }
+
+    // Shape override
+    #[test]
+    fn core_test_traanw() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "traanw")), "trăn");
+    }
+    #[test]
+    fn core_test_trawa() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "trawa")), "trâ");
+    }
+    #[test]
+    fn core_test_trawan() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "trawan")), "trân");
+    }
+    #[test]
+    fn core_test_tran68() {
+        let mut e = Engine::new(InputMethod::Vni);
+        assert_eq!(get_display(&process_input(&mut e, "tran68")), "trăn");
+    }
+
+    // Tone override
+    #[test]
+    fn core_test_traansf() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "traansf")), "trần");
+    }
+    #[test]
+    fn core_test_tran612() {
+        let mut e = Engine::new(InputMethod::Vni);
+        assert_eq!(get_display(&process_input(&mut e, "tran612")), "trần");
+    }
+
+    // Complex consonant + flexible
+    #[test]
+    fn core_test_nghieeng() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "nghieeng")), "nghiêng");
+    }
+    #[test]
+    fn core_test_nghieengf() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "nghieengf")), "nghiềng");
+    }
+    #[test]
+    fn core_test_nghiengf() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "nghiengf")), "nghìeng");
+    }
+    #[test]
+    fn core_test_nghieng62() {
+        let mut e = Engine::new(InputMethod::Vni);
+        assert_eq!(get_display(&process_input(&mut e, "nghieng62")), "nghiềng");
+    }
+
+    // Tone placement
+    #[test]
+    fn core_test_hoangf() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "hoangf")), "hoàng");
+    }
+    #[test]
+    fn core_test_thuyr() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "thuyr")), "thuỷ");
+    }
+    #[test]
+    fn core_test_thuy3() {
+        let mut e = Engine::new(InputMethod::Vni);
+        assert_eq!(get_display(&process_input(&mut e, "thuy3")), "thuỷ");
+    }
+
+    // Initial đ (dd)
+    #[test]
+    fn core_test_ddang() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "ddang")), "đang");
+    }
+    #[test]
+    fn core_test_dang9() {
+        let mut e = Engine::new(InputMethod::Vni);
+        assert_eq!(get_display(&process_input(&mut e, "dang9")), "đang");
     }
 }

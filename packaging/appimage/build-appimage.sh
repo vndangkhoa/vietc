@@ -30,14 +30,13 @@ echo "  Built with x11 + wayland"
 
 
 cd "$SCRIPT_DIR"
-cd "$PROJECT_ROOT/ui" && cargo build --release 2>/dev/null && cd "$SCRIPT_DIR" || echo "  UI build skipped (missing GTK4 libs)"
+cd "$PROJECT_ROOT/ui" && cargo build --release && cd "$SCRIPT_DIR"
 cd "$PROJECT_ROOT"
 
 # Copy binaries
 echo "[2/5] Installing binaries..."
 cp target/release/vietc "$APPDIR/usr/bin/"
 cp target/release/vietc-cli "$APPDIR/usr/bin/"
-[ -f ui/target/release/vietc-settings ] && cp ui/target/release/vietc-settings "$APPDIR/usr/bin/"
 [ -f ui/target/release/vietc-tray ] && cp ui/target/release/vietc-tray "$APPDIR/usr/bin/"
 
 # Desktop integration
@@ -200,8 +199,6 @@ trap cleanup_daemon EXIT INT TERM
 
 if [ -f "$HERE/usr/bin/vietc-tray" ]; then
     "$HERE/usr/bin/vietc-tray" "$@"
-elif [ -f "$HERE/usr/bin/vietc-settings" ]; then
-    "$HERE/usr/bin/vietc-settings" "$@"
 else
     echo "[vietc] Daemon running in foreground. Press Ctrl+C to stop."
     wait "$DAEMON_PID"

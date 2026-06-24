@@ -1,26 +1,15 @@
 [package]
-name = "vietc-ui"
+name = "vietc-tray"
 version = "0.1.0"
 edition = "2021"
-description = "Viet+ settings UI and tray icon (GTK4/Libadwaita)"
-
-[[bin]]
-name = "vietc-settings"
-path = "src/main.rs"
+description = "Viet+ system tray icon"
 
 [[bin]]
 name = "vietc-tray"
-path = "src/tray.rs"
+path = "src/main.rs"
 
 [dependencies]
-vietc-engine = { path = "../engine" }
-gtk = { package = "gtk4", version = "0.9", features = ["v4_12"], optional = true }
-adw = { package = "libadwaita", version = "0.7", features = ["v1_4"], optional = true }
 ksni = "0.2"
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 dirs = "5"
-
-[features]
-default = ["ui"]
-ui = ["dep:gtk", "dep:adw"]

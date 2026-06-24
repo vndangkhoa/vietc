@@ -139,6 +139,63 @@ impl KeyInjector for UinputInjector {
 }
 
 impl UinputInjector {
+    /// Get the original non-root username when running as root.
+    /// Checks SUDO_USER (sudo), PKEXEC_UID (pkexec), /proc/self/loginuid,
+    /// and falls back to `logname`.
+    fn get_original_username() -> Option<String> {
+        let is_root = unsafe { libc::getuid() == 0 };
+        if !is_root {
+            return None;
+        }
+
+        if let Ok(user) = std::env::var("SUDO_USER") {
+            if !user.is_empty() {
+                return Some(user);
+            }
+        }
+
+        if let Ok(uid_str) = std::env::var("PKEXEC_UID") {
+            if let Ok(uid) = uid_str.parse::<u32>() {
+                unsafe {
+                    let pw = libc::getpwuid(uid);
+                    if !pw.is_null() {
+                        let name = std::ffi::CStr::from_ptr((*pw).pw_name)
+                            .to_string_lossy().into_owned();
+                        if !name.is_empty() {
+                            return Some(name);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(content) = std::fs::read_to_string("/proc/self/loginuid") {
+            if let Ok(uid) = content.trim().parse::<u32>() {
+                unsafe {
+                    let pw = libc::getpwuid(uid);
+                    if !pw.is_null() {
+                        let name = std::ffi::CStr::from_ptr((*pw).pw_name)
+                            .to_string_lossy().into_owned();
+                        if !name.is_empty() {
+                            return Some(name);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(output) = std::process::Command::new("logname").output() {
+            if output.status.success() {
+                let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !name.is_empty() {
+                    return Some(name);
+                }
+            }
+        }
+
+        None
+    }
+
     /// Run an external command as the original user if we're root.
     /// Wayland tools (wtype, wl-copy) need the user's session, not root.
     /// Uses explicit `env VAR=val` instead of `--preserve-env` for
@@ -146,12 +203,12 @@ impl UinputInjector {
     fn run_as_user(program: &str, args: &[&str]) -> std::process::Output {
         let is_root = unsafe { libc::getuid() == 0 };
         if is_root {
-            if let Ok(sudo_user) = std::env::var("SUDO_USER") {
+            if let Some(original_user) = Self::get_original_username() {
                 let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
                 let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
                 let display = std::env::var("DISPLAY").unwrap_or_default();
                 let mut cmd = std::process::Command::new("sudo");
-                cmd.args(["-u", &sudo_user, "env"]);
+                cmd.args(["-u", &original_user, "env"]);
                 if !wayland_display.is_empty() {
                     cmd.arg(format!("WAYLAND_DISPLAY={}", wayland_display));
                 }
@@ -166,7 +223,7 @@ impl UinputInjector {
                 match cmd.output() {
                     Ok(output) => return output,
                     Err(e) => {
-                        eprintln!("[vietc] Failed to run sudo -u {} env ... {} {}: {}", sudo_user, program, args.join(" "), e);
+                        eprintln!("[vietc] Failed to run sudo -u {} env ... {} {}: {}", original_user, program, args.join(" "), e);
                         return std::process::Output {
                             status: std::process::ExitStatus::default(),
                             stdout: vec![],
@@ -174,6 +231,8 @@ impl UinputInjector {
                         };
                     }
                 }
+            } else {
+                eprintln!("[vietc] Running as root but could not determine original user");
             }
         }
         match std::process::Command::new(program).args(args).output() {
@@ -195,18 +254,98 @@ impl UinputInjector {
     /// best available method: ydotool (uinput) for ASCII, xdotool (X11) or
     /// clipboard for Unicode.
     fn inject_replacement_atomic(&self, backspaces: usize, text: &str) -> InjectResult {
-        // Backspaces via uinput — reliable, no display server needed
-        if backspaces > 0 {
-            eprintln!("[vietc] uinput backspace x{}", backspaces);
-            for _ in 0..backspaces {
-                let _ = self.send_backspace();
+        let is_ascii = text.chars().all(|c| char_to_linux_keycode(c).is_some());
+        
+        if is_ascii {
+            if backspaces > 0 {
+                for _ in 0..backspaces {
+                    let _ = self.send_backspace();
+                }
+            }
+            for ch in text.chars() {
+                let _ = self.send_char(ch);
+            }
+            return InjectResult::Success;
+        }
+
+        // It is Unicode. We must use a single unified channel.
+        let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
+        
+        if is_wayland {
+            // Under Wayland, we try to use `wtype` for both backspaces and text.
+            let has_wtype = std::process::Command::new("which")
+                .arg("wtype")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+                
+            if has_wtype {
+                let mut args = Vec::new();
+                for _ in 0..backspaces {
+                    args.push("-k");
+                    args.push("BackSpace");
+                }
+                args.push("--");
+                args.push(text);
+                
+                let output = Self::run_as_user("wtype", &args);
+                if output.status.success() {
+                    return InjectResult::Success;
+                }
+                eprintln!("[vietc] wtype inject failed: {}", String::from_utf8_lossy(&output.stderr).trim());
+            }
+        } else {
+            // Under X11, we try to use `xdotool` for both backspaces and text.
+            let has_xdotool = std::process::Command::new("which")
+                .arg("xdotool")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+                
+            if has_xdotool {
+                let mut args = Vec::new();
+                if backspaces > 0 {
+                    args.push("key");
+                    for _ in 0..backspaces {
+                        args.push("BackSpace");
+                    }
+                }
+                if !text.is_empty() {
+                    args.push("type");
+                    args.push("--clearmodifiers");
+                    args.push(text);
+                }
+                
+                let output = Self::run_as_user("xdotool", &args);
+                if output.status.success() {
+                    return InjectResult::Success;
+                }
+                eprintln!("[vietc] xdotool inject failed: {}", String::from_utf8_lossy(&output.stderr).trim());
             }
         }
-        if !text.is_empty() {
-            eprintln!("[vietc] text injection: \"{}\"", text);
+
+        // Fallback: Clipboard copy + paste.
+        // This is safe because both backspaces and Ctrl+V are injected into the SAME uinput device.
+        let copied = self.copy_to_clipboard(text);
+        if copied {
+            if backspaces > 0 {
+                for _ in 0..backspaces {
+                    let _ = self.send_backspace();
+                }
+            }
+            self.send_ctrl_v();
+            InjectResult::Success
+        } else {
+            eprintln!("[vietc] clipboard copy failed during fallback");
+            // Absolute last resort: try uinput backspaces followed by individual unicode paste_string
+            if backspaces > 0 {
+                for _ in 0..backspaces {
+                    let _ = self.send_backspace();
+                }
+            }
             self.paste_string(text);
+            InjectResult::Success
         }
-        InjectResult::Success
     }
 
     /// Copy text to clipboard and paste via Ctrl+V through our uinput device.
@@ -214,27 +353,21 @@ impl UinputInjector {
     /// unavailable. Prefers ydotool (uinput, works everywhere) to avoid
     /// clipboard pollution.
     fn paste_string(&self, s: &str) {
-        let has_unicode = s.chars().any(|c| c > '\x7f');
-
-        if !has_unicode {
-            // Pure ASCII: ydotool works reliably (no keycode mapping issues).
-            let output = std::process::Command::new("ydotool")
-                .args(["type", s])
-                .output();
-            if let Ok(output) = output {
-                if output.status.success() {
-                    eprintln!("[vietc] ydotool OK");
-                    return;
-                }
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                if !stderr.is_empty() {
-                    eprintln!("[vietc] ydotool failed: {}", stderr.trim());
-                }
-                eprintln!("[vietc] ydotool failed, trying xdotool...");
+        // Try ydotool first (uinput-based, no display server needed).
+        let ydotool_result = std::process::Command::new("ydotool")
+            .args(["type", s])
+            .output();
+        if let Ok(output) = ydotool_result {
+            if output.status.success() {
+                eprintln!("[vietc] ydotool OK");
+                return;
             }
-        } else {
-            eprintln!("[vietc] contains Unicode, skipping ydotool");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !stderr.is_empty() {
+                eprintln!("[vietc] ydotool failed: {}", stderr.trim());
+            }
         }
+        eprintln!("[vietc] ydotool failed, trying xdotool...");
 
         // Try xdotool (X11): needs DISPLAY, run through run_as_user
         eprintln!("[vietc] trying xdotool...");
@@ -272,18 +405,16 @@ impl UinputInjector {
         eprintln!("[vietc] WARNING: No injection method works for '{}'!", s);
     }
 
-    /// Copy text to clipboard using wl-copy (Wayland) or xclip (X11).
-    fn copy_to_clipboard(&self, s: &str) -> bool {
+    /// Build a command to run as the original user with display environment.
+    fn user_cmd(program: &str) -> std::process::Command {
         let is_root = unsafe { libc::getuid() == 0 };
         if is_root {
-            if let Ok(sudo_user) = std::env::var("SUDO_USER") {
+            if let Some(original_user) = Self::get_original_username() {
                 let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
                 let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
                 let display = std::env::var("DISPLAY").unwrap_or_default();
-                eprintln!("[vietc] clipboard: is_root, SUDO_USER={} DISPLAY={} WAYLAND={} XDG_RUNTIME_DIR={}",
-                    sudo_user, display, wayland_display, xdg_runtime_dir);
                 let mut cmd = std::process::Command::new("sudo");
-                cmd.args(["-u", &sudo_user, "env"]);
+                cmd.args(["-u", &original_user, "env"]);
                 if !wayland_display.is_empty() {
                     cmd.arg(format!("WAYLAND_DISPLAY={}", wayland_display));
                 }
@@ -293,31 +424,23 @@ impl UinputInjector {
                 if !display.is_empty() {
                     cmd.arg(format!("DISPLAY={}", display));
                 }
-                cmd.arg("wl-copy");
-                eprintln!("[vietc] clipboard: trying wl-copy via {:?}", cmd);
-                let result = cmd
-                    .stdin(std::process::Stdio::piped())
-                    .spawn()
-                    .and_then(|mut child| {
-                        use std::io::Write;
-                        child.stdin.take().unwrap().write_all(s.as_bytes())?;
-                        child.wait()
-                    });
-                if let Ok(status) = result {
-                    if status.success() {
-                        eprintln!("[vietc] clipboard: wl-copy OK");
-                        return true;
-                    }
-                    eprintln!("[vietc] clipboard: wl-copy failed (exit={:?})", status.code());
-                } else if let Err(ref e) = result {
-                    eprintln!("[vietc] clipboard: wl-copy error: {}", e);
-                }
-            } else {
-                eprintln!("[vietc] clipboard: is_root but no SUDO_USER");
+                cmd.arg(program);
+                return cmd;
             }
-        } else {
-            eprintln!("[vietc] clipboard: not root, trying wl-copy directly");
-            let result = std::process::Command::new("wl-copy")
+        }
+        std::process::Command::new(program)
+    }
+
+    /// Copy text to clipboard using wl-copy (Wayland) or xclip (X11).
+    fn copy_to_clipboard(&self, s: &str) -> bool {
+        let is_root = unsafe { libc::getuid() == 0 };
+        eprintln!("[vietc] clipboard: is_root={}", is_root);
+
+        // Try wl-copy (Wayland) via user_cmd
+        {
+            let mut cmd = Self::user_cmd("wl-copy");
+            eprintln!("[vietc] clipboard: trying wl-copy via {:?}", cmd);
+            let result = cmd
                 .stdin(std::process::Stdio::piped())
                 .spawn()
                 .and_then(|mut child| {
@@ -335,46 +458,14 @@ impl UinputInjector {
                 eprintln!("[vietc] clipboard: wl-copy error: {}", e);
             }
         }
-        // Try xclip (X11). When root, run as SUDO_USER so it can connect to X.
+
+        // Try xclip (X11) via user_cmd
         eprintln!("[vietc] clipboard: trying xclip...");
-        let xclip_result = if is_root {
-            if let Ok(sudo_user) = std::env::var("SUDO_USER") {
-                let display = std::env::var("DISPLAY").unwrap_or_default();
-                let mut cmd = std::process::Command::new("sudo");
-                cmd.args(["-u", &sudo_user, "env"]);
-                if !display.is_empty() {
-                    cmd.arg(format!("DISPLAY={}", display));
-                }
-                cmd.arg("xclip");
-                cmd.args(["-selection", "clipboard"]);
-                eprintln!("[vietc] clipboard: xclip via {:?}", cmd);
-                cmd.stdin(std::process::Stdio::piped())
-                    .spawn()
-                    .and_then(|mut child| {
-                        use std::io::Write;
-                        child.stdin.take().unwrap().write_all(s.as_bytes())?;
-                        child.wait()
-                    })
-                    .map(|status| {
-                        if status.success() {
-                            eprintln!("[vietc] clipboard: xclip OK");
-                        } else {
-                            eprintln!("[vietc] clipboard: xclip failed (exit={:?})", status.code());
-                        }
-                        status.success()
-                    })
-                    .unwrap_or_else(|e| {
-                        eprintln!("[vietc] clipboard: xclip error: {}", e);
-                        false
-                    })
-            } else {
-                eprintln!("[vietc] clipboard: is_root but no SUDO_USER in xclip path");
-                false
-            }
-        } else {
-            eprintln!("[vietc] clipboard: not root, trying xclip directly");
-            std::process::Command::new("xclip")
-                .args(["-selection", "clipboard"])
+        {
+            let mut cmd = Self::user_cmd("xclip");
+            cmd.args(["-selection", "clipboard"]);
+            eprintln!("[vietc] clipboard: xclip via {:?}", cmd);
+            let result = cmd
                 .stdin(std::process::Stdio::piped())
                 .spawn()
                 .and_then(|mut child| {
@@ -393,10 +484,13 @@ impl UinputInjector {
                 .unwrap_or_else(|e| {
                     eprintln!("[vietc] clipboard: xclip error: {}", e);
                     false
-                })
-        };
+                });
+            if result {
+                return true;
+            }
+        }
 
-        xclip_result
+        false
     }
 
     /// Send Ctrl+V through our uinput device.

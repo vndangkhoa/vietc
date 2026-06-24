@@ -27,6 +27,9 @@ pub struct Config {
 
     #[serde(default)]
     pub grab: bool,
+
+    #[serde(default = "default_false")]
+    pub debug: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,6 +78,7 @@ fn default_input_method() -> String { "telex".into() }
 fn default_toggle_key() -> String { "space".into() }
 fn default_start_enabled() -> bool { true }
 fn default_true() -> bool { true }
+fn default_false() -> bool { false }
 fn default_restore_keys() -> Vec<String> { vec!["space".into(), "escape".into()] }
 
 fn default_english_apps() -> Vec<String> {
@@ -160,6 +164,7 @@ impl Default for Config {
             app_state: AppStateConfig::default(),
             macros,
             grab: false,
+            debug: false,
         }
     }
 }

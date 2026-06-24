@@ -1,7 +1,46 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoRestoreConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    #[serde(default = "default_restore_keys")]
+    pub trigger_keys: Vec<String>,
+}
+
+impl Default for AutoRestoreConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            trigger_keys: default_restore_keys(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppStateConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    #[serde(default)]
+    pub english_apps: Vec<String>,
+
+    #[serde(default)]
+    pub vietnamese_apps: Vec<String>,
+}
+
+impl Default for AppStateConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            english_apps: vec![],
+            vietnamese_apps: vec![],
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -21,66 +60,38 @@ pub struct Config {
     pub app_state: AppStateConfig,
 
     #[serde(default)]
-    pub macros: HashMap<String, String>,
-}
+    pub macros: std::collections::HashMap<String, String>,
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AutoRestoreConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
+    #[serde(default = "default_grab")]
+    pub grab: bool,
 
-    #[serde(default = "default_restore_keys")]
-    pub trigger_keys: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AppStateConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-
-    #[serde(default)]
-    pub english_apps: Vec<String>,
-
-    #[serde(default)]
-    pub vietnamese_apps: Vec<String>,
+    #[serde(default = "default_false")]
+    pub debug: bool,
 }
 
 fn default_input_method() -> String { "telex".into() }
 fn default_toggle_key() -> String { "space".into() }
 fn default_start_enabled() -> bool { true }
+fn default_grab() -> bool { true }
 fn default_true() -> bool { true }
+fn default_false() -> bool { false }
 fn default_restore_keys() -> Vec<String> { vec!["space".into(), "escape".into()] }
 
 impl Default for Config {
     fn default() -> Self {
-        let mut macros = HashMap::new();
-        macros.insert("ko".into(), "không".into());
-        macros.insert("dc".into(), "được".into());
-        macros.insert("vs".into(), "với".into());
-        macros.insert("lm".into(), "làm".into());
-
         Self {
             input_method: default_input_method(),
             toggle_key: default_toggle_key(),
             start_enabled: default_start_enabled(),
-            auto_restore: AutoRestoreConfig {
-                enabled: true,
-                trigger_keys: default_restore_keys(),
-            },
-            app_state: AppStateConfig {
-                enabled: true,
-                english_apps: vec![
-                    "code".into(), "vim".into(), "nvim".into(),
-                    "terminal".into(), "kitty".into(), "alacritty".into(),
-                ],
-                vietnamese_apps: vec![
-                    "telegram".into(), "discord".into(), "firefox".into(),
-                ],
-            },
-            macros,
+            auto_restore: AutoRestoreConfig::default(),
+            app_state: AppStateConfig::default(),
+            macros: std::collections::HashMap::new(),
+            grab: default_grab(),
+            debug: default_false(),
         }
     }
 }
+
 
 impl Config {
     pub fn load() -> Self {
@@ -102,10 +113,6 @@ impl Config {
         let content = toml::to_string_pretty(self)?;
         fs::write(&path, content)?;
         Ok(())
-    }
-
-    pub fn path() -> PathBuf {
-        config_path()
     }
 }
 
@@ -151,7 +158,7 @@ pub fn uninstall_autostart() {
     }
 }
 
-pub fn install_autostart_force() {
+pub fn install_autostart() {
     if let Some(config_dir) = dirs::config_dir() {
         let autostart_dir = config_dir.join("autostart");
         let desktop_file = autostart_dir.join("vietc-tray.desktop");
@@ -169,8 +176,8 @@ pub fn install_autostart_force() {
         let content = format!(
             "[Desktop Entry]\n\
              Type=Application\n\
-             Name=Viet+ Tray\n\
-             Comment=Vietnamese Input Method tray icon\n\
+             Name=Viet+\n\
+             Comment=Vietnamese Input Method\n\
              Exec={}\n\
              Icon=input-keyboard\n\
              Terminal=false\n\
@@ -184,4 +191,3 @@ pub fn install_autostart_force() {
         eprintln!("[vietc] Installed autostart entry");
     }
 }
-

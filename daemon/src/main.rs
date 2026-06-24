@@ -15,6 +15,62 @@ mod display;
 use config::Config;
 use app_state::AppStateManager;
 
+fn get_log_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|p| p.join("vietc").join("vietc.log"))
+}
+
+fn get_timestamp() -> String {
+    if let Ok(n) = std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
+        let secs = n.as_secs();
+        let millis = n.subsec_millis();
+        unsafe {
+            let t = secs as libc::time_t;
+            let mut tm = std::mem::zeroed::<libc::tm>();
+            if !libc::localtime_r(&t, &mut tm).is_null() {
+                return format!(
+                    "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
+                    tm.tm_year + 1900,
+                    tm.tm_mon + 1,
+                    tm.tm_mday,
+                    tm.tm_hour,
+                    tm.tm_min,
+                    tm.tm_sec,
+                    millis
+                );
+            }
+        }
+    }
+    "".to_string()
+}
+
+fn log_info(msg: &str) {
+    eprintln!("{}", msg);
+
+    if let Some(log_path) = get_log_path() {
+        if let Some(parent) = log_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        // Rotate log if it exceeds 10MB
+        if let Ok(metadata) = fs::metadata(&log_path) {
+            if metadata.len() > 10 * 1024 * 1024 {
+                let backup_path = log_path.with_extension("log.old");
+                let _ = fs::rename(&log_path, backup_path);
+            }
+        }
+
+        if let Ok(mut file) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            use std::io::Write;
+            let timestamp = get_timestamp();
+            let _ = writeln!(file, "[{}] {}", timestamp, msg);
+        }
+    }
+}
+
 struct Daemon {
     engine: Engine,
     config: Config,
@@ -77,7 +133,7 @@ impl Daemon {
             if let Ok(content) = fs::read_to_string(&status_path) {
                 let expect_enabled = content.trim() == "vn";
                 if self.engine.is_enabled() != expect_enabled {
-                    eprintln!("[vietc] Syncing enabled status from file: {}", expect_enabled);
+                    log_info(&format!("[vietc] Syncing enabled status from file: {}", expect_enabled));
                     self.engine.set_enabled(expect_enabled);
                     self.engine_enabled.store(expect_enabled, Ordering::SeqCst);
                 }
@@ -94,7 +150,7 @@ impl Daemon {
             return false;
         }
 
-        eprintln!("[vietc] Config changed, reloading...");
+        log_info("[vietc] Config changed, reloading...");
         match Config::load_from(&self.config_path) {
             Ok(new_config) => {
                 let method = match new_config.input_method.as_str() {
@@ -116,11 +172,11 @@ impl Daemon {
                 self.grab_enabled = new_config.grab;
                 self.config = new_config;
                 self.config_modified = modified;
-                eprintln!("[vietc] Config reloaded successfully");
+                log_info("[vietc] Config reloaded successfully");
                 true
             }
             Err(e) => {
-                eprintln!("[vietc] Failed to reload config: {}", e);
+                log_info(&format!("[vietc] Failed to reload config: {}", e));
                 false
             }
         }
@@ -130,7 +186,7 @@ impl Daemon {
         let mut commands = Vec::new();
 
         if let Some(event) = self.engine.process_key(ch) {
-            eprintln!("[vietc] key='{}' buf='{}' -> {:?}", ch, self.engine.buffer(), event);
+            log_info(&format!("[vietc] key='{}' buf='{}' -> {:?}", ch, self.engine.buffer(), event));
             match event {
                 EngineEvent::Flush(text) => {
                     commands.push(OutputCommand::Type(text));
@@ -153,7 +209,7 @@ impl Daemon {
                 }
             }
         } else {
-            eprintln!("[vietc] key='{}' -> (no event, buf='{}')", ch, self.engine.buffer());
+            log_info(&format!("[vietc] key='{}' -> (no event, buf='{}')", ch, self.engine.buffer()));
         }
 
         commands
@@ -191,11 +247,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let display = display::detect_display_server();
     let compositor = display::detect_compositor();
 
-    eprintln!("Viet+ Daemon v{}", env!("CARGO_PKG_VERSION"));
-    eprintln!("Display: {:?} ({})", display, compositor.unwrap_or_else(|| "unknown".into()));
-    eprintln!("Input method: {:?}", daemon.config.input_method);
-    eprintln!("Toggle key: Ctrl+{}", daemon.config.toggle_key.to_uppercase());
-    eprintln!("App memory: {}", if daemon.config.app_state.enabled { "ON" } else { "OFF" });
+    log_info(&format!("Viet+ Daemon v{}", env!("CARGO_PKG_VERSION")));
+    log_info(&format!("Display: {:?} ({})", display, compositor.unwrap_or_else(|| "unknown".into())));
+    log_info(&format!("Input method: {:?}", daemon.config.input_method));
+    log_info(&format!("Toggle key: Ctrl+{}", daemon.config.toggle_key.to_uppercase()));
+    log_info(&format!("App memory: {}", if daemon.config.app_state.enabled { "ON" } else { "OFF" }));
 
     // Spawn background monitor for active window, config changes, and status changes
     let shared_active_window = Arc::new(Mutex::new(String::new()));
@@ -254,7 +310,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match open_keyboard_device() {
         Ok((device, path)) => {
-            eprintln!("[vietc] Keyboard device: {}", path);
+            log_info(&format!("[vietc] Keyboard device: {}", path));
             run_with_evdev(
                 device,
                 &mut daemon,
@@ -266,8 +322,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
         }
         Err(e) => {
-            eprintln!("[vietc] No keyboard device: {}", e);
-            eprintln!("[vietc] Running in stdin test mode");
+            log_info(&format!("[vietc] No keyboard device: {}", e));
+            log_info("[vietc] Running in stdin test mode");
             run_stdin_mode(
                 &mut daemon,
                 shared_active_window,
@@ -362,22 +418,23 @@ fn run_with_evdev(
     let grabbed = if daemon.grab_enabled {
         match device.grab() {
             Ok(()) => {
-                eprintln!("[vietc] Keyboard grabbed — race condition eliminated");
+                log_info("[vietc] Keyboard grabbed — race condition eliminated");
                 true
             }
             Err(e) => {
-                eprintln!("[vietc] Could not grab keyboard: {} (run as root for grab)", e);
-                eprintln!("[vietc] Falling back to non-grabbing mode (may have race)");
+                log_info(&format!("[vietc] Could not grab keyboard: {} (run as root for grab)", e));
+                log_info("[vietc] Falling back to non-grabbing mode (may have race)");
                 false
             }
         }
     } else {
-        eprintln!("[vietc] Keyboard grab disabled (config grab = false)");
-        eprintln!("[vietc] Set grab = true in vietc.toml to enable (needs root)");
+        log_info("[vietc] Keyboard grab disabled (config grab = false)");
+        log_info("[vietc] Set grab = true in vietc.toml to enable (needs root)");
         false
     };
 
     let mut consumed_keys: HashSet<u16> = HashSet::new();
+    let mut last_active_window = String::new();
 
     // Safety: if grab is active and no events arrive for 30 seconds,
     // release the grab so the user isn't locked out.
@@ -386,7 +443,7 @@ fn run_with_evdev(
     loop {
         // Check for event timeout (grab safety)
         if grabbed && last_event_time.elapsed() > std::time::Duration::from_secs(30) {
-            eprintln!("[vietc] No events for 30s — releasing grab timeout, releasing grab for safety");
+            log_info("[vietc] No events for 30s — releasing grab timeout, releasing grab for safety");
             let _ = device.ungrab();
             return Ok(());
         }
@@ -399,6 +456,17 @@ fn run_with_evdev(
         if status_changed.load(Ordering::SeqCst) {
             daemon.sync_status_file();
             status_changed.store(false, Ordering::SeqCst);
+        }
+
+        // Track window changes and reset engine buffer
+        {
+            let active_window = shared_active_window.lock().unwrap().clone();
+            if active_window != last_active_window {
+                log_info(&format!("[vietc] Window changed: '{}' -> '{}'", last_active_window, active_window));
+                last_active_window = active_window.clone();
+                daemon.engine.reset();
+                log_info("[vietc] Reset engine buffer due to window change");
+            }
         }
 
         // Check for app changes instantly using the cached state from background thread
@@ -505,11 +573,11 @@ fn run_stdin_mode(
 
 
     if !io::stdin().is_terminal() {
-        eprintln!("[vietc] Warning: No keyboard device and no terminal.");
-        eprintln!("[vietc] Retrying keyboard access every 5 seconds...");
-        eprintln!("[vietc] Ensure you are in the 'input' group:");
-        eprintln!("      sudo usermod -aG input $USER");
-        eprintln!("  Then log out and back in.");
+        log_info("[vietc] Warning: No keyboard device and no terminal.");
+        log_info("[vietc] Retrying keyboard access every 5 seconds...");
+        log_info("[vietc] Ensure you are in the 'input' group:");
+        log_info("      sudo usermod -aG input $USER");
+        log_info("  Then log out and back in.");
 
         // Retry loop: periodically attempt to reopen the keyboard device
         loop {
@@ -526,7 +594,7 @@ fn run_stdin_mode(
             }
 
             if let Ok((device, path)) = open_keyboard_device() {
-                eprintln!("[vietc] Keyboard device found: {}", path);
+                log_info(&format!("[vietc] Keyboard device found: {}", path));
                 return run_with_evdev(
                     device, daemon,
                     shared_active_window,
@@ -541,8 +609,9 @@ fn run_stdin_mode(
 
     let injector = create_injector(display)?;
     let mut buffer = [0u8; 1];
+    let mut last_active_window = String::new();
 
-    eprintln!("[vietc] Type to test, Ctrl+C to exit");
+    log_info("[vietc] Type to test, Ctrl+C to exit");
 
     let stdin = io::stdin();
     let mut handle = stdin.lock();
@@ -551,6 +620,17 @@ fn run_stdin_mode(
         if status_changed.load(Ordering::SeqCst) {
             daemon.sync_status_file();
             status_changed.store(false, Ordering::SeqCst);
+        }
+
+        // Track window changes and reset engine buffer
+        {
+            let active_window = shared_active_window.lock().unwrap().clone();
+            if active_window != last_active_window {
+                log_info(&format!("[vietc] Window changed: '{}' -> '{}'", last_active_window, active_window));
+                last_active_window = active_window.clone();
+                daemon.engine.reset();
+                log_info("[vietc] Reset engine buffer due to window change");
+            }
         }
 
         // Check for app changes instantly using the cached state from background thread
@@ -573,7 +653,7 @@ fn run_stdin_mode(
                 execute_commands(&*injector, &commands, false);
             }
             Err(e) => {
-                eprintln!("[vietc] Read error: {}", e);
+                log_info(&format!("[vietc] Read error: {}", e));
                 break;
             }
         }
@@ -593,18 +673,18 @@ fn execute_commands(injector: &dyn vietc_protocol::KeyInjector, commands: &[Outp
         match cmd {
             OutputCommand::Backspace(count) => {
                 let adjusted = if grabbed { count.saturating_sub(1) } else { *count };
-                eprintln!("[vietc] cmd: Backspace({}) -> adjusted={}", count, adjusted);
+                log_info(&format!("[vietc] cmd: Backspace({}) -> adjusted={}", count, adjusted));
                 pending_backspaces += adjusted;
             }
             OutputCommand::Type(text) => {
-                eprintln!("[vietc] cmd: Type(\"{}\")", text);
+                log_info(&format!("[vietc] cmd: Type(\"{}\")", text));
                 pending_text.push_str(text);
             }
         }
     }
 
     if pending_backspaces > 0 || !pending_text.is_empty() {
-        eprintln!("[vietc] inject: BS={} text=\"{}\"", pending_backspaces, pending_text);
+        log_info(&format!("[vietc] inject: BS={} text=\"{}\"", pending_backspaces, pending_text));
         injector.inject_replacement(pending_backspaces, &pending_text);
     }
     injector.flush();
@@ -615,7 +695,7 @@ fn create_injector(display: display::DisplayServer) -> Result<Box<dyn vietc_prot
     #[cfg(feature = "wayland")]
     {
         let _ctx = vietc_protocol::wayland_im::WaylandIMContext::new();
-        eprintln!("[vietc] Wayland input method context initialized");
+        log_info("[vietc] Wayland input method context initialized");
     }
 
     // Use uinput as primary injector — it handles ASCII via direct keycodes
@@ -624,11 +704,11 @@ fn create_injector(display: display::DisplayServer) -> Result<Box<dyn vietc_prot
     // (ASCII) and ydotool (Unicode) interleaving.
     match vietc_protocol::uinput_monitor::UinputInjector::new("vietc") {
         Ok(injector) => {
-            eprintln!("[vietc] Using uinput injection (primary)");
+            log_info("[vietc] Using uinput injection (primary)");
             return Ok(Box::new(injector));
         }
         Err(e) => {
-            eprintln!("[vietc] uinput not available: {}", e);
+            log_info(&format!("[vietc] uinput not available: {}", e));
         }
     }
 
@@ -638,11 +718,11 @@ fn create_injector(display: display::DisplayServer) -> Result<Box<dyn vietc_prot
         if display != display::DisplayServer::Wayland {
             match vietc_protocol::x11_inject::X11Injector::new() {
                 Ok(injector) => {
-                    eprintln!("[vietc] Using X11 injection (XTEST fallback)");
+                    log_info("[vietc] Using X11 injection (XTEST fallback)");
                     return Ok(Box::new(injector));
                 }
                 Err(e) => {
-                    eprintln!("[vietc] X11 not available: {}", e);
+                    log_info(&format!("[vietc] X11 not available: {}", e));
                 }
             }
         }
