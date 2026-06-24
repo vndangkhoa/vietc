@@ -387,7 +387,7 @@ impl Tray for VietTray {
             label: "About: Viet+".into(),
             activate: Box::new(|_| {
                 let _ = std::process::Command::new("xdg-open")
-                    .arg("https://git.khoavo.myds.me/vndangkhoa/vietc")
+                    .arg("https://github.com/vndangkhoa/vietc")
                     .status();
             }),
             ..Default::default()
