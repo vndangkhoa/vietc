@@ -29,7 +29,7 @@ mod imp {
 
 glib::wrapper! {
     pub struct SettingsWindow(ObjectSubclass<imp::SettingsWindow>)
-        @extends gio::ApplicationWindow, gtk::ApplicationWindow,
+        @extends adw::ApplicationWindow, gtk::ApplicationWindow, gtk::Window, gtk::Widget,
         @implements gio::ActionGroup, gio::ActionMap, gtk::Accessible, gtk::Buildable;
 }
 
@@ -38,7 +38,7 @@ impl SettingsWindow {
         let win: Self = glib::Object::builder()
             .property("application", app)
             .property("default-width", 580)
-            .property("default-height", 720)
+            .property("default-height", 500)
             .property("title", "Viet+ Settings")
             .build();
 
@@ -52,6 +52,7 @@ impl SettingsWindow {
 
     fn build_ui(&self) {
         let config = Config::load();
+        let trigger_keys = config.auto_restore.trigger_keys.clone();
 
         // Toast overlay for notifications
         let toast_overlay = adw::ToastOverlay::new();
@@ -61,14 +62,19 @@ impl SettingsWindow {
             .orientation(gtk::Orientation::Vertical)
             .build();
 
-        // Header bar with title widget
+        // Header bar with view switcher
         let header = adw::HeaderBar::new();
 
-        let title_widget = adw::WindowTitle::builder()
-            .title("Viet+")
-            .subtitle("Vietnamese Input Method")
+        // View Stack
+        let stack = adw::ViewStack::builder()
+            .vexpand(true)
             .build();
-        header.set_title_widget(Some(&title_widget));
+
+        // View Switcher linked to stack
+        let switcher = adw::ViewSwitcher::builder()
+            .stack(&stack)
+            .build();
+        header.set_title_widget(Some(&switcher));
 
         // Save button (suggested action)
         let save_btn = gtk::Button::builder()
@@ -76,7 +82,7 @@ impl SettingsWindow {
             .css_classes(["suggested-action"])
             .tooltip_text("Save settings (Ctrl+S)")
             .build();
-        header.add_end(&save_btn);
+        header.pack_end(&save_btn);
 
         // Keyboard shortcut for save
         let controller = gtk::EventControllerKey::new();
@@ -95,21 +101,11 @@ impl SettingsWindow {
 
         main_box.append(&header);
 
-        // Scrollable content area
-        let scrolled = gtk::ScrolledWindow::builder()
-            .vexpand(true)
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .build();
-
-        let clamp = adw::Clamp::builder()
-            .maximum_size(540)
-            .tightening_threshold(400)
-            .build();
-
-        let content = gtk::Box::builder()
+        // ==================== Page 1: Typing ====================
+        let typing_box = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .spacing(8)
-            .margin_top(8)
+            .margin_top(16)
             .margin_bottom(16)
             .margin_start(16)
             .margin_end(16)
@@ -145,7 +141,7 @@ impl SettingsWindow {
 
         method_group.add(&method_row);
         method_group.add(&toggle_row);
-        content.append(&method_group);
+        typing_box.append(&method_group);
 
         // ========== General Section ==========
         let general_group = adw::PreferencesGroup::builder()
@@ -170,12 +166,37 @@ impl SettingsWindow {
             .active(config.auto_restore.enabled)
             .build();
 
+        let autostart_row = adw::SwitchRow::builder()
+            .title("Autostart on Boot")
+            .subtitle("Start Viet+ automatically when your system starts")
+            .active(crate::config::is_autostart_installed())
+            .build();
+
         general_group.add(&start_enabled_row);
         general_group.add(&app_memory_row);
         general_group.add(&auto_restore_row);
-        content.append(&general_group);
+        general_group.add(&autostart_row);
+        typing_box.append(&general_group);
 
-        // ========== App Lists Section ==========
+        let typing_clamp = adw::Clamp::builder().maximum_size(540).tightening_threshold(400).build();
+        typing_clamp.set_child(Some(&typing_box));
+        let typing_scrolled = gtk::ScrolledWindow::builder()
+            .vexpand(true)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .child(&typing_clamp)
+            .build();
+        stack.add_titled(&typing_scrolled, Some("typing"), "Typing");
+
+        // ==================== Page 2: Apps ====================
+        let apps_box = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(8)
+            .margin_top(16)
+            .margin_bottom(16)
+            .margin_start(16)
+            .margin_end(16)
+            .build();
+
         let apps_group = adw::PreferencesGroup::builder()
             .title("Application Lists")
             .description("Override input method for specific applications")
@@ -194,7 +215,6 @@ impl SettingsWindow {
         let english_entry = gtk::SearchEntry::builder()
             .placeholder_text("Add application name...")
             .hexpand(true)
-            .show_close_icon(false)
             .build();
 
         let english_add = gtk::Button::builder()
@@ -243,7 +263,6 @@ impl SettingsWindow {
         let viet_entry = gtk::SearchEntry::builder()
             .placeholder_text("Add application name...")
             .hexpand(true)
-            .show_close_icon(false)
             .build();
 
         let viet_add = gtk::Button::builder()
@@ -279,7 +298,26 @@ impl SettingsWindow {
         viet_row.add_suffix(&viet_header);
         apps_group.add(&viet_row);
 
-        content.append(&apps_group);
+        apps_box.append(&apps_group);
+
+        let apps_clamp = adw::Clamp::builder().maximum_size(540).tightening_threshold(400).build();
+        apps_clamp.set_child(Some(&apps_box));
+        let apps_scrolled = gtk::ScrolledWindow::builder()
+            .vexpand(true)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .child(&apps_clamp)
+            .build();
+        stack.add_titled(&apps_scrolled, Some("apps"), "Apps");
+
+        // ==================== Page 3: Shortcuts ====================
+        let shortcuts_box = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(8)
+            .margin_top(16)
+            .margin_bottom(16)
+            .margin_start(16)
+            .margin_end(16)
+            .build();
 
         // ========== Macros Section ==========
         let macros_group = adw::PreferencesGroup::builder()
@@ -323,7 +361,7 @@ impl SettingsWindow {
 
         macros_group.add(&macros_list);
         macros_group.add(&macro_input);
-        content.append(&macros_group);
+        shortcuts_box.append(&macros_group);
 
         // ========== Reference Card ==========
         let ref_group = adw::PreferencesGroup::builder()
@@ -343,7 +381,16 @@ impl SettingsWindow {
         ref_row.add_suffix(&ref_icon);
 
         ref_group.add(&ref_row);
-        content.append(&ref_group);
+        shortcuts_box.append(&ref_group);
+
+        let shortcuts_clamp = adw::Clamp::builder().maximum_size(540).tightening_threshold(400).build();
+        shortcuts_clamp.set_child(Some(&shortcuts_box));
+        let shortcuts_scrolled = gtk::ScrolledWindow::builder()
+            .vexpand(true)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .child(&shortcuts_clamp)
+            .build();
+        stack.add_titled(&shortcuts_scrolled, Some("shortcuts"), "Shortcuts");
 
         // ========== Status Bar ==========
         let status_box = gtk::Box::builder()
@@ -366,13 +413,11 @@ impl SettingsWindow {
         status_box.append(&status_icon);
         status_box.append(&status_label);
 
-        clamp.set_child(Some(&content));
-        scrolled.set_child(Some(&clamp));
-        main_box.append(&scrolled);
+        main_box.append(&stack);
         main_box.append(&status_box);
 
         toast_overlay.set_child(Some(&main_box));
-        self.set_content(Some(&toast_overlay));
+        adw::prelude::AdwApplicationWindowExt::set_content(self, Some(&toast_overlay));
 
         // ========== Callbacks ==========
 
@@ -397,15 +442,19 @@ impl SettingsWindow {
             let win = self.clone();
             auto_restore_row.connect_active_notify(move |_| { win.mark_dirty(); });
         }
+        {
+            let win = self.clone();
+            autostart_row.connect_active_notify(move |_| { win.mark_dirty(); });
+        }
 
         // Add English app
-        self.setup_add_app(&english_entry, &english_add, &english_list, &status_label);
+        self.setup_add_app(&english_entry, &english_add, &english_list, &status_label, &status_icon);
 
         // Add Vietnamese app
-        self.setup_add_app(&viet_entry, &viet_add, &viet_list, &status_label);
+        self.setup_add_app(&viet_entry, &viet_add, &viet_list, &status_label, &status_icon);
 
         // Add macro
-        self.setup_add_macro(&macro_shortcut, &macro_expansion, &macro_add, &macros_list, &status_label);
+        self.setup_add_macro(&macro_shortcut, &macro_expansion, &macro_add, &macros_list, &status_label, &status_icon);
 
         // Save button
         {
@@ -414,6 +463,7 @@ impl SettingsWindow {
             let start_switch = start_enabled_row.clone();
             let app_switch = app_memory_row.clone();
             let auto_switch = auto_restore_row.clone();
+            let autostart_switch = autostart_row.clone();
             let english = english_list.clone();
             let viet = viet_list.clone();
             let macros = macros_list.clone();
@@ -421,6 +471,7 @@ impl SettingsWindow {
             let status_icon = status_icon.clone();
             let toast_overlay = toast_overlay.clone();
             let win = self.clone();
+            let trigger_keys = trigger_keys.clone();
 
             save_btn.connect_clicked(move |_| {
                 let method = match method_row.selected() {
@@ -443,6 +494,7 @@ impl SettingsWindow {
                     start_enabled: start_switch.is_active(),
                     auto_restore: crate::config::AutoRestoreConfig {
                         enabled: auto_switch.is_active(),
+                        trigger_keys: trigger_keys.clone(),
                     },
                     app_state: crate::config::AppStateConfig {
                         enabled: app_switch.is_active(),
@@ -451,6 +503,13 @@ impl SettingsWindow {
                     },
                     macros: macro_map,
                 };
+
+                // Save autostart state
+                if autostart_switch.is_active() {
+                    crate::config::install_autostart_force();
+                } else {
+                    crate::config::uninstall_autostart();
+                }
 
                 match config.save() {
                     Ok(()) => {
@@ -485,12 +544,14 @@ impl SettingsWindow {
         entry: &gtk::SearchEntry,
         add_btn: &gtk::Button,
         list: &gtk::ListBox,
-        status: &gtk::Label,
+        status_label: &gtk::Label,
+        status_icon: &gtk::Image,
     ) {
         let add_fn = {
             let list = list.clone();
             let entry = entry.clone();
-            let status = status.clone();
+            let status_label = status_label.clone();
+            let status_icon = status_icon.clone();
             let win = self.clone();
             move || {
                 let text = entry.text().to_string();
@@ -498,8 +559,8 @@ impl SettingsWindow {
                     let row = Self::make_app_row_static(&text, &list);
                     list.append(&row);
                     entry.set_text("");
-                    status.set_text("Unsaved changes");
-                    status.set_icon_name("dialog-information-symbolic");
+                    status_label.set_text("Unsaved changes");
+                    status_icon.set_icon_name(Some("dialog-information-symbolic"));
                     win.mark_dirty();
                 }
             }
@@ -518,13 +579,15 @@ impl SettingsWindow {
         expansion: &gtk::SearchEntry,
         add_btn: &gtk::Button,
         list: &gtk::ListBox,
-        status: &gtk::Label,
+        status_label: &gtk::Label,
+        status_icon: &gtk::Image,
     ) {
         let add_fn = {
             let list = list.clone();
             let shortcut = shortcut.clone();
             let expansion = expansion.clone();
-            let status = status.clone();
+            let status_label = status_label.clone();
+            let status_icon = status_icon.clone();
             let win = self.clone();
             move || {
                 let s = shortcut.text().to_string();
@@ -534,8 +597,8 @@ impl SettingsWindow {
                     list.append(&row);
                     shortcut.set_text("");
                     expansion.set_text("");
-                    status.set_text("Unsaved changes");
-                    status.set_icon_name("dialog-information-symbolic");
+                    status_label.set_text("Unsaved changes");
+                    status_icon.set_icon_name(Some("dialog-information-symbolic"));
                     win.mark_dirty();
                 }
             }

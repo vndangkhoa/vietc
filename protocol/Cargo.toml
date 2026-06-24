@@ -10,9 +10,6 @@ wayland-client = { version = "0.31", optional = true }
 wayland-protocols = { version = "0.31", features = ["staging"], optional = true }
 
 [features]
-default = []
-x11 = ["dep:pkg-config"]
+default = ["x11", "wayland-protocol"]
+x11 = []
 wayland-protocol = ["dep:wayland-client", "dep:wayland-protocols"]
-
-[build-dependencies]
-pkg-config = { version = "0.3", optional = true }

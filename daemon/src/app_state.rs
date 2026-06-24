@@ -95,10 +95,8 @@ impl AppStateManager {
         }
     }
 
-    /// Check if focused app changed and return whether engine should be enabled
-    pub fn update(&mut self) -> Option<bool> {
-        let new_class = get_focused_window_class().unwrap_or_default();
-
+    /// Check if focused app changed with a pre-detected class and return whether engine should be enabled
+    pub fn update_with_app(&mut self, new_class: String) -> Option<bool> {
         if new_class == self.current_app {
             return None; // No change
         }
@@ -150,6 +148,9 @@ impl AppStateManager {
             self.current_app,
             if new_state { "Vietnamese" } else { "English" }
         );
+        if let Err(e) = self.save_overrides() {
+            eprintln!("[vietc] Failed to save app overrides: {}", e);
+        }
         new_state
     }
 

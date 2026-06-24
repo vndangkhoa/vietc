@@ -1,4 +1,4 @@
-.PHONY: build build-x11 build-wayland build-all build-ui build-tray test test-cli run run-x11 run-wayland clean install install-x11 install-wayland install-ui install-tray install-all-ui install-config appimage deb fmt lint tree
+.PHONY: build build-x11 build-wayland build-all build-ui build-tray test test-cli run run-x11 run-wayland clean install install-x11 install-wayland install-ui install-tray install-all-ui install-config appimage fmt lint tree
 
 # Build core crates
 build:
@@ -89,20 +89,15 @@ install-config:
 	@echo "Config installed to ~/.config/vietc/config.toml"
 
 # Build AppImage (requires appimagetool or linuxdeploy)
-appimage: build-all
+appimage:
 	VERSION=$$(grep '^version' engine/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/') && \
 	bash packaging/appimage/build-appimage.sh "$$VERSION"
-
-# Build .deb package (requires dpkg-deb)
-deb: build-all
-	VERSION=$$(grep '^version' engine/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/') && \
-	bash packaging/deb/build-deb.sh "$$VERSION"
 
 # Clean build artifacts
 clean:
 	cargo clean
 	cd ui && cargo clean
-	rm -rf packaging/appimage/AppDir packaging/appimage/*.AppImage packaging/deb/vietc_*
+	rm -rf packaging/appimage/AppDir packaging/appimage/*.AppImage
 
 # Format code
 fmt:

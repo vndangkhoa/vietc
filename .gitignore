@@ -10,3 +10,4 @@ Cargo.lock
 *.AppImage
 packaging/appimage/AppDir/
 packaging/deb/vietc_*/
+packaging/appimage/appimagetool

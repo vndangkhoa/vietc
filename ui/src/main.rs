@@ -14,7 +14,7 @@ fn main() -> glib::ExitCode {
 
     app.connect_activate(|app| {
         let window = SettingsWindow::new(app);
-        window.present();
+        gtk::prelude::GtkWindowExt::present(&window);
     });
 
     app.run()

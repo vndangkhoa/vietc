@@ -25,6 +25,7 @@ pub struct Engine {
     english: EnglishDict,
     enabled: bool,
     macros: std::collections::HashMap<String, String>,
+    raw_buffer: String,
 }
 
 impl Engine {
@@ -36,6 +37,7 @@ impl Engine {
             english: EnglishDict::new(),
             enabled: true,
             macros: std::collections::HashMap::new(),
+            raw_buffer: String::new(),
         }
     }
 
@@ -58,6 +60,7 @@ impl Engine {
     pub fn reset(&mut self) {
         self.telex.reset();
         self.vni.reset();
+        self.raw_buffer.clear();
     }
 
     pub fn flush(&mut self) -> Option<EngineEvent> {
@@ -106,7 +109,7 @@ impl Engine {
 
     pub fn process_key(&mut self, ch: char) -> Option<EngineEvent> {
         if !self.enabled {
-            return Some(EngineEvent::Insert(ch.to_string()));
+            return None;
         }
 
         // ESC = undo tones
@@ -114,89 +117,108 @@ impl Engine {
             return self.process_escape();
         }
 
+        if ch == '\x08' {
+            // Backspace handling: pop from inner engine and sync raw_buffer
+            match self.input_method {
+                InputMethod::Telex => self.telex.pop(),
+                InputMethod::Vni => self.vni.pop(),
+            }
+            let inner_len = self.buffer().chars().count();
+            // Truncate raw_buffer to match inner engine buffer's character count
+            let char_indices: Vec<(usize, char)> = self.raw_buffer.char_indices().collect();
+            if char_indices.len() > inner_len {
+                if inner_len == 0 {
+                    self.raw_buffer.clear();
+                } else {
+                    let cut_idx = char_indices[inner_len].0;
+                    self.raw_buffer.truncate(cut_idx);
+                }
+            }
+            return None;
+        }
+
         if ch == ' ' || ch == '\t' || ch == '.' || ch == ',' || ch == '!' || ch == '?'
             || ch == ';' || ch == ':' || ch == '\n'
         {
+            if self.raw_buffer.is_empty() {
+                return None;
+            }
+
             // Check for macro expansion before auto-restore
-            let buffer = match self.input_method {
-                InputMethod::Telex => self.telex.buffer(),
-                InputMethod::Vni => self.vni.buffer(),
-            };
-
-            let macro_expansion = self.macros.get(buffer).cloned();
-
+            let macro_expansion = self.macros.get(&self.raw_buffer).cloned();
             if let Some(expansion) = macro_expansion {
+                let previous_raw_len = self.raw_buffer.chars().count();
                 self.reset();
-                let mut result = expansion;
-                result.push(ch);
-                return Some(EngineEvent::Flush(result));
+                return Some(EngineEvent::Replace {
+                    backspaces: previous_raw_len + 1,
+                    insert: format!("{}{}", expansion, ch),
+                });
             }
 
             // Try auto-restore before flushing
-            if let Some(restore) = self.try_auto_restore() {
-                match restore {
-                    EngineEvent::AutoRestore(word) => {
-                        let mut result = String::new();
-                        for _ in 0..word.len() {
-                            result.push('\x08');
-                        }
-                        result.push_str(&word);
-                        result.push(ch);
-                        return Some(EngineEvent::Flush(result));
-                    }
-                    _ => return Some(restore),
+            let clean_raw = self.raw_buffer.to_lowercase();
+            if self.english.should_restore(&clean_raw) {
+                let inner_buf = self.buffer().to_string();
+                let clean_inner = strip_diacritics(&inner_buf).to_lowercase();
+                let has_diacritics = clean_inner != inner_buf.to_lowercase();
+                
+                let original_raw = self.raw_buffer.clone();
+                let inner_len = inner_buf.chars().count();
+                self.reset();
+                
+                if has_diacritics {
+                    return Some(EngineEvent::Replace {
+                        backspaces: inner_len + 1,
+                        insert: format!("{}{}", original_raw, ch),
+                    });
+                } else {
+                    return None;
                 }
             }
 
             // Flush buffer with trailing character
-            return match self.input_method {
-                InputMethod::Telex => self.telex.flush_with(ch),
-                InputMethod::Vni => self.vni_flush_with(ch),
+            let previous_inner = self.buffer().to_string();
+            let previous_inner_len = previous_inner.chars().count();
+            
+            let flush_event = self.flush();
+            let mut final_word = previous_inner.clone();
+            if let Some(EngineEvent::Flush(word)) = flush_event {
+                final_word = word;
+            }
+
+            let result = if final_word != previous_inner {
+                Some(EngineEvent::Replace {
+                    backspaces: previous_inner_len + 1,
+                    insert: format!("{}{}", final_word, ch),
+                })
+            } else {
+                None
             };
+
+            self.reset();
+            return result;
         }
+
+        // Regular character processing
+        let previous_inner = self.buffer().to_string();
+        self.raw_buffer.push(ch);
 
         match self.input_method {
-            InputMethod::Telex => self.telex.process_key(ch),
-            InputMethod::Vni => self.vni.process_key(ch),
-        }
-    }
-
-    fn vni_flush_with(&mut self, ch: char) -> Option<EngineEvent> {
-        if self.vni.buffer().is_empty() {
-            return Some(EngineEvent::Insert(ch.to_string()));
-        }
-        let flush = self.vni.flush();
-        match flush {
-            Some(EngineEvent::Flush(mut text)) => {
-                text.push(ch);
-                Some(EngineEvent::Flush(text))
-            }
-            _ => Some(EngineEvent::Insert(ch.to_string())),
-        }
-    }
-
-    fn try_auto_restore(&mut self) -> Option<EngineEvent> {
-        let buffer = match self.input_method {
-            InputMethod::Telex => self.telex.buffer(),
-            InputMethod::Vni => self.vni.buffer(),
-        };
-
-        if buffer.is_empty() {
-            return None;
+            InputMethod::Telex => { self.telex.process_key(ch); }
+            InputMethod::Vni => { self.vni.process_key(ch); }
         }
 
-        if !buffer.chars().all(|c| c.is_ascii_alphabetic()) {
-            return None;
-        }
+        let new_inner = self.buffer().to_string();
+        let expected_screen = format!("{}{}", previous_inner, ch);
 
-        let clean = buffer.to_lowercase();
-        if self.english.should_restore(&clean) {
-            let original = buffer.to_string();
-            self.reset();
-            return Some(EngineEvent::AutoRestore(original));
+        if new_inner != expected_screen {
+            Some(EngineEvent::Replace {
+                backspaces: previous_inner.chars().count() + 1,
+                insert: new_inner,
+            })
+        } else {
+            None
         }
-
-        None
     }
 
     pub fn buffer(&self) -> &str {
@@ -290,6 +312,7 @@ mod tests {
         let output: String = events.iter().filter_map(|e| match e {
             EngineEvent::Flush(s) => Some(s.as_str()),
             EngineEvent::Insert(s) => Some(s.as_str()),
+            EngineEvent::Replace { insert, .. } => Some(insert.as_str()),
             _ => None,
         }).collect();
 

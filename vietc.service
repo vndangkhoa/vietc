@@ -3,7 +3,7 @@ Description=Viet+ Vietnamese IME Daemon
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/vietc
+ExecStart=/usr/bin/vietc
 Restart=on-failure
 RestartSec=5
 

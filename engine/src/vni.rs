@@ -32,27 +32,22 @@ fn apply_tone_to_vowel(vowel: char, digit: char) -> Option<char> {
 }
 
 fn apply_digit_to_vowel(vowel: char, digit: char) -> Option<char> {
-    // VNI: 6=ă, 7=â, 8=ê, 9=ô, 0=ơ+ư
+    // VNI: 6=â, 7=ơ+ư, 8=ă+ê, 9=ô, 0=ơ+ư
+    // Standard VNI: a6=â, a8=ă, e6=ê, o6=ô, o7=ơ, u7=ư
     match digit {
         '6' => match vowel {
-            'a' => Some('ă'),
-            _ => None,
-        },
-        '7' => match vowel {
             'a' => Some('â'),
-            _ => None,
-        },
-        '8' => match vowel {
             'e' => Some('ê'),
-            _ => None,
-        },
-        '9' => match vowel {
             'o' => Some('ô'),
             _ => None,
         },
-        '0' => match vowel {
+        '7' => match vowel {
             'o' => Some('ơ'),
             'u' => Some('ư'),
+            _ => None,
+        },
+        '8' => match vowel {
+            'a' => Some('ă'),
             _ => None,
         },
         _ => None,
@@ -74,6 +69,11 @@ impl VniEngine {
 
     pub fn reset(&mut self) {
         self.buffer.clear();
+        self.pending_modifier = None;
+    }
+
+    pub fn pop(&mut self) {
+        self.buffer.pop();
         self.pending_modifier = None;
     }
 
@@ -113,7 +113,7 @@ impl VniEngine {
             self.apply_pending();
         }
 
-        // Find last vowel
+        // Find last vowel (standard behavior)
         if let Some(last_ch) = self.buffer.chars().last() {
             if is_vowel(last_ch) {
                 // Try tone first (1-5)
@@ -128,6 +128,35 @@ impl VniEngine {
                     self.buffer.pop();
                     self.buffer.push(modified);
                     return None;
+                }
+            }
+        }
+
+        // Flexible placement: last char not a vowel, scan backward
+        if let Some(last_ch) = self.buffer.chars().last() {
+            if !is_vowel(last_ch) {
+                let chars: Vec<char> = self.buffer.chars().collect();
+                for i in (0..chars.len()).rev() {
+                    if is_vowel(chars[i]) {
+                        // Try tone first (1-5)
+                        if let Some(modified) = apply_tone_to_vowel(chars[i], digit) {
+                            self.buffer = chars[..i].iter().collect::<String>();
+                            self.buffer.push(modified);
+                            for &c in &chars[i + 1..] {
+                                self.buffer.push(c);
+                            }
+                            return None;
+                        }
+                        // Try vowel modification (6-9, 0)
+                        if let Some(modified) = apply_digit_to_vowel(chars[i], digit) {
+                            self.buffer = chars[..i].iter().collect::<String>();
+                            self.buffer.push(modified);
+                            for &c in &chars[i + 1..] {
+                                self.buffer.push(c);
+                            }
+                            return None;
+                        }
+                    }
                 }
             }
         }

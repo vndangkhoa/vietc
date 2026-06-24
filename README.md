@@ -33,8 +33,6 @@ Most Vietnamese input methods on Linux suffer from **underline hell** — pre-ed
 
 > **Direct Input** — keystrokes are instantly converted to Unicode. No pre-edit buffer. No underline. No text duplication. Just pure Vietnamese.
 
-Inspired by [Gõ Nhanh](https://github.com/nickel-lang/nickel)'s brilliant UX, rebuilt native for Linux.
-
 ---
 
 ## Features
@@ -43,14 +41,13 @@ Inspired by [Gõ Nhanh](https://github.com/nickel-lang/nickel)'s brilliant UX, r
 |---------|-------------|
 | **Direct Input Engine** | No pre-edit buffer, no underline, no text duplication |
 | **Telex & VNI** | Both input methods fully supported |
+| **Flexible Diacritic Placement** | Type modifiers/tone marks at end of syllable (e.g., `tranaf` → `trần`) |
 | **Auto-Restore English** | Hit space/ESC to undo accidental Vietnamese conversion |
 | **ESC Undo** | Strip all tones from the current word instantly |
 | **Smart App Memory** | Remembers Vietnamese/English per application |
 | **Macro Expansion** | Custom shortcuts (e.g., `ko` → `không`) |
-| **Triple Backend** | uinput (universal), X11 XTEST, Wayland zwp_input_method_v2 |
+| **Uinput Injection** | Direct uinput keystroke injection (no display server needed) |
 | **Hot Reload** | Config changes apply without restart |
-| **Settings UI** | GTK4/Libadwaita GUI (optional) |
-| **System Tray** | KStatusNotifierItem tray app |
 | **Zero Telemetry** | No keylogging, no disk writes, fully FOSS |
 
 ---
@@ -59,18 +56,18 @@ Inspired by [Gõ Nhanh](https://github.com/nickel-lang/nickel)'s brilliant UX, r
 
 ```bash
 # Clone and build
-git clone https://github.com/vietplus/vietplus.git
-cd vietplus
+git clone https://git.khoavo.myds.me/vndangkhoa/vietc.git
+cd vietc
 make build
 
 # Test the engine interactively
-make test-cli
+cargo run --bin vietc-cli
 
-# Run the daemon (requires root for evdev/uinput)
+# Run the daemon (requires root for keyboard grab + uinput)
 sudo make run
 
-# Or install system-wide
-sudo make install
+# Or use the AppImage
+sudo ./Viet+-0.1.0-x86_64.AppImage
 ```
 
 ---
@@ -81,13 +78,13 @@ sudo make install
 
 | Key | Result | Example |
 |-----|--------|---------|
-| `aa` | ă | `dan` → `dăn` |
+| `aa` | â | `tan` → `tân` |
+| `aw` | ă | `tan` → `tăn` |
 | `ee` | ê | `men` → `mên` |
 | `oo` | ô | `to` → `tô` |
-| `aw` | â | `an` → `ân` |
-| `ow` | ô | `on` → `ôn` |
+| `ow` | ơ | `to` → `tơ` |
 | `ew` | ê | `en` → `ên` |
-| `uw` | ư | `un` → `ưn` |
+| `uw` | ư | `tu` → `tư` |
 | `s` | á (sắc) | `as` → `á` |
 | `f` | à (huyền) | `af` → `à` |
 | `r` | ả (hỏi) | `ar` → `ả` |
@@ -104,12 +101,12 @@ sudo make install
 | `a3` | ả |
 | `a4` | ã |
 | `a5` | ạ |
-| `a6` | ă |
-| `a7` | â |
-| `e8` | ê |
-| `o9` | ô |
-| `o0` | ơ |
-| `u0` | ư |
+| `a6` | â |
+| `a8` | ă |
+| `e6` | ê |
+| `o6` | ô |
+| `o7` | ơ |
+| `u7` | ư |
 
 ---
 
@@ -166,34 +163,17 @@ lm = "làm"
 | Settings UI | `libgtk-4-dev libadwaita-1-dev` | `gtk4-devel libadwaita-devel` | `gtk4 libadwaita` |
 | Tray icon | `libdbus-1-dev pkg-config` | `dbus-devel pkgconf` | `dbus pkgconf` |
 
-### Debian/Ubuntu
-
-```bash
-make deb
-sudo dpkg -i packaging/deb/vietc_0.1.0_amd64.deb
-sudo apt-get install -f
-```
-
-### AppImage
+### AppImage (recommended)
 
 ```bash
 make appimage
 # Requires appimagetool
-appimagetool packaging/appimage/AppDir Viet+-0.1.0-x86_64.AppImage
 ```
 
-### Arch Linux (AUR)
+The AppImage bundles all dependencies. Run with `sudo` for keyboard grab:
 
 ```bash
-cd packaging/aur
-makepkg -si
-```
-
-### Flatpak
-
-```bash
-flatpak-builder --user --install --force-clean build-dir \
-  packaging/flatpak/io.github.vietc.VietPlus.json
+sudo ./Viet+-0.1.0-x86_64.AppImage
 ```
 
 ### Manual Install
@@ -209,29 +189,17 @@ sudo make install-tray  # optional
 ## Building
 
 ```bash
-# Build core (daemon + CLI)
-make build
-
-# Build with X11 support
-make build-x11
-
-# Build with Wayland IM protocol
-make build-wayland
-
-# Build with all backends
+# Build all backends (uinput + X11 + Wayland)
 make build-all
 
-# Build settings UI (requires GTK4)
-make build-ui
-
-# Build tray icon (requires libdbus-1-dev)
-make build-tray
-
-# Run tests
+# Run tests (162+ engine tests)
 make test
 
 # Run interactive test harness
-make test-cli
+cargo run --bin vietc-cli
+
+# Build AppImage
+make appimage
 ```
 
 ---
@@ -240,24 +208,10 @@ make test-cli
 
 | Target | Description |
 |--------|-------------|
-| `make build` | Build core crates |
-| `make build-x11` | Build with X11 support |
-| `make build-wayland` | Build with Wayland IM protocol |
-| `make build-all` | Build with all backends |
-| `make build-ui` | Build settings UI |
-| `make build-tray` | Build tray icon app |
+| `make build-all` | Build all backends (uinput + X11 + Wayland) |
 | `make test` | Run all tests |
-| `make test-cli` | Interactive test harness |
-| `make run` | Run daemon (debug) |
-| `make install` | Install to /usr/local/bin |
-| `make install-x11` | Install with X11 |
-| `make install-wayland` | Install with Wayland IM |
-| `make install-ui` | Install settings UI |
-| `make install-tray` | Install tray icon |
-| `make install-all-ui` | Install both UI + tray |
-| `make install-config` | Install default config |
+| `make run` | Run daemon (debug, requires root) |
 | `make appimage` | Build AppImage package |
-| `make deb` | Build .deb package |
 | `make clean` | Clean build artifacts |
 | `make fmt` | Format code |
 | `make lint` | Run clippy |
@@ -274,13 +228,13 @@ viet+/
 │   │   ├── telex.rs       # Telex state machine
 │   │   ├── vni.rs         # VNI engine
 │   │   ├── english.rs     # English auto-restore dictionary
-│   │   └── tests.rs       # 124 unit tests
+│   │   └── tests.rs       # 162+ unit tests
 │   └── Cargo.toml
 ├── protocol/        # Injection backends
 │   ├── src/
 │   │   ├── inject.rs              # KeyInjector trait
-│   │   ├── uinput_monitor.rs      # Universal uinput backend
-│   │   ├── x11_inject.rs          # X11 XTEST backend
+│   │   ├── uinput_monitor.rs      # Universal uinput+ydotool backend
+│   │   ├── x11_inject.rs          # X11 XTEST fallback
 │   │   └── wayland_im.rs          # Wayland IM context
 │   └── Cargo.toml
 ├── daemon/          # Background daemon
@@ -299,10 +253,7 @@ viet+/
 │   │   └── config.rs      # UI config reader
 │   └── Cargo.toml
 ├── packaging/       # Distribution packages
-│   ├── aur/         # Arch Linux PKGBUILD
-│   ├── flatpak/     # Flatpak manifest
-│   ├── appimage/    # AppImage build scripts
-│   └── deb/         # Debian package
+│   └── appimage/    # AppImage build scripts
 ├── vietc.toml       # Default configuration
 ├── vietc.service    # Systemd user service
 ├── Makefile         # Build targets

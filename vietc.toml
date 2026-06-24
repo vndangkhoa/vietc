@@ -3,6 +3,7 @@
 input_method = "telex"
 toggle_key = "space"
 start_enabled = true
+grab = false
 
 [auto_restore]
 enabled = true

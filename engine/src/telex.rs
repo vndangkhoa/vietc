@@ -31,12 +31,13 @@ fn apply_tone_to_vowel(vowel: char, tone: char) -> Option<char> {
     None
 }
 
+
 fn apply_w_to_vowel(vowel: char) -> Option<char> {
-    // Telex: aw=â, ow=ô, ew=ê, uw=ư
-    // (aa=ă, ee=ê, oo=ô are handled by double-letter logic)
+    // Telex: aw=ă, ow=ơ, ew=ê, uw=ư
+    // (aa=â, ee=ê, oo=ô are handled by double-letter logic)
     match vowel {
-        'a' => Some('â'),
-        'o' => Some('ô'),
+        'a' => Some('ă'),
+        'o' => Some('ơ'),
         'e' => Some('ê'),
         'u' => Some('ư'),
         _ => None,
@@ -59,6 +60,11 @@ impl TelexEngine {
 
     pub fn reset(&mut self) {
         self.buffer.clear();
+        self.pending_modifier = None;
+    }
+
+    pub fn pop(&mut self) {
+        self.buffer.pop();
         self.pending_modifier = None;
     }
 
@@ -150,7 +156,7 @@ impl TelexEngine {
                         // For others → tone on first vowel
                         let tone_on_second = matches!(
                             (first, second),
-                            ('o', 'a') | ('o', 'e') | ('u', 'y')
+                            ('o', 'a') | ('o', 'e') | ('u', 'y') | ('i', 'ê') | ('y', 'ê')
                         );
                         if !tone_on_second {
                             // Apply tone to first vowel
@@ -188,11 +194,11 @@ impl TelexEngine {
     fn process_vowel_or_double(&mut self, ch: char) -> Option<EngineEvent> {
         self.apply_pending_to_last_vowel();
 
-        // Check for double-letter pattern
+        // Check for double-letter pattern (last char matches)
         if let Some(last_ch) = self.buffer.chars().last() {
             if last_ch == ch {
                 let replacement = match ch {
-                    'a' => Some('ă'),
+                    'a' => Some('â'),
                     'e' => Some('ê'),
                     'o' => Some('ô'),
                     _ => None,
@@ -202,6 +208,32 @@ impl TelexEngine {
                     self.buffer.pop();
                     self.buffer.push(rep);
                     return None;
+                }
+            }
+        }
+
+        // Flexible placement: if last char is not a vowel, scan backward
+        // for a matching vowel to form a double-vowel pair.
+        if matches!(ch, 'a' | 'e' | 'o') {
+            if let Some(last_ch) = self.buffer.chars().last() {
+                if !is_vowel(last_ch) {
+                    let chars: Vec<char> = self.buffer.chars().collect();
+                    for i in (0..chars.len()).rev() {
+                        if chars[i] == ch {
+                            let replacement = match ch {
+                                'a' => 'â',
+                                'e' => 'ê',
+                                'o' => 'ô',
+                                _ => unreachable!(),
+                            };
+                            self.buffer = chars[..i].iter().collect::<String>();
+                            self.buffer.push(replacement);
+                            for &c in &chars[i + 1..] {
+                                self.buffer.push(c);
+                            }
+                            return None;
+                        }
+                    }
                 }
             }
         }
@@ -219,6 +251,26 @@ impl TelexEngine {
                     self.buffer.pop();
                     self.buffer.push(modified);
                     return None;
+                }
+            }
+        }
+
+        // Flexible placement: if last char is not a vowel, scan backward
+        // for a vowel to apply the w modifier.
+        if let Some(last_ch) = self.buffer.chars().last() {
+            if !is_vowel(last_ch) {
+                let chars: Vec<char> = self.buffer.chars().collect();
+                for i in (0..chars.len()).rev() {
+                    if is_vowel(chars[i]) {
+                        if let Some(modified) = apply_w_to_vowel(chars[i]) {
+                            self.buffer = chars[..i].iter().collect::<String>();
+                            self.buffer.push(modified);
+                            for &c in &chars[i + 1..] {
+                                self.buffer.push(c);
+                            }
+                            return None;
+                        }
+                    }
                 }
             }
         }
@@ -258,3 +310,4 @@ impl TelexEngine {
         None
     }
 }
+

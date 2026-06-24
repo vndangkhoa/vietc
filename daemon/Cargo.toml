@@ -9,7 +9,7 @@ name = "vietc"
 path = "src/main.rs"
 
 [features]
-default = []
+default = ["x11", "wayland"]
 x11 = ["vietc-protocol/x11"]
 wayland = ["vietc-protocol/wayland-protocol"]
 
@@ -19,3 +19,5 @@ vietc-protocol = { path = "../protocol" }
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 evdev = "0.12"
+libc = "0.2"
+dirs = "5"

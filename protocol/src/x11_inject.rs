@@ -1,7 +1,91 @@
 use super::inject::{InjectResult, KeyInjector};
+use std::ffi::{c_char, c_int, c_void};
+
+type Display = c_void;
+type Window = u64;
+
+// Dynamic linker FFI
+extern "C" {
+    fn dlopen(filename: *const c_char, flag: c_int) -> *mut c_void;
+    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+    fn dlclose(handle: *mut c_void) -> c_int;
+}
+
+struct X11Lib {
+    x11_handle: *mut c_void,
+    xtst_handle: *mut c_void,
+    
+    // Symbols
+    x_open_display: unsafe extern "C" fn(*const c_char) -> *mut Display,
+    x_close_display: unsafe extern "C" fn(*mut Display) -> c_int,
+    x_default_root_window: unsafe extern "C" fn(*mut Display) -> Window,
+    x_flush: unsafe extern "C" fn(*mut Display) -> c_int,
+    x_test_fake_key_event: unsafe extern "C" fn(*mut Display, u32, c_int, u64) -> c_int,
+}
+
+impl X11Lib {
+    fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        unsafe {
+            let x11_paths = [
+                b"libX11.so.6\0".as_ptr() as *const c_char,
+                b"libX11.so\0".as_ptr() as *const c_char,
+            ];
+            let mut x11_handle = std::ptr::null_mut();
+            for path in x11_paths {
+                x11_handle = dlopen(path, 1); // RTLD_LAZY
+                if !x11_handle.is_null() {
+                    break;
+                }
+            }
+            if x11_handle.is_null() {
+                return Err("Failed to load libX11.so.6".into());
+            }
+
+            let xtst_paths = [
+                b"libXtst.so.6\0".as_ptr() as *const c_char,
+                b"libXtst.so\0".as_ptr() as *const c_char,
+            ];
+            let mut xtst_handle = std::ptr::null_mut();
+            for path in xtst_paths {
+                xtst_handle = dlopen(path, 1);
+                if !xtst_handle.is_null() {
+                    break;
+                }
+            }
+            if xtst_handle.is_null() {
+                dlclose(x11_handle);
+                return Err("Failed to load libXtst.so.6".into());
+            }
+
+            let x_open_display = std::mem::transmute(dlsym(x11_handle, b"XOpenDisplay\0".as_ptr() as *const c_char));
+            let x_close_display = std::mem::transmute(dlsym(x11_handle, b"XCloseDisplay\0".as_ptr() as *const c_char));
+            let x_default_root_window = std::mem::transmute(dlsym(x11_handle, b"XDefaultRootWindow\0".as_ptr() as *const c_char));
+            let x_flush = std::mem::transmute(dlsym(x11_handle, b"XFlush\0".as_ptr() as *const c_char));
+            let x_test_fake_key_event = std::mem::transmute(dlsym(xtst_handle, b"XTestFakeKeyEvent\0".as_ptr() as *const c_char));
+
+            Ok(Self {
+                x11_handle,
+                xtst_handle,
+                x_open_display,
+                x_close_display,
+                x_default_root_window,
+                x_flush,
+                x_test_fake_key_event,
+            })
+        }
+    }
+}
+
+impl Drop for X11Lib {
+    fn drop(&mut self) {
+        unsafe {
+            dlclose(self.x11_handle);
+            dlclose(self.xtst_handle);
+        }
+    }
+}
 
 // X11 keycodes for common ASCII characters
-// These are Linux evdev keycodes (same as X11 for most keys)
 fn char_to_keycode(ch: char) -> Option<(u32, bool)> {
     match ch {
         'a' => Some((30, false)), 'b' => Some((48, false)), 'c' => Some((46, false)),
@@ -34,14 +118,11 @@ fn char_to_keycode(ch: char) -> Option<(u32, bool)> {
     }
 }
 
-/// X11 injection backend using XTEST extension
-///
-/// Sends fake key events via XSendEvent/XTestFakeKeyEvent.
-/// Works on X11 sessions. Falls back to uinput on Wayland.
 pub struct X11Injector {
-    display: *mut xlib::Display,
+    lib: X11Lib,
+    display: *mut Display,
     #[allow(dead_code)]
-    window: xlib::Window,
+    window: Window,
 }
 
 unsafe impl Send for X11Injector {}
@@ -49,33 +130,43 @@ unsafe impl Sync for X11Injector {}
 
 impl X11Injector {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let lib = X11Lib::new()?;
         unsafe {
-            let display = xlib::XOpenDisplay(std::ptr::null());
+            let display = (lib.x_open_display)(std::ptr::null());
             if display.is_null() {
                 return Err("Cannot open X11 display. Is DISPLAY set?".into());
             }
-            let window = xlib::XDefaultRootWindow(display);
-            Ok(Self { display, window })
+            let window = (lib.x_default_root_window)(display);
+            Ok(Self { lib, display, window })
         }
     }
 
     fn send_keycode(&self, keycode: u32, shift: bool) {
         unsafe {
             if shift {
-                xlib::XTestFakeKeyEvent(self.display, 50, 1, 0); // Shift press
+                (self.lib.x_test_fake_key_event)(self.display, 50, 1, 0); // Shift press
             }
-            xlib::XTestFakeKeyEvent(self.display, keycode, 1, 0); // Key press
-            xlib::XTestFakeKeyEvent(self.display, keycode, 0, 0); // Key release
+            (self.lib.x_test_fake_key_event)(self.display, keycode, 1, 0); // Key press
+            (self.lib.x_test_fake_key_event)(self.display, keycode, 0, 0); // Key release
             if shift {
-                xlib::XTestFakeKeyEvent(self.display, 50, 0, 0); // Shift release
+                (self.lib.x_test_fake_key_event)(self.display, 50, 0, 0); // Shift release
             }
-            xlib::XFlush(self.display);
+            (self.lib.x_flush)(self.display);
         }
     }
 
     fn send_unicode_via_xdotool(&self, ch: char) {
-        // For Unicode chars, use xdotool type as fallback
+        // For Unicode chars, try ydotool first (uinput-based, works as root),
+        // then xdotool (X11 XTest) as fallback.
         let s = ch.to_string();
+        let ydotool_ok = std::process::Command::new("ydotool")
+            .args(["type", &s])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if ydotool_ok {
+            return;
+        }
         let _ = std::process::Command::new("xdotool")
             .args(["type", "--clearmodifiers", &s])
             .output();
@@ -93,7 +184,6 @@ impl KeyInjector for X11Injector {
             self.send_keycode(keycode, shift);
             InjectResult::Success
         } else {
-            // Unicode char - use xdotool
             self.send_unicode_via_xdotool(ch);
             InjectResult::Success
         }
@@ -107,34 +197,13 @@ impl KeyInjector for X11Injector {
     }
 
     fn flush(&self) -> InjectResult {
-        unsafe { xlib::XFlush(self.display); }
+        unsafe { (self.lib.x_flush)(self.display); }
         InjectResult::Success
     }
 }
 
 impl Drop for X11Injector {
     fn drop(&mut self) {
-        unsafe { xlib::XCloseDisplay(self.display); }
-    }
-}
-
-// Minimal Xlib/XTEST FFI
-mod xlib {
-    use std::ffi::c_void;
-
-    pub type Display = c_void;
-    pub type Window = u64;
-
-    extern "C" {
-        pub fn XOpenDisplay(name: *const std::ffi::c_char) -> *mut Display;
-        pub fn XCloseDisplay(display: *mut Display) -> std::ffi::c_int;
-        pub fn XDefaultRootWindow(display: *mut Display) -> Window;
-        pub fn XFlush(display: *mut Display) -> std::ffi::c_int;
-        pub fn XTestFakeKeyEvent(
-            display: *mut Display,
-            keycode: u32,
-            state: std::ffi::c_int,
-            time: u64,
-        ) -> std::ffi::c_int;
+        unsafe { (self.lib.x_close_display)(self.display); }
     }
 }

@@ -6,6 +6,6 @@ Comment=Vietnamese Input Method for Linux — Zero underline, native Wayland/X11
 Exec=vietc
 Icon=vietc
 Terminal=false
-Categories=Utility;System;
+Categories=Utility;
 Keywords=vietnamese;input;ime;keyboard;
 StartupNotify=false

@@ -24,6 +24,9 @@ pub struct Config {
 
     #[serde(default)]
     pub macros: HashMap<String, String>,
+
+    #[serde(default)]
+    pub grab: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -106,6 +109,13 @@ impl Config {
         let paths = [
             dirs().map(|d| d.join("vietc").join("config.toml")),
             Some(PathBuf::from("vietc.toml")),
+            // AppImage bundled config: <exe dir>/../../etc/vietc/config.toml
+            std::env::current_exe().ok().and_then(|exe| {
+                exe.parent()
+                    .and_then(|p| p.parent())
+                    .and_then(|p| p.parent())
+                    .map(|p| p.join("etc").join("vietc").join("config.toml"))
+            }),
         ];
 
         for path in paths.into_iter().flatten() {
@@ -149,6 +159,7 @@ impl Default for Config {
             auto_restore: AutoRestoreConfig::default(),
             app_state: AppStateConfig::default(),
             macros,
+            grab: false,
         }
     }
 }
@@ -168,6 +179,12 @@ pub fn find_config_path() -> PathBuf {
     let paths = [
         dirs().map(|d| d.join("vietc").join("config.toml")),
         Some(PathBuf::from("vietc.toml")),
+        std::env::current_exe().ok().and_then(|exe| {
+            exe.parent()
+                .and_then(|p| p.parent())
+                .and_then(|p| p.parent())
+                .map(|p| p.join("etc").join("vietc").join("config.toml"))
+        }),
     ];
 
     for path in paths.into_iter().flatten() {

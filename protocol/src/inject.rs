@@ -44,6 +44,9 @@ pub trait KeyInjector {
     fn send_backspace(&self) -> InjectResult;
     fn send_char(&self, ch: char) -> InjectResult;
     fn send_string(&self, s: &str) -> InjectResult;
+    fn send_key_event(&self, _keycode: u16, _value: i32) -> InjectResult {
+        InjectResult::NotSupported
+    }
     fn flush(&self) -> InjectResult;
 
     fn send_backspaces(&self, count: usize) -> InjectResult {
