@@ -484,6 +484,7 @@ fn run_with_evdev(
         for event in events {
             if let evdev::InputEventKind::Key(key) = event.kind() {
                 let value = event.value();
+                let keycode = key.0;
 
                 if value == 1
                     && is_toggle_combination_state(&key_state, &daemon.config.toggle_key)
@@ -497,20 +498,24 @@ fn run_with_evdev(
                     if value != 1 {
                         continue;
                     }
+                    if is_modifier_pressed(&key_state) {
+                        continue;
+                    }
                     if let Some(ch) = key_to_char(key) {
                         let commands = daemon.process_key(ch);
                         execute_commands(&*injector, &commands, false);
                     }
                 } else {
                     // Grabbing mode: all output goes through uinput only.
-                    // Physical evdev is grabbed — never forward through it,
-                    // as separate channels have no ordering guarantee.
-                    let keycode = key.0;
+                    
+                    // If Ctrl, Alt, or Meta/Super is pressed, bypass the engine completely and forward raw key events.
+                    if is_modifier_pressed(&key_state) {
+                        injector.send_key_event(keycode, value);
+                        continue;
+                    }
 
                     // Backspace in grab mode: pop engine, inject via uinput.
-                    // send_char('\x08') can't emit a keycode and falls through
-                    // to paste_string, which is wrong.
-                    if key == evdev::Key::KEY_BACKSPACE && grabbed {
+                    if key == evdev::Key::KEY_BACKSPACE {
                         if value == 1 || value == 2 {
                             daemon.engine.process_key('\x08');
                             injector.send_key_event(14, 1);
@@ -531,7 +536,7 @@ fn run_with_evdev(
                                 consumed_keys.insert(keycode);
                                 execute_commands(&*injector, &commands, true);
                             } else {
-                                injector.send_char(ch);
+                                injector.send_key_event(keycode, 1);
                             }
                         } else {
                             injector.send_key_event(keycode, 1);
@@ -541,12 +546,7 @@ fn run_with_evdev(
                         if consumed_keys.contains(&keycode) {
                             continue;
                         }
-                        if let Some(ch) = key_to_char(key) {
-                            injector.send_char(ch);
-                        } else {
-                            injector.send_key_event(keycode, 1);
-                            injector.send_key_event(keycode, 0);
-                        }
+                        injector.send_key_event(keycode, 2);
                     } else if value == 0 {
                         // Release: skip if consumed, else forward
                         if consumed_keys.contains(&keycode) {
@@ -729,6 +729,20 @@ fn create_injector(display: display::DisplayServer) -> Result<Box<dyn vietc_prot
     }
 
     Err("No injection backend available".into())
+}
+
+fn is_modifier_pressed(key_state: &Option<evdev::AttributeSet<evdev::Key>>) -> bool {
+    let key_state = match key_state {
+        Some(ks) => ks,
+        None => return false,
+    };
+
+    key_state.contains(evdev::Key::KEY_LEFTCTRL)
+        || key_state.contains(evdev::Key::KEY_RIGHTCTRL)
+        || key_state.contains(evdev::Key::KEY_LEFTALT)
+        || key_state.contains(evdev::Key::KEY_RIGHTALT)
+        || key_state.contains(evdev::Key::KEY_LEFTMETA)
+        || key_state.contains(evdev::Key::KEY_RIGHTMETA)
 }
 
 fn is_toggle_combination_state(key_state: &Option<evdev::AttributeSet<evdev::Key>>, key: &str) -> bool {
