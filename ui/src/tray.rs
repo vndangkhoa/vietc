@@ -32,15 +32,19 @@ fn ensure_icons() {
     let vn_path = icons_dir.join("vietc-vn.svg");
     let en_path = icons_dir.join("vietc-en.svg");
 
-    let _ = std::fs::write(&vn_path, r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+    if !vn_path.exists() {
+        let _ = std::fs::write(&vn_path, r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <rect x="2" y="2" width="28" height="28" rx="6" fill="#e02424"/>
   <text x="16" y="22" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="900" font-family="system-ui, sans-serif">VN</text>
 </svg>"##);
+    }
 
-    let _ = std::fs::write(&en_path, r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+    if !en_path.exists() {
+        let _ = std::fs::write(&en_path, r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <rect x="2" y="2" width="28" height="28" rx="6" fill="#4b5563"/>
   <text x="16" y="22" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="900" font-family="system-ui, sans-serif">EN</text>
 </svg>"##);
+    }
 }
 
 struct VietTray {

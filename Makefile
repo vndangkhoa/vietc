@@ -1,4 +1,4 @@
-.PHONY: build build-x11 build-wayland build-all build-ui build-tray test test-cli run run-x11 run-wayland clean install install-x11 install-wayland install-ui install-tray install-all-ui install-config appimage fmt lint tree
+.PHONY: build build-x11 build-wayland build-all build-ui test test-cli run run-x11 run-wayland clean install install-x11 install-wayland install-ui install-config appimage fmt lint tree
 
 # Build core crates
 build:
@@ -16,13 +16,9 @@ build-wayland:
 build-all:
 	cargo build --release --features "x11,wayland"
 
-# Build settings UI (requires GTK4 + libadwaita)
+# Build tray icon UI (requires libdbus-1-dev)
 build-ui:
-	cd ui && cargo build --release --bin vietc-settings
-
-# Build tray icon app (requires libdbus-1-dev)
-build-tray:
-	cd ui && cargo build --release --bin vietc-tray
+	cd ui && cargo build --release
 
 # Build debug
 build-dev:
@@ -69,18 +65,10 @@ install-wayland: build-wayland
 	sudo cp target/release/vietc /usr/local/bin/vietc
 	@echo "Installed vietc (with Wayland IM) to /usr/local/bin/"
 
-# Install settings UI
+# Install tray icon UI
 install-ui: build-ui
-	sudo cp ui/target/release/vietc-settings /usr/local/bin/vietc-settings
-	@echo "Installed vietc-settings to /usr/local/bin/"
-
-# Install tray icon app
-install-tray: build-tray
 	sudo cp ui/target/release/vietc-tray /usr/local/bin/vietc-tray
 	@echo "Installed vietc-tray to /usr/local/bin/"
-
-# Install all UI binaries
-install-all-ui: install-ui install-tray
 
 # Install config to user dir
 install-config:
