@@ -171,13 +171,15 @@ impl UinputInjector {
 
         if let Ok(content) = std::fs::read_to_string("/proc/self/loginuid") {
             if let Ok(uid) = content.trim().parse::<u32>() {
-                unsafe {
-                    let pw = libc::getpwuid(uid);
-                    if !pw.is_null() {
-                        let name = std::ffi::CStr::from_ptr((*pw).pw_name)
-                            .to_string_lossy().into_owned();
-                        if !name.is_empty() {
-                            return Some(name);
+                if uid != 4294967295 {
+                    unsafe {
+                        let pw = libc::getpwuid(uid);
+                        if !pw.is_null() {
+                            let name = std::ffi::CStr::from_ptr((*pw).pw_name)
+                                .to_string_lossy().into_owned();
+                            if !name.is_empty() {
+                                return Some(name);
+                            }
                         }
                     }
                 }
@@ -196,34 +198,84 @@ impl UinputInjector {
         None
     }
 
+    /// Get original non-root UID and GID when running as root.
+    fn get_original_uid_gid() -> Option<(u32, u32)> {
+        let is_root = unsafe { libc::getuid() == 0 };
+        if !is_root {
+            return None;
+        }
+
+        let mut target_uid = None;
+
+        if let Ok(uid_str) = std::env::var("SUDO_UID") {
+            if let Ok(uid) = uid_str.parse::<u32>() {
+                target_uid = Some(uid);
+            }
+        }
+
+        if target_uid.is_none() {
+            if let Ok(uid_str) = std::env::var("PKEXEC_UID") {
+                if let Ok(uid) = uid_str.parse::<u32>() {
+                    target_uid = Some(uid);
+                }
+            }
+        }
+
+        if target_uid.is_none() {
+            if let Ok(content) = std::fs::read_to_string("/proc/self/loginuid") {
+                if let Ok(uid) = content.trim().parse::<u32>() {
+                    if uid != 4294967295 {
+                        target_uid = Some(uid);
+                    }
+                }
+            }
+        }
+
+        if let Some(uid) = target_uid {
+            unsafe {
+                let pw = libc::getpwuid(uid);
+                if !pw.is_null() {
+                    let gid = (*pw).pw_gid;
+                    return Some((uid, gid));
+                }
+            }
+        }
+
+        None
+    }
+
     /// Run an external command as the original user if we're root.
-    /// Wayland tools (wtype, wl-copy) need the user's session, not root.
-    /// Uses explicit `env VAR=val` instead of `--preserve-env` for
-    /// compatibility with all sudo versions.
+    /// Uses native OS setuid/setgid to avoid slow PAM/logging/sudo startup overhead.
     fn run_as_user(program: &str, args: &[&str]) -> std::process::Output {
         let is_root = unsafe { libc::getuid() == 0 };
         if is_root {
-            if let Some(original_user) = Self::get_original_username() {
+            if let Some((uid, gid)) = Self::get_original_uid_gid() {
                 let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
                 let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
                 let display = std::env::var("DISPLAY").unwrap_or_default();
-                let mut cmd = std::process::Command::new("sudo");
-                cmd.args(["-u", &original_user, "env"]);
+                
+                use std::os::unix::process::CommandExt;
+                let mut cmd = std::process::Command::new(program);
+                cmd.uid(uid).gid(gid);
+                
                 if !wayland_display.is_empty() {
-                    cmd.arg(format!("WAYLAND_DISPLAY={}", wayland_display));
+                    cmd.env("WAYLAND_DISPLAY", wayland_display);
                 }
                 if !xdg_runtime_dir.is_empty() {
-                    cmd.arg(format!("XDG_RUNTIME_DIR={}", xdg_runtime_dir));
+                    cmd.env("XDG_RUNTIME_DIR", xdg_runtime_dir);
                 }
                 if !display.is_empty() {
-                    cmd.arg(format!("DISPLAY={}", display));
+                    cmd.env("DISPLAY", display);
                 }
-                cmd.arg(program);
+                if let Some(username) = Self::get_original_username() {
+                    cmd.env("HOME", format!("/home/{}", username));
+                }
+                
                 cmd.args(args);
                 match cmd.output() {
                     Ok(output) => return output,
                     Err(e) => {
-                        eprintln!("[vietc] Failed to run sudo -u {} env ... {} {}: {}", original_user, program, args.join(" "), e);
+                        eprintln!("[vietc] Failed to run {} as uid={}: {}", program, uid, e);
                         return std::process::Output {
                             status: std::process::ExitStatus::default(),
                             stdout: vec![],
@@ -231,8 +283,6 @@ impl UinputInjector {
                         };
                     }
                 }
-            } else {
-                eprintln!("[vietc] Running as root but could not determine original user");
             }
         }
         match std::process::Command::new(program).args(args).output() {
@@ -271,13 +321,17 @@ impl UinputInjector {
         // It is Unicode. We must use a single unified channel.
         let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
         
+        static HAS_WTYPE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        static HAS_XDOTOOL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
         if is_wayland {
-            // Under Wayland, we try to use `wtype` for both backspaces and text.
-            let has_wtype = std::process::Command::new("which")
-                .arg("wtype")
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
+            let has_wtype = *HAS_WTYPE.get_or_init(|| {
+                std::process::Command::new("which")
+                    .arg("wtype")
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false)
+            });
                 
             if has_wtype {
                 let mut args = Vec::new();
@@ -295,12 +349,13 @@ impl UinputInjector {
                 eprintln!("[vietc] wtype inject failed: {}", String::from_utf8_lossy(&output.stderr).trim());
             }
         } else {
-            // Under X11, we try to use `xdotool` for both backspaces and text.
-            let has_xdotool = std::process::Command::new("which")
-                .arg("xdotool")
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
+            let has_xdotool = *HAS_XDOTOOL.get_or_init(|| {
+                std::process::Command::new("which")
+                    .arg("xdotool")
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false)
+            });
                 
             if has_xdotool {
                 let mut args = Vec::new();

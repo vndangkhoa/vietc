@@ -64,9 +64,16 @@ impl Engine {
     }
 
     pub fn flush(&mut self) -> Option<EngineEvent> {
-        match self.input_method {
+        let event = match self.input_method {
             InputMethod::Telex => self.telex.flush(),
             InputMethod::Vni => self.vni.flush(),
+        };
+        if let Some(EngineEvent::Flush(word)) = event {
+            let cased = match_casing(&self.raw_buffer, &word);
+            self.raw_buffer.clear();
+            Some(EngineEvent::Flush(cased))
+        } else {
+            event
         }
     }
 
@@ -95,15 +102,16 @@ impl Engine {
         let stripped = strip_diacritics(buffer);
         let backspaces = buffer.chars().count();
         let had_tones = stripped != buffer;
+        let cased_stripped = match_casing(&self.raw_buffer, &stripped);
         self.reset();
 
         if had_tones {
             Some(EngineEvent::UndoTones {
                 backspaces,
-                restored: stripped,
+                restored: cased_stripped,
             })
         } else {
-            Some(EngineEvent::Flush(stripped))
+            Some(EngineEvent::Flush(cased_stripped))
         }
     }
 
@@ -137,15 +145,21 @@ impl Engine {
             return None;
         }
 
-        if ch == ' ' || ch == '\t' || ch == '.' || ch == ',' || ch == '!' || ch == '?'
-            || ch == ';' || ch == ':' || ch == '\n'
+        let lowercase_ch = if ch.is_ascii() {
+            ch.to_ascii_lowercase()
+        } else {
+            ch.to_lowercase().next().unwrap_or(ch)
+        };
+
+        if lowercase_ch == ' ' || lowercase_ch == '\t' || lowercase_ch == '.' || lowercase_ch == ',' || lowercase_ch == '!' || lowercase_ch == '?'
+            || lowercase_ch == ';' || lowercase_ch == ':' || lowercase_ch == '\n'
         {
             if self.raw_buffer.is_empty() {
                 return None;
             }
 
             // Check for macro expansion before auto-restore
-            let macro_expansion = self.macros.get(&self.raw_buffer).cloned();
+            let macro_expansion = self.macros.get(&self.raw_buffer.to_lowercase()).cloned();
             if let Some(expansion) = macro_expansion {
                 let previous_raw_len = self.raw_buffer.chars().count();
                 self.reset();
@@ -180,13 +194,14 @@ impl Engine {
             let previous_inner = self.buffer().to_string();
             let previous_inner_len = previous_inner.chars().count();
             
+            let previous_inner_cased = match_casing(&self.raw_buffer, &previous_inner);
             let flush_event = self.flush();
-            let mut final_word = previous_inner.clone();
+            let mut final_word = previous_inner_cased.clone();
             if let Some(EngineEvent::Flush(word)) = flush_event {
                 final_word = word;
             }
 
-            let result = if final_word != previous_inner {
+            let result = if final_word != previous_inner_cased {
                 Some(EngineEvent::Replace {
                     backspaces: previous_inner_len + 1,
                     insert: format!("{}{}", final_word, ch),
@@ -204,17 +219,18 @@ impl Engine {
         self.raw_buffer.push(ch);
 
         match self.input_method {
-            InputMethod::Telex => { self.telex.process_key(ch); }
-            InputMethod::Vni => { self.vni.process_key(ch); }
+            InputMethod::Telex => { self.telex.process_key(lowercase_ch); }
+            InputMethod::Vni => { self.vni.process_key(lowercase_ch); }
         }
 
         let new_inner = self.buffer().to_string();
-        let expected_screen = format!("{}{}", previous_inner, ch);
+        let expected_screen = format!("{}{}", previous_inner, lowercase_ch);
 
         if new_inner != expected_screen {
+            let cased_inner = match_casing(&self.raw_buffer, &new_inner);
             Some(EngineEvent::Replace {
                 backspaces: previous_inner.chars().count() + 1,
-                insert: new_inner,
+                insert: cased_inner,
             })
         } else {
             None
@@ -263,6 +279,32 @@ fn strip_diacritics(s: &str) -> String {
             other => other,
         })
         .collect()
+}
+
+fn match_casing(raw: &str, processed: &str) -> String {
+    if raw.is_empty() || processed.is_empty() {
+        return processed.to_string();
+    }
+
+    let alphabetic_chars: Vec<char> = raw.chars().filter(|c| c.is_alphabetic()).collect();
+    if alphabetic_chars.is_empty() {
+        return processed.to_string();
+    }
+
+    let all_upper = alphabetic_chars.iter().all(|c| c.is_uppercase());
+    let first_upper = alphabetic_chars[0].is_uppercase();
+
+    if all_upper {
+        processed.to_uppercase()
+    } else if first_upper {
+        let mut chars = processed.chars();
+        match chars.next() {
+            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            None => processed.to_string(),
+        }
+    } else {
+        processed.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -317,5 +359,42 @@ mod tests {
         }).collect();
 
         assert!(output.contains("không"));
+    }
+
+    #[test]
+    fn test_casing_preservation() {
+        let mut engine = Engine::new(InputMethod::Telex);
+
+        // Lowercase: "sats" -> "sát"
+        engine.reset();
+        let _ = engine.process_key('s');
+        let _ = engine.process_key('a');
+        let _ = engine.process_key('t');
+        let _ = engine.process_key('s');
+        assert_eq!(engine.buffer(), "sát");
+
+        // Titlecase: "Sats" -> "Sát"
+        engine.reset();
+        engine.process_key('S');
+        engine.process_key('a');
+        engine.process_key('t');
+        let event = engine.process_key('s');
+        if let Some(EngineEvent::Replace { insert, .. }) = event {
+            assert_eq!(insert, "Sát");
+        } else {
+            panic!("Expected Replace event, got {:?}", event);
+        }
+
+        // Uppercase: "SATS" -> "SÁT"
+        engine.reset();
+        engine.process_key('S');
+        engine.process_key('A');
+        engine.process_key('T');
+        let event2 = engine.process_key('S');
+        if let Some(EngineEvent::Replace { insert, .. }) = event2 {
+            assert_eq!(insert, "SÁT");
+        } else {
+            panic!("Expected Replace event, got {:?}", event2);
+        }
     }
 }

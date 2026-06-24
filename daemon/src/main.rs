@@ -448,6 +448,7 @@ fn run_with_evdev(
             return Ok(());
         }
 
+        let caps = is_caps_lock_on(&device);
         let key_state = device.get_key_state().ok();
         let events = device.fetch_events()?;
         last_event_time = std::time::Instant::now();
@@ -530,7 +531,13 @@ fn run_with_evdev(
                         if consumed_keys.contains(&keycode) {
                             consumed_keys.remove(&keycode);
                         }
-                        if let Some(ch) = key_to_char(key) {
+                        if let Some(mut ch) = key_to_char(key) {
+                            let shift = is_modifier_held_shift(&key_state);
+                            if ch.is_ascii_alphabetic() {
+                                if shift ^ caps {
+                                    ch = ch.to_ascii_uppercase();
+                                }
+                            }
                             let commands = daemon.process_key(ch);
                             if !commands.is_empty() {
                                 consumed_keys.insert(keycode);
@@ -743,6 +750,22 @@ fn is_modifier_pressed(key_state: &Option<evdev::AttributeSet<evdev::Key>>) -> b
         || key_state.contains(evdev::Key::KEY_RIGHTALT)
         || key_state.contains(evdev::Key::KEY_LEFTMETA)
         || key_state.contains(evdev::Key::KEY_RIGHTMETA)
+}
+
+fn is_modifier_held_shift(key_state: &Option<evdev::AttributeSet<evdev::Key>>) -> bool {
+    let ks = match key_state {
+        Some(ks) => ks,
+        None => return false,
+    };
+    ks.contains(evdev::Key::KEY_LEFTSHIFT) || ks.contains(evdev::Key::KEY_RIGHTSHIFT)
+}
+
+fn is_caps_lock_on(device: &evdev::Device) -> bool {
+    if let Ok(leds) = device.get_led_state() {
+        leds.contains(evdev::LedType::LED_CAPSL)
+    } else {
+        false
+    }
 }
 
 fn is_toggle_combination_state(key_state: &Option<evdev::AttributeSet<evdev::Key>>, key: &str) -> bool {
