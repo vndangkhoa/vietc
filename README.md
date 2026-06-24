@@ -16,6 +16,36 @@
   <sub>Zero underline &bull; Native Wayland/X11 &bull; Built in Rust</sub>
 </p>
 
+## About Viet+
+
+Viet+ is a modern Vietnamese input method for Linux that eliminates the **underline hell** common in other Vietnamese IMEs. Unlike traditional solutions that use pre-edit buffers with ugly underlines and duplicate text, Viet+ implements a **Direct Input** approach:
+
+- **No pre-edit buffer** — keystrokes are instantly converted to Unicode
+- **No underline** — clean, distraction-free typing
+- **No text duplication** — just pure Vietnamese
+- **Smart modifier overriding** — most recently typed shape modifier key takes precedence
+- **Tone preservation** — tones are preserved perfectly when overriding shape modifiers
+- **Both Telex and VNI** — support for both Vietnamese input methods
+
+The engine handles complex linguistic rules including:
+- Shape modifier overriding (â↔ă, ô↔ơ, ơ→ô, ă→â)
+- Smart cluster handling (uô+w→ươ, ươ+o→uô)
+- VNI digit modifiers (6/7/8) following the same override logic
+- Flexible end-of-word placement for tones and modifiers
+- Complex consonant handling (ngh, ngh, đ)
+
+The injection layer ensures Vietnamese characters appear correctly by running injection tools (xdotool, wtype, wl-copy, xclip) as the original user, not root, to access the display. This works on both X11 (pkexec) and Wayland (sudo) without requiring password dialogs.
+
+Viet+ is designed for high performance with native setuid/setgid user context switching to avoid slow sudo/PAM overhead, zero telemetry, and full FOSS licensing.
+
+## Why Viet+?
+
+Most Vietnamese input methods on Linux suffer from **underline hell** — pre-edit buffers that duplicate text, show ugly underlines, and break your flow. Viet+ takes a different approach:
+
+> **Direct Input** — keystrokes are instantly converted to Unicode. No pre-edit buffer. No underline. No text duplication. Just pure Vietnamese.
+
+---
+
 <p align="center">
   <a href="#features">Features</a> &bull;
   <a href="#quick-start">Quick Start</a> &bull;
