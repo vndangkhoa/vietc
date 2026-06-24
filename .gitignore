@@ -11,3 +11,4 @@ Cargo.lock
 packaging/appimage/AppDir/
 packaging/deb/vietc_*/
 packaging/appimage/appimagetool
+status
