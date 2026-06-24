@@ -24,7 +24,23 @@ unsafe impl Send for UinputInjector {}
 unsafe impl Sync for UinputInjector {}
 
 impl UinputInjector {
+    fn start_ydotoold() {
+        // ydotoold must be running for ydotool to handle Unicode characters.
+        // ydotool in direct mode crashes with "no matching keycode" for
+        // non-ASCII chars. Start it once; ignore failure (daemon may already
+        // exist).
+        let _ = std::process::Command::new("ydotoold")
+            .arg("--fork")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        // Give it a moment to start
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+
     pub fn new(name: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::start_ydotoold();
+
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -332,18 +348,48 @@ impl UinputInjector {
         {
             return true;
         }
-        // Try xclip (X11)
-        std::process::Command::new("xclip")
-            .args(["-selection", "clipboard"])
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                use std::io::Write;
-                child.stdin.take().unwrap().write_all(s.as_bytes())?;
-                child.wait()
-            })
-            .map(|status| status.success())
-            .unwrap_or(false)
+        // Try xclip (X11). When root, run as SUDO_USER so it can connect to X.
+        let xclip_result = if is_root {
+            if let Ok(sudo_user) = std::env::var("SUDO_USER") {
+                let display = std::env::var("DISPLAY").unwrap_or_default();
+                let mut cmd = std::process::Command::new("sudo");
+                cmd.args(["-u", &sudo_user, "env"]);
+                if !display.is_empty() {
+                    cmd.arg(format!("DISPLAY={}", display));
+                }
+                cmd.arg("xclip");
+                cmd.args(["-selection", "clipboard"]);
+                cmd.stdin(std::process::Stdio::piped())
+                    .spawn()
+                    .and_then(|mut child| {
+                        use std::io::Write;
+                        child.stdin.take().unwrap().write_all(s.as_bytes())?;
+                        child.wait()
+                    })
+                    .map(|status| status.success())
+                    .unwrap_or(false)
+            } else {
+                false
+            }
+        } else {
+            std::process::Command::new("xclip")
+                .args(["-selection", "clipboard"])
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .and_then(|mut child| {
+                    use std::io::Write;
+                    child.stdin.take().unwrap().write_all(s.as_bytes())?;
+                    child.wait()
+                })
+                .map(|status| status.success())
+                .unwrap_or(false)
+        };
+
+        if xclip_result {
+            return true;
+        }
+
+        false
     }
 
     /// Send Ctrl+V through our uinput device.

@@ -130,6 +130,7 @@ impl Daemon {
         let mut commands = Vec::new();
 
         if let Some(event) = self.engine.process_key(ch) {
+            eprintln!("[vietc] key='{}' buf='{}' -> {:?}", ch, self.engine.buffer(), event);
             match event {
                 EngineEvent::Flush(text) => {
                     commands.push(OutputCommand::Type(text));
@@ -151,6 +152,8 @@ impl Daemon {
                     commands.push(OutputCommand::Type(restored));
                 }
             }
+        } else {
+            eprintln!("[vietc] key='{}' -> (no event, buf='{}')", ch, self.engine.buffer());
         }
 
         commands
@@ -576,20 +579,19 @@ fn execute_commands(injector: &dyn vietc_protocol::KeyInjector, commands: &[Outp
     for cmd in commands {
         match cmd {
             OutputCommand::Backspace(count) => {
-                // The engine adds +1 to account for the current character key.
-                // With grabbing that key was never forwarded to the app, so
-                // we subtract 1. Without grab, the key WAS forwarded, so we
-                // use the full count.
                 let adjusted = if grabbed { count.saturating_sub(1) } else { *count };
+                eprintln!("[vietc] cmd: Backspace({}) -> adjusted={}", count, adjusted);
                 pending_backspaces += adjusted;
             }
             OutputCommand::Type(text) => {
+                eprintln!("[vietc] cmd: Type(\"{}\")", text);
                 pending_text.push_str(text);
             }
         }
     }
 
     if pending_backspaces > 0 || !pending_text.is_empty() {
+        eprintln!("[vietc] inject: BS={} text=\"{}\"", pending_backspaces, pending_text);
         injector.inject_replacement(pending_backspaces, &pending_text);
     }
     injector.flush();
