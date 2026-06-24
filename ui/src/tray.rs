@@ -24,26 +24,64 @@ fn current_im() -> String {
     config::Config::load().input_method
 }
 
+fn draw_line(data: &mut [u8], x0: i32, y0: i32, x1: i32, y1: i32, color: [u8; 4]) {
+    let dx = (x1 - x0).abs();
+    let dy = (y1 - y0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx - dy;
+    let mut x = x0;
+    let mut y = y0;
+    loop {
+        if x >= 0 && x < 32 && y >= 0 && y < 32 {
+            let idx = ((y * 32 + x) * 4) as usize;
+            data[idx..idx+4].copy_from_slice(&color);
+        }
+        if x == x1 && y == y1 { break; }
+        let e2 = 2 * err;
+        if e2 > -dy {
+            err -= dy;
+            x += sx;
+        }
+        if e2 < dx {
+            err += dx;
+            y += sy;
+        }
+    }
+}
+
 fn ensure_icons() {
     let Some(config_dir) = dirs::config_dir() else { return };
     let icons_dir = config_dir.join("vietc").join("icons");
-    let _ = std::fs::create_dir_all(&icons_dir);
+    let theme_dir = icons_dir.join("hicolor").join("scalable").join("apps");
+    let _ = std::fs::create_dir_all(&theme_dir);
 
-    let vn_path = icons_dir.join("vietc-vn.svg");
-    let en_path = icons_dir.join("vietc-en.svg");
+    let vn_flat = icons_dir.join("vietc-vn.svg");
+    let en_flat = icons_dir.join("vietc-en.svg");
+    let vn_theme = theme_dir.join("vietc-vn.svg");
+    let en_theme = theme_dir.join("vietc-en.svg");
 
-    if !vn_path.exists() {
-        let _ = std::fs::write(&vn_path, r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+    let svg_vn = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <rect x="2" y="2" width="28" height="28" rx="6" fill="#e02424"/>
   <text x="16" y="22" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="900" font-family="system-ui, sans-serif">VN</text>
-</svg>"##);
-    }
+</svg>"##;
 
-    if !en_path.exists() {
-        let _ = std::fs::write(&en_path, r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+    let svg_en = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <rect x="2" y="2" width="28" height="28" rx="6" fill="#4b5563"/>
   <text x="16" y="22" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="900" font-family="system-ui, sans-serif">EN</text>
-</svg>"##);
+</svg>"##;
+
+    if !vn_flat.exists() {
+        let _ = std::fs::write(&vn_flat, svg_vn);
+    }
+    if !en_flat.exists() {
+        let _ = std::fs::write(&en_flat, svg_en);
+    }
+    if !vn_theme.exists() {
+        let _ = std::fs::write(&vn_theme, svg_vn);
+    }
+    if !en_theme.exists() {
+        let _ = std::fs::write(&en_theme, svg_en);
     }
 }
 
@@ -178,6 +216,78 @@ impl Tray for VietTray {
             .unwrap_or_default()
     }
 
+    fn icon_pixmap(&self) -> Vec<ksni::Icon> {
+        let is_vn = self.mode == "vn";
+        let bg_color = if is_vn {
+            [255, 224, 36, 36] // A, R, G, B
+        } else {
+            [255, 75, 85, 99]
+        };
+        let fg_color = [255, 255, 255, 255];
+        
+        let mut data = vec![0u8; 32 * 32 * 4];
+        for y in 0..32 {
+            for x in 0..32 {
+                let mut inside = true;
+                if x < 7 && y < 7 {
+                    if (x - 7) * (x - 7) + (y - 7) * (y - 7) > 36 { inside = false; }
+                } else if x > 24 && y < 7 {
+                    if (x - 24) * (x - 24) + (y - 7) * (y - 7) > 36 { inside = false; }
+                } else if x < 7 && y > 24 {
+                    if (x - 7) * (x - 7) + (y - 24) * (y - 24) > 36 { inside = false; }
+                } else if x > 24 && y > 24 {
+                    if (x - 24) * (x - 24) + (y - 24) * (y - 24) > 36 { inside = false; }
+                }
+                
+                let idx = ((y * 32 + x) * 4) as usize;
+                if inside {
+                    data[idx] = bg_color[0];
+                    data[idx + 1] = bg_color[1];
+                    data[idx + 2] = bg_color[2];
+                    data[idx + 3] = bg_color[3];
+                }
+            }
+        }
+
+        if is_vn {
+            // V
+            draw_line(&mut data, 6, 10, 11, 21, fg_color);
+            draw_line(&mut data, 7, 10, 12, 21, fg_color);
+            draw_line(&mut data, 11, 21, 15, 10, fg_color);
+            draw_line(&mut data, 12, 21, 16, 10, fg_color);
+            // N
+            draw_line(&mut data, 18, 10, 18, 21, fg_color);
+            draw_line(&mut data, 19, 10, 19, 21, fg_color);
+            draw_line(&mut data, 18, 10, 26, 21, fg_color);
+            draw_line(&mut data, 19, 10, 27, 21, fg_color);
+            draw_line(&mut data, 26, 10, 26, 21, fg_color);
+            draw_line(&mut data, 27, 10, 27, 21, fg_color);
+        } else {
+            // E
+            draw_line(&mut data, 6, 10, 6, 21, fg_color);
+            draw_line(&mut data, 7, 10, 7, 21, fg_color);
+            draw_line(&mut data, 6, 10, 15, 10, fg_color);
+            draw_line(&mut data, 6, 11, 15, 11, fg_color);
+            draw_line(&mut data, 6, 15, 13, 15, fg_color);
+            draw_line(&mut data, 6, 16, 13, 16, fg_color);
+            draw_line(&mut data, 6, 20, 15, 20, fg_color);
+            draw_line(&mut data, 6, 21, 15, 21, fg_color);
+            // N
+            draw_line(&mut data, 18, 10, 18, 21, fg_color);
+            draw_line(&mut data, 19, 10, 19, 21, fg_color);
+            draw_line(&mut data, 18, 10, 26, 21, fg_color);
+            draw_line(&mut data, 19, 10, 27, 21, fg_color);
+            draw_line(&mut data, 26, 10, 26, 21, fg_color);
+            draw_line(&mut data, 27, 10, 27, 21, fg_color);
+        }
+
+        vec![ksni::Icon {
+            width: 32,
+            height: 32,
+            data,
+        }]
+    }
+
     fn activate(&mut self, _x: i32, _y: i32) {
         let next = if self.mode == "vn" { "en" } else { "vn" };
         write_status(&next);
@@ -193,6 +303,19 @@ impl Tray for VietTray {
 
         let mut items = vec![
             CheckmarkItem {
+                label: "Start with System".into(),
+                checked: self.autostart,
+                activate: Box::new(|this: &mut VietTray| {
+                    if this.autostart {
+                        config::uninstall_autostart();
+                    } else {
+                        config::install_autostart();
+                    }
+                }),
+                ..Default::default()
+            }.into(),
+            MenuItem::Separator,
+            CheckmarkItem {
                 label: "Vietnamese Mode".into(),
                 checked: is_vn,
                 activate: Box::new(|this: &mut VietTray| {
@@ -205,7 +328,6 @@ impl Tray for VietTray {
                 }),
                 ..Default::default()
             }.into(),
-            MenuItem::Separator,
             SubMenu {
                 label: "Input Method".into(),
                 submenu: vec![
@@ -224,19 +346,6 @@ impl Tray for VietTray {
                         ],
                     }.into(),
                 ],
-                ..Default::default()
-            }.into(),
-            MenuItem::Separator,
-            CheckmarkItem {
-                label: "Start with System".into(),
-                checked: self.autostart,
-                activate: Box::new(|this: &mut VietTray| {
-                    if this.autostart {
-                        config::uninstall_autostart();
-                    } else {
-                        config::install_autostart();
-                    }
-                }),
                 ..Default::default()
             }.into(),
         ];
@@ -275,10 +384,10 @@ impl Tray for VietTray {
 
         items.push(MenuItem::Separator);
         items.push(StandardItem {
-            label: "about me - khoavo.myds.me".into(),
+            label: "About: Viet+".into(),
             activate: Box::new(|_| {
                 let _ = std::process::Command::new("xdg-open")
-                    .arg("https://khoavo.myds.me")
+                    .arg("https://git.khoavo.myds.me/vndangkhoa/vietc")
                     .status();
             }),
             ..Default::default()
