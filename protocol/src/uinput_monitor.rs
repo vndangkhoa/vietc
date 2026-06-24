@@ -24,23 +24,7 @@ unsafe impl Send for UinputInjector {}
 unsafe impl Sync for UinputInjector {}
 
 impl UinputInjector {
-    fn start_ydotoold() {
-        // ydotoold must be running for ydotool to handle Unicode characters.
-        // ydotool in direct mode crashes with "no matching keycode" for
-        // non-ASCII chars. Start it once; ignore failure (daemon may already
-        // exist).
-        let _ = std::process::Command::new("ydotoold")
-            .arg("--fork")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
-        // Give it a moment to start
-        std::thread::sleep(std::time::Duration::from_millis(200));
-    }
-
     pub fn new(name: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        Self::start_ydotoold();
-
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -206,59 +190,20 @@ impl UinputInjector {
     }
 
     /// Send backspaces and text through a single injection channel to avoid
-    /// reordering between uinput (backspaces) and ydotool (text).
+    /// reordering between input methods. Backspaces always go through uinput
+    /// (kernel device, no display server dependency). Text is typed via the
+    /// best available method: ydotool (uinput) for ASCII, xdotool (X11) or
+    /// clipboard for Unicode.
     fn inject_replacement_atomic(&self, backspaces: usize, text: &str) -> InjectResult {
-        // Use ydotool for everything — backspaces via `key BackSpace` and
-        // text via `type`. Since both go through ydotool's uinput device,
-        // the kernel delivers them in the correct order.
-        if backspaces > 0 || !text.is_empty() {
-            let mut args: Vec<&str> = Vec::new();
-            for _ in 0..backspaces {
-                args.push("key");
-                args.push("BackSpace");
-            }
-            if !text.is_empty() {
-                args.push("type");
-                args.push(text);
-            }
-            // ydotool runs directly (uses uinput, no display server needed)
-            let output = std::process::Command::new("ydotool")
-                .args(&args)
-                .output();
-            if let Ok(output) = output {
-                if output.status.success() {
-                    return InjectResult::Success;
-                }
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                if !stderr.is_empty() {
-                    eprintln!("[vietc] ydotool failed: {}", stderr.trim());
-                }
-            }
-        }
-        // Fallback: wtype with -k BackSpace (Wayland) or uinput backspaces + paste
-        if backspaces > 0 || !text.is_empty() {
-            let mut wtype_args: Vec<&str> = Vec::new();
-            let mut bs_flags: Vec<String> = Vec::new();
-            for _ in 0..backspaces {
-                bs_flags.push("-k".to_string());
-                bs_flags.push("BackSpace".to_string());
-            }
-            for a in &bs_flags {
-                wtype_args.push(a);
-            }
-            wtype_args.push(text);
-            let output = Self::run_as_user("wtype", &wtype_args);
-            if output.status.success() {
-                return InjectResult::Success;
-            }
-        }
-        // Last resort: uinput backspaces + paste_string
+        // Backspaces via uinput — reliable, no display server needed
         if backspaces > 0 {
+            eprintln!("[vietc] uinput backspace x{}", backspaces);
             for _ in 0..backspaces {
                 let _ = self.send_backspace();
             }
         }
         if !text.is_empty() {
+            eprintln!("[vietc] text injection: \"{}\"", text);
             self.paste_string(text);
         }
         InjectResult::Success
@@ -269,35 +214,61 @@ impl UinputInjector {
     /// unavailable. Prefers ydotool (uinput, works everywhere) to avoid
     /// clipboard pollution.
     fn paste_string(&self, s: &str) {
-        // ydotool uses uinput (kernel device), works as root without any
-        // display server access. No need for run_as_user.
-        let output = std::process::Command::new("ydotool")
-            .args(["type", s])
-            .output();
-        if let Ok(output) = output {
-            if output.status.success() {
-                return;
+        let has_unicode = s.chars().any(|c| c > '\x7f');
+
+        if !has_unicode {
+            // Pure ASCII: ydotool works reliably (no keycode mapping issues).
+            let output = std::process::Command::new("ydotool")
+                .args(["type", s])
+                .output();
+            if let Ok(output) = output {
+                if output.status.success() {
+                    eprintln!("[vietc] ydotool OK");
+                    return;
+                }
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if !stderr.is_empty() {
+                    eprintln!("[vietc] ydotool failed: {}", stderr.trim());
+                }
+                eprintln!("[vietc] ydotool failed, trying xdotool...");
             }
+        } else {
+            eprintln!("[vietc] contains Unicode, skipping ydotool");
         }
-        eprintln!("[vietc] ydotool failed, trying xdotool...");
+
         // Try xdotool (X11): needs DISPLAY, run through run_as_user
+        eprintln!("[vietc] trying xdotool...");
         let output = Self::run_as_user("xdotool", &["type", "--clearmodifiers", s]);
         if output.status.success() {
+            eprintln!("[vietc] xdotool OK");
             return;
         }
-        eprintln!("[vietc] xdotool not available, trying wtype...");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.is_empty() {
+            eprintln!("[vietc] xdotool failed: {}", stderr.trim());
+        }
+
         // Try wtype (Wayland-native): needs Wayland session, run through run_as_user
+        eprintln!("[vietc] xdotool failed, trying wtype...");
         let output = Self::run_as_user("wtype", &[s]);
         if output.status.success() {
+            eprintln!("[vietc] wtype OK");
             return;
         }
-        eprintln!("[vietc] wtype not available, trying clipboard paste...");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.is_empty() {
+            eprintln!("[vietc] wtype failed: {}", stderr.trim());
+        }
+
         // Clipboard fallback: copy + paste via our uinput
+        eprintln!("[vietc] wtype failed, trying clipboard paste...");
         let copied = self.copy_to_clipboard(s);
         if copied {
+            eprintln!("[vietc] clipboard OK, sending Ctrl+V");
             self.send_ctrl_v();
             return;
         }
+
         eprintln!("[vietc] WARNING: No injection method works for '{}'!", s);
     }
 
@@ -309,6 +280,8 @@ impl UinputInjector {
                 let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
                 let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
                 let display = std::env::var("DISPLAY").unwrap_or_default();
+                eprintln!("[vietc] clipboard: is_root, SUDO_USER={} DISPLAY={} WAYLAND={} XDG_RUNTIME_DIR={}",
+                    sudo_user, display, wayland_display, xdg_runtime_dir);
                 let mut cmd = std::process::Command::new("sudo");
                 cmd.args(["-u", &sudo_user, "env"]);
                 if !wayland_display.is_empty() {
@@ -321,6 +294,7 @@ impl UinputInjector {
                     cmd.arg(format!("DISPLAY={}", display));
                 }
                 cmd.arg("wl-copy");
+                eprintln!("[vietc] clipboard: trying wl-copy via {:?}", cmd);
                 let result = cmd
                     .stdin(std::process::Stdio::piped())
                     .spawn()
@@ -331,24 +305,38 @@ impl UinputInjector {
                     });
                 if let Ok(status) = result {
                     if status.success() {
+                        eprintln!("[vietc] clipboard: wl-copy OK");
                         return true;
                     }
+                    eprintln!("[vietc] clipboard: wl-copy failed (exit={:?})", status.code());
+                } else if let Err(ref e) = result {
+                    eprintln!("[vietc] clipboard: wl-copy error: {}", e);
                 }
+            } else {
+                eprintln!("[vietc] clipboard: is_root but no SUDO_USER");
             }
-        } else if std::process::Command::new("wl-copy")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                use std::io::Write;
-                child.stdin.take().unwrap().write_all(s.as_bytes())?;
-                child.wait()
-            })
-            .map(|status| status.success())
-            .unwrap_or(false)
-        {
-            return true;
+        } else {
+            eprintln!("[vietc] clipboard: not root, trying wl-copy directly");
+            let result = std::process::Command::new("wl-copy")
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .and_then(|mut child| {
+                    use std::io::Write;
+                    child.stdin.take().unwrap().write_all(s.as_bytes())?;
+                    child.wait()
+                });
+            if let Ok(status) = result {
+                if status.success() {
+                    eprintln!("[vietc] clipboard: wl-copy OK");
+                    return true;
+                }
+                eprintln!("[vietc] clipboard: wl-copy failed (exit={:?})", status.code());
+            } else if let Err(ref e) = result {
+                eprintln!("[vietc] clipboard: wl-copy error: {}", e);
+            }
         }
         // Try xclip (X11). When root, run as SUDO_USER so it can connect to X.
+        eprintln!("[vietc] clipboard: trying xclip...");
         let xclip_result = if is_root {
             if let Ok(sudo_user) = std::env::var("SUDO_USER") {
                 let display = std::env::var("DISPLAY").unwrap_or_default();
@@ -359,6 +347,7 @@ impl UinputInjector {
                 }
                 cmd.arg("xclip");
                 cmd.args(["-selection", "clipboard"]);
+                eprintln!("[vietc] clipboard: xclip via {:?}", cmd);
                 cmd.stdin(std::process::Stdio::piped())
                     .spawn()
                     .and_then(|mut child| {
@@ -366,12 +355,24 @@ impl UinputInjector {
                         child.stdin.take().unwrap().write_all(s.as_bytes())?;
                         child.wait()
                     })
-                    .map(|status| status.success())
-                    .unwrap_or(false)
+                    .map(|status| {
+                        if status.success() {
+                            eprintln!("[vietc] clipboard: xclip OK");
+                        } else {
+                            eprintln!("[vietc] clipboard: xclip failed (exit={:?})", status.code());
+                        }
+                        status.success()
+                    })
+                    .unwrap_or_else(|e| {
+                        eprintln!("[vietc] clipboard: xclip error: {}", e);
+                        false
+                    })
             } else {
+                eprintln!("[vietc] clipboard: is_root but no SUDO_USER in xclip path");
                 false
             }
         } else {
+            eprintln!("[vietc] clipboard: not root, trying xclip directly");
             std::process::Command::new("xclip")
                 .args(["-selection", "clipboard"])
                 .stdin(std::process::Stdio::piped())
@@ -381,15 +382,21 @@ impl UinputInjector {
                     child.stdin.take().unwrap().write_all(s.as_bytes())?;
                     child.wait()
                 })
-                .map(|status| status.success())
-                .unwrap_or(false)
+                .map(|status| {
+                    if status.success() {
+                        eprintln!("[vietc] clipboard: xclip OK");
+                    } else {
+                        eprintln!("[vietc] clipboard: xclip failed (exit={:?})", status.code());
+                    }
+                    status.success()
+                })
+                .unwrap_or_else(|e| {
+                    eprintln!("[vietc] clipboard: xclip error: {}", e);
+                    false
+                })
         };
 
-        if xclip_result {
-            return true;
-        }
-
-        false
+        xclip_result
     }
 
     /// Send Ctrl+V through our uinput device.
