@@ -76,6 +76,11 @@ install-config:
 	cp vietc.toml ~/.config/vietc/config.toml
 	@echo "Config installed to ~/.config/vietc/config.toml"
 
+# Build .deb package (requires dpkg-deb)
+deb:
+	VERSION=$$(grep '^version' engine/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/') && \
+	bash packaging/deb/build-deb.sh "$$VERSION"
+
 # Build AppImage (requires appimagetool or linuxdeploy)
 appimage:
 	VERSION=$$(grep '^version' engine/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/') && \
