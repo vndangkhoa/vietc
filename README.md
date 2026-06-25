@@ -92,7 +92,7 @@ Most Vietnamese input methods on Linux suffer from **underline hell** — pre-ed
 # Clone and build
 git clone https://git.khoavo.myds.me/vndangkhoa/vietc.git
 cd vietc
-make build
+make build-all
 
 # Test the engine interactively
 cargo run --bin vietc-cli
@@ -100,8 +100,9 @@ cargo run --bin vietc-cli
 # Run the daemon (requires root for keyboard grab + uinput)
 sudo make run
 
-# Or use the AppImage
-sudo ./Viet+-0.1.0-x86_64.AppImage
+# Or download a package from the releases page
+#   AppImage: ./Viet+-0.1.0-x86_64.AppImage
+#   Debian:   sudo dpkg -i vietc_0.1.0-1_amd64.deb
 ```
 
 ---
@@ -197,14 +198,24 @@ lm = "làm"
 | Core daemon | *(none)* | *(none)* | *(none)* |
 | Tray icon | `libdbus-1-dev pkg-config` | `dbus-devel pkgconf` | `dbus pkgconf` |
 
-### AppImage (recommended)
+### Debian/Ubuntu Package
+
+```bash
+sudo dpkg -i vietc_0.1.0-1_amd64.deb
+# Or build from source:
+make deb
+```
+
+The .deb installs the daemon, CLI, tray icon, systemd user service, and config.
+
+### AppImage
 
 ```bash
 make appimage
 # Requires appimagetool
 ```
 
-The AppImage bundles all dependencies. Run with `sudo` for keyboard grab:
+Run with `sudo` for keyboard grab:
 
 ```bash
 sudo ./Viet+-0.1.0-x86_64.AppImage
@@ -214,7 +225,7 @@ sudo ./Viet+-0.1.0-x86_64.AppImage
 
 ```bash
 sudo make install
-sudo make install-tray  # optional
+sudo make install-ui  # tray icon (optional)
 ```
 
 ---
@@ -231,8 +242,9 @@ make test
 # Run interactive test harness
 cargo run --bin vietc-cli
 
-# Build AppImage
-make appimage
+# Build packages
+make deb        # .deb package
+make appimage   # AppImage
 ```
 
 ---
@@ -242,9 +254,13 @@ make appimage
 | Target | Description |
 |--------|-------------|
 | `make build-all` | Build all backends (uinput + X11 + Wayland) |
+| `make build-ui` | Build tray icon UI |
 | `make test` | Run all tests |
 | `make run` | Run daemon (debug, requires root) |
+| `make deb` | Build .deb package |
 | `make appimage` | Build AppImage package |
+| `make install` | Install binaries to `/usr/local/bin` |
+| `make install-ui` | Install tray icon |
 | `make clean` | Clean build artifacts |
 | `make fmt` | Format code |
 | `make lint` | Run clippy |
@@ -285,7 +301,8 @@ viet+/
 │   │   └── config.rs      # UI config reader
 │   └── Cargo.toml
 ├── packaging/       # Distribution packages
-│   └── appimage/    # AppImage build scripts
+│   ├── appimage/    # AppImage build scripts
+│   └── deb/         # .deb package build scripts
 ├── vietc.toml       # Default configuration
 ├── vietc.service    # Systemd user service
 ├── Makefile         # Build targets
@@ -301,5 +318,5 @@ MIT License - see [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  <sub>Made with ❤️ for the Vietnamese Linux community</sub>
+  <sub>Made with love for the Vietnamese Linux community</sub>
 </p>
