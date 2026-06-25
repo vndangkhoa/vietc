@@ -85,35 +85,49 @@ impl Drop for X11Lib {
     }
 }
 
+// Linux-to-X11 keycode offset (X11 keycodes = Linux keycodes + 8)
+const X11_KEYCODE_OFFSET: u32 = 8;
+
 // X11 keycodes for common ASCII characters
 fn char_to_keycode(ch: char) -> Option<(u32, bool)> {
     match ch {
-        'a' => Some((30, false)), 'b' => Some((48, false)), 'c' => Some((46, false)),
-        'd' => Some((32, false)), 'e' => Some((18, false)), 'f' => Some((33, false)),
-        'g' => Some((34, false)), 'h' => Some((35, false)), 'i' => Some((23, false)),
-        'j' => Some((36, false)), 'k' => Some((37, false)), 'l' => Some((38, false)),
-        'm' => Some((50, false)), 'n' => Some((49, false)), 'o' => Some((24, false)),
-        'p' => Some((25, false)), 'q' => Some((16, false)), 'r' => Some((19, false)),
-        's' => Some((31, false)), 't' => Some((20, false)), 'u' => Some((22, false)),
-        'v' => Some((47, false)), 'w' => Some((17, false)), 'x' => Some((45, false)),
-        'y' => Some((21, false)), 'z' => Some((44, false)),
-        'A' => Some((30, true)), 'B' => Some((48, true)), 'C' => Some((46, true)),
-        'D' => Some((32, true)), 'E' => Some((18, true)), 'F' => Some((33, true)),
-        'G' => Some((34, true)), 'H' => Some((35, true)), 'I' => Some((23, true)),
-        'J' => Some((36, true)), 'K' => Some((37, true)), 'L' => Some((38, true)),
-        'M' => Some((50, true)), 'N' => Some((49, true)), 'O' => Some((24, true)),
-        'P' => Some((25, true)), 'Q' => Some((16, true)), 'R' => Some((19, true)),
-        'S' => Some((31, true)), 'T' => Some((20, true)), 'U' => Some((22, true)),
-        'V' => Some((47, true)), 'W' => Some((17, true)), 'X' => Some((45, true)),
-        'Y' => Some((21, true)), 'Z' => Some((44, true)),
-        '0' => Some((11, false)), '1' => Some((2, false)), '2' => Some((3, false)),
-        '3' => Some((4, false)), '4' => Some((5, false)), '5' => Some((6, false)),
-        '6' => Some((7, false)), '7' => Some((8, false)), '8' => Some((9, false)),
-        '9' => Some((10, false)),
-        ' ' => Some((57, false)), '.' => Some((52, false)), ',' => Some((51, false)),
-        '-' => Some((12, false)), '=' => Some((13, false)), ';' => Some((39, false)),
-        '\'' => Some((40, false)), '/' => Some((53, false)), '\\' => Some((43, false)),
-        '`' => Some((41, false)), '[' => Some((26, false)), ']' => Some((27, false)),
+        'a' => Some((30 + X11_KEYCODE_OFFSET, false)), 'b' => Some((48 + X11_KEYCODE_OFFSET, false)),
+        'c' => Some((46 + X11_KEYCODE_OFFSET, false)), 'd' => Some((32 + X11_KEYCODE_OFFSET, false)),
+        'e' => Some((18 + X11_KEYCODE_OFFSET, false)), 'f' => Some((33 + X11_KEYCODE_OFFSET, false)),
+        'g' => Some((34 + X11_KEYCODE_OFFSET, false)), 'h' => Some((35 + X11_KEYCODE_OFFSET, false)),
+        'i' => Some((23 + X11_KEYCODE_OFFSET, false)), 'j' => Some((36 + X11_KEYCODE_OFFSET, false)),
+        'k' => Some((37 + X11_KEYCODE_OFFSET, false)), 'l' => Some((38 + X11_KEYCODE_OFFSET, false)),
+        'm' => Some((50 + X11_KEYCODE_OFFSET, false)), 'n' => Some((49 + X11_KEYCODE_OFFSET, false)),
+        'o' => Some((24 + X11_KEYCODE_OFFSET, false)), 'p' => Some((25 + X11_KEYCODE_OFFSET, false)),
+        'q' => Some((16 + X11_KEYCODE_OFFSET, false)), 'r' => Some((19 + X11_KEYCODE_OFFSET, false)),
+        's' => Some((31 + X11_KEYCODE_OFFSET, false)), 't' => Some((20 + X11_KEYCODE_OFFSET, false)),
+        'u' => Some((22 + X11_KEYCODE_OFFSET, false)), 'v' => Some((47 + X11_KEYCODE_OFFSET, false)),
+        'w' => Some((17 + X11_KEYCODE_OFFSET, false)), 'x' => Some((45 + X11_KEYCODE_OFFSET, false)),
+        'y' => Some((21 + X11_KEYCODE_OFFSET, false)), 'z' => Some((44 + X11_KEYCODE_OFFSET, false)),
+        'A' => Some((30 + X11_KEYCODE_OFFSET, true)), 'B' => Some((48 + X11_KEYCODE_OFFSET, true)),
+        'C' => Some((46 + X11_KEYCODE_OFFSET, true)), 'D' => Some((32 + X11_KEYCODE_OFFSET, true)),
+        'E' => Some((18 + X11_KEYCODE_OFFSET, true)), 'F' => Some((33 + X11_KEYCODE_OFFSET, true)),
+        'G' => Some((34 + X11_KEYCODE_OFFSET, true)), 'H' => Some((35 + X11_KEYCODE_OFFSET, true)),
+        'I' => Some((23 + X11_KEYCODE_OFFSET, true)), 'J' => Some((36 + X11_KEYCODE_OFFSET, true)),
+        'K' => Some((37 + X11_KEYCODE_OFFSET, true)), 'L' => Some((38 + X11_KEYCODE_OFFSET, true)),
+        'M' => Some((50 + X11_KEYCODE_OFFSET, true)), 'N' => Some((49 + X11_KEYCODE_OFFSET, true)),
+        'O' => Some((24 + X11_KEYCODE_OFFSET, true)), 'P' => Some((25 + X11_KEYCODE_OFFSET, true)),
+        'Q' => Some((16 + X11_KEYCODE_OFFSET, true)), 'R' => Some((19 + X11_KEYCODE_OFFSET, true)),
+        'S' => Some((31 + X11_KEYCODE_OFFSET, true)), 'T' => Some((20 + X11_KEYCODE_OFFSET, true)),
+        'U' => Some((22 + X11_KEYCODE_OFFSET, true)), 'V' => Some((47 + X11_KEYCODE_OFFSET, true)),
+        'W' => Some((17 + X11_KEYCODE_OFFSET, true)), 'X' => Some((45 + X11_KEYCODE_OFFSET, true)),
+        'Y' => Some((21 + X11_KEYCODE_OFFSET, true)), 'Z' => Some((44 + X11_KEYCODE_OFFSET, true)),
+        '0' => Some((11 + X11_KEYCODE_OFFSET, false)), '1' => Some((2 + X11_KEYCODE_OFFSET, false)),
+        '2' => Some((3 + X11_KEYCODE_OFFSET, false)), '3' => Some((4 + X11_KEYCODE_OFFSET, false)),
+        '4' => Some((5 + X11_KEYCODE_OFFSET, false)), '5' => Some((6 + X11_KEYCODE_OFFSET, false)),
+        '6' => Some((7 + X11_KEYCODE_OFFSET, false)), '7' => Some((8 + X11_KEYCODE_OFFSET, false)),
+        '8' => Some((9 + X11_KEYCODE_OFFSET, false)), '9' => Some((10 + X11_KEYCODE_OFFSET, false)),
+        ' ' => Some((57 + X11_KEYCODE_OFFSET, false)), '.' => Some((52 + X11_KEYCODE_OFFSET, false)),
+        ',' => Some((51 + X11_KEYCODE_OFFSET, false)), '-' => Some((12 + X11_KEYCODE_OFFSET, false)),
+        '=' => Some((13 + X11_KEYCODE_OFFSET, false)), ';' => Some((39 + X11_KEYCODE_OFFSET, false)),
+        '\'' => Some((40 + X11_KEYCODE_OFFSET, false)), '/' => Some((53 + X11_KEYCODE_OFFSET, false)),
+        '\\' => Some((43 + X11_KEYCODE_OFFSET, false)), '`' => Some((41 + X11_KEYCODE_OFFSET, false)),
+        '[' => Some((26 + X11_KEYCODE_OFFSET, false)), ']' => Some((27 + X11_KEYCODE_OFFSET, false)),
         _ => None,
     }
 }
@@ -189,10 +203,10 @@ impl X11Injector {
             .unwrap_or(false);
         if copied {
             unsafe {
-                (self.lib.x_test_fake_key_event)(self.display, 29, 1, 0); // Ctrl press
-                (self.lib.x_test_fake_key_event)(self.display, 47, 1, 0); // V press
-                (self.lib.x_test_fake_key_event)(self.display, 47, 0, 0); // V release
-                (self.lib.x_test_fake_key_event)(self.display, 29, 0, 0); // Ctrl release
+                (self.lib.x_test_fake_key_event)(self.display, 37, 1, 0); // Ctrl press (X11 keycode)
+                (self.lib.x_test_fake_key_event)(self.display, 55, 1, 0); // V press (X11 keycode)
+                (self.lib.x_test_fake_key_event)(self.display, 55, 0, 0); // V release
+                (self.lib.x_test_fake_key_event)(self.display, 37, 0, 0); // Ctrl release
                 (self.lib.x_flush)(self.display);
             }
         }
@@ -292,10 +306,10 @@ impl KeyInjector for X11Injector {
                 }
             }
             unsafe {
-                (self.lib.x_test_fake_key_event)(self.display, 29, 1, 0); // Ctrl press
-                (self.lib.x_test_fake_key_event)(self.display, 47, 1, 0); // V press
-                (self.lib.x_test_fake_key_event)(self.display, 47, 0, 0); // V release
-                (self.lib.x_test_fake_key_event)(self.display, 29, 0, 0); // Ctrl release
+                (self.lib.x_test_fake_key_event)(self.display, 37, 1, 0); // Ctrl press (X11 keycode)
+                (self.lib.x_test_fake_key_event)(self.display, 55, 1, 0); // V press (X11 keycode)
+                (self.lib.x_test_fake_key_event)(self.display, 55, 0, 0); // V release
+                (self.lib.x_test_fake_key_event)(self.display, 37, 0, 0); // Ctrl release
                 (self.lib.x_flush)(self.display);
             }
             InjectResult::Success

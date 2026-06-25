@@ -451,12 +451,22 @@ impl VniEngine {
 
     fn apply_pending(&mut self) {
         if let Some(modifier) = self.pending_modifier.take() {
-            if let Some(last_ch) = self.buffer.chars().last() {
-                if is_vowel(last_ch) {
-                    if let Some(modified) = apply_digit_to_vowel(last_ch, modifier) {
-                        self.buffer.pop();
+            let chars: Vec<char> = self.buffer.chars().collect();
+            if chars.is_empty() {
+                return;
+            }
+            // Try last char first, then scan backwards (flexible backtrack)
+            let start = chars.len().saturating_sub(MAX_FLEXIBLE_BACKTRACK);
+            for i in (start..chars.len()).rev() {
+                if is_vowel(chars[i]) {
+                    if let Some(modified) = apply_digit_to_vowel(chars[i], modifier) {
+                        self.buffer = chars[..i].iter().collect::<String>();
                         self.buffer.push(modified);
+                        for &c in &chars[i + 1..] {
+                            self.buffer.push(c);
+                        }
                     }
+                    return;
                 }
             }
         }
