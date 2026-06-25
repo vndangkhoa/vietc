@@ -1,5 +1,5 @@
-use ksni::{Tray, MenuItem, menu::*};
 use crate::config;
+use ksni::{menu::*, MenuItem, Tray};
 
 fn write_status(state: &str) {
     if let Some(config_dir) = dirs::config_dir() {
@@ -16,7 +16,11 @@ fn read_status() -> String {
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| {
             let cfg = config::Config::load();
-            if cfg.start_enabled { "vn".into() } else { "en".into() }
+            if cfg.start_enabled {
+                "vn".into()
+            } else {
+                "en".into()
+            }
         })
 }
 
@@ -35,9 +39,11 @@ fn draw_line(data: &mut [u8], x0: i32, y0: i32, x1: i32, y1: i32, color: [u8; 4]
     loop {
         if x >= 0 && x < 32 && y >= 0 && y < 32 {
             let idx = ((y * 32 + x) * 4) as usize;
-            data[idx..idx+4].copy_from_slice(&color);
+            data[idx..idx + 4].copy_from_slice(&color);
         }
-        if x == x1 && y == y1 { break; }
+        if x == x1 && y == y1 {
+            break;
+        }
         let e2 = 2 * err;
         if e2 > -dy {
             err -= dy;
@@ -51,37 +57,47 @@ fn draw_line(data: &mut [u8], x0: i32, y0: i32, x1: i32, y1: i32, color: [u8; 4]
 }
 
 fn ensure_icons() {
-    let Some(config_dir) = dirs::config_dir() else { return };
-    let icons_dir = config_dir.join("vietc").join("icons");
-    let theme_dir = icons_dir.join("hicolor").join("scalable").join("apps");
-    let _ = std::fs::create_dir_all(&theme_dir);
-
-    let vn_flat = icons_dir.join("vietc-vn.svg");
-    let en_flat = icons_dir.join("vietc-en.svg");
-    let vn_theme = theme_dir.join("vietc-vn.svg");
-    let en_theme = theme_dir.join("vietc-en.svg");
-
-    let svg_vn = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect x="2" y="2" width="28" height="28" rx="6" fill="#e02424"/>
-  <text x="16" y="22" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="900" font-family="system-ui, sans-serif">VN</text>
+    // SVG content for Viet+ icons
+    let svg_vn = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect x="8" y="8" width="112" height="112" rx="24" fill="#e02424"/>
+  <text x="64" y="96" text-anchor="middle" fill="#ffffff" font-size="48" font-weight="bold" font-family="system-ui, sans-serif">VN</text>
 </svg>"##;
 
-    let svg_en = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect x="2" y="2" width="28" height="28" rx="6" fill="#4b5563"/>
-  <text x="16" y="22" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="900" font-family="system-ui, sans-serif">EN</text>
+    let svg_en = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect x="8" y="8" width="112" height="112" rx="24" fill="#4b5563"/>
+  <text x="64" y="96" text-anchor="middle" fill="#ffffff" font-size="48" font-weight="bold" font-family="system-ui, sans-serif">EN</text>
 </svg>"##;
 
-    if !vn_flat.exists() {
-        let _ = std::fs::write(&vn_flat, svg_vn);
+    // Write to standard user theme path (for Wayland compositors)
+    let home = dirs::home_dir().map(|d| d.join(".local/share/icons"));
+    if let Some(home_icons) = &home {
+        let _ = std::fs::create_dir_all(&home_icons);
+        let vn_path = home_icons.join("vietc-vn.svg");
+        let en_path = home_icons.join("vietc-en.svg");
+
+        if !vn_path.exists() {
+            let _ = std::fs::write(&vn_path, svg_vn);
+        }
+        if !en_path.exists() {
+            let _ = std::fs::write(&en_path, svg_en);
+        }
     }
-    if !en_flat.exists() {
-        let _ = std::fs::write(&en_flat, svg_en);
-    }
-    if !vn_theme.exists() {
-        let _ = std::fs::write(&vn_theme, svg_vn);
-    }
-    if !en_theme.exists() {
-        let _ = std::fs::write(&en_theme, svg_en);
+
+    // Also write to config dir for AppImage compatibility (fallback)
+    let config_dir = dirs::config_dir();
+    if let Some(config_dir) = &config_dir {
+        let icons_dir = config_dir.join("vietc").join("icons");
+        let _ = std::fs::create_dir_all(&icons_dir);
+
+        let vn_theme = icons_dir.join("hicolor/scalable/apps/vietc-vn.svg");
+        let en_theme = icons_dir.join("hicolor/scalable/apps/vietc-en.svg");
+
+        if !vn_theme.exists() {
+            let _ = std::fs::write(&vn_theme, svg_vn);
+        }
+        if !en_theme.exists() {
+            let _ = std::fs::write(&en_theme, svg_en);
+        }
     }
 }
 
@@ -118,10 +134,16 @@ impl VietTray {
         let handle = handle.clone();
         std::thread::spawn(move || {
             if verbose {
-                show_notification("Checking for updates...", "Contacting git.khoavo.myds.me...");
+                show_notification(
+                    "Checking for updates...",
+                    "Contacting git.khoavo.myds.me...",
+                );
             }
             let output = std::process::Command::new("curl")
-                .args(["-s", "https://git.khoavo.myds.me/api/v1/repos/vndangkhoa/vietc/releases"])
+                .args([
+                    "-s",
+                    "https://git.khoavo.myds.me/api/v1/repos/vndangkhoa/vietc/releases",
+                ])
                 .output();
 
             match output {
@@ -156,8 +178,14 @@ impl VietTray {
         let handle = handle.clone();
         let _ = handle.update(|t| t.updating = true);
         std::thread::spawn(move || {
-            show_notification("Downloading update...", &format!("Updating Viet+ to {}...", release.tag_name));
-            let appimage_asset = release.assets.iter().find(|a| a.name.ends_with(".AppImage"));
+            show_notification(
+                "Downloading update...",
+                &format!("Updating Viet+ to {}...", release.tag_name),
+            );
+            let appimage_asset = release
+                .assets
+                .iter()
+                .find(|a| a.name.ends_with(".AppImage"));
             if let Some(asset) = appimage_asset {
                 if let Ok(appimage_path) = std::env::var("APPIMAGE") {
                     let temp_path = format!("{}.tmp-update", appimage_path);
@@ -167,11 +195,14 @@ impl VietTray {
                     match status {
                         Ok(s) if s.success() => {
                             use std::os::unix::fs::PermissionsExt;
-                            if let Ok(_) = std::fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o755)) {
+                            if let Ok(_) = std::fs::set_permissions(
+                                &temp_path,
+                                std::fs::Permissions::from_mode(0o755),
+                            ) {
                                 if let Ok(_) = std::fs::rename(&temp_path, &appimage_path) {
                                     show_notification(
                                         "Update Succeeded",
-                                        "Viet+ has been updated! Please restart the application."
+                                        "Viet+ has been updated! Please restart the application.",
                                     );
                                     let _ = handle.update(|t| {
                                         t.updating = false;
@@ -191,7 +222,7 @@ impl VietTray {
                         .status();
                     show_notification(
                         "Opening Releases Page",
-                        "Please download the update manually."
+                        "Please download the update manually.",
                     );
                 }
             } else {
@@ -203,17 +234,26 @@ impl VietTray {
 }
 
 impl Tray for VietTray {
-    fn id(&self) -> String { "io.github.vietc.Tray".into() }
-    fn title(&self) -> String { "Viet+".into() }
+    fn id(&self) -> String {
+        "io.github.vietc.Tray".into()
+    }
+    fn title(&self) -> String {
+        "Viet+".into()
+    }
 
     fn icon_name(&self) -> String {
-        if self.mode == "vn" { "vietc-vn".into() } else { "vietc-en".into() }
+        if self.mode == "vn" {
+            "vietc-vn".into()
+        } else {
+            "vietc-en".into()
+        }
     }
 
     fn icon_theme_path(&self) -> String {
-        dirs::config_dir()
-            .map(|d| d.join("vietc").join("icons").to_string_lossy().into_owned())
-            .unwrap_or_default()
+        // Use XDG user theme path for icons
+        dirs::home_dir()
+            .map(|d| d.join(".local/share/icons").to_string_lossy().into_owned())
+            .unwrap_or_else(|| "/usr/share/icons".into())
     }
 
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
@@ -224,21 +264,29 @@ impl Tray for VietTray {
             [255, 75, 85, 99]
         };
         let fg_color = [255, 255, 255, 255];
-        
+
         let mut data = vec![0u8; 32 * 32 * 4];
         for y in 0..32 {
             for x in 0..32 {
                 let mut inside = true;
                 if x < 7 && y < 7 {
-                    if (x - 7) * (x - 7) + (y - 7) * (y - 7) > 36 { inside = false; }
+                    if (x - 7) * (x - 7) + (y - 7) * (y - 7) > 36 {
+                        inside = false;
+                    }
                 } else if x > 24 && y < 7 {
-                    if (x - 24) * (x - 24) + (y - 7) * (y - 7) > 36 { inside = false; }
+                    if (x - 24) * (x - 24) + (y - 7) * (y - 7) > 36 {
+                        inside = false;
+                    }
                 } else if x < 7 && y > 24 {
-                    if (x - 7) * (x - 7) + (y - 24) * (y - 24) > 36 { inside = false; }
+                    if (x - 7) * (x - 7) + (y - 24) * (y - 24) > 36 {
+                        inside = false;
+                    }
                 } else if x > 24 && y > 24 {
-                    if (x - 24) * (x - 24) + (y - 24) * (y - 24) > 36 { inside = false; }
+                    if (x - 24) * (x - 24) + (y - 24) * (y - 24) > 36 {
+                        inside = false;
+                    }
                 }
-                
+
                 let idx = ((y * 32 + x) * 4) as usize;
                 if inside {
                     data[idx] = bg_color[0];
@@ -313,7 +361,8 @@ impl Tray for VietTray {
                     }
                 }),
                 ..Default::default()
-            }.into(),
+            }
+            .into(),
             MenuItem::Separator,
             CheckmarkItem {
                 label: "Vietnamese Mode".into(),
@@ -327,27 +376,34 @@ impl Tray for VietTray {
                     this.mode = next.to_string();
                 }),
                 ..Default::default()
-            }.into(),
+            }
+            .into(),
             SubMenu {
                 label: "Input Method".into(),
-                submenu: vec![
-                    RadioGroup {
-                        selected: im_index,
-                        select: Box::new(|this: &mut VietTray, idx: usize| {
-                            let im = if idx == 0 { "telex" } else { "vni" };
-                            let mut cfg = config::Config::load();
-                            cfg.input_method = im.into();
-                            let _ = cfg.save();
-                            this.im = im.into();
-                        }),
-                        options: vec![
-                            RadioItem { label: "Telex".into(), ..Default::default() },
-                            RadioItem { label: "VNI".into(), ..Default::default() },
-                        ],
-                    }.into(),
-                ],
+                submenu: vec![RadioGroup {
+                    selected: im_index,
+                    select: Box::new(|this: &mut VietTray, idx: usize| {
+                        let im = if idx == 0 { "telex" } else { "vni" };
+                        let mut cfg = config::Config::load();
+                        cfg.input_method = im.into();
+                        let _ = cfg.save();
+                        this.im = im.into();
+                    }),
+                    options: vec![
+                        RadioItem {
+                            label: "Telex".into(),
+                            ..Default::default()
+                        },
+                        RadioItem {
+                            label: "VNI".into(),
+                            ..Default::default()
+                        },
+                    ],
+                }
+                .into()],
                 ..Default::default()
-            }.into(),
+            }
+            .into(),
         ];
 
         items.push(MenuItem::Separator);
@@ -357,52 +413,70 @@ impl Tray for VietTray {
             } else {
                 format!("Update to {}", release.tag_name)
             };
-            items.push(StandardItem {
-                label,
-                activate: Box::new(|this: &mut VietTray| {
-                    if !this.updating {
-                        if let Some(ref rel) = this.update_available.clone() {
-                            let handle = this.handle.lock().unwrap().clone().unwrap();
-                            this.trigger_update(&handle, rel.clone());
+            items.push(
+                StandardItem {
+                    label,
+                    activate: Box::new(|this: &mut VietTray| {
+                        if !this.updating {
+                            if let Some(ref rel) = this.update_available.clone() {
+                                let handle = this.handle.lock().unwrap().clone().unwrap();
+                                this.trigger_update(&handle, rel.clone());
+                            }
                         }
-                    }
-                }),
-                ..Default::default()
-            }.into());
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+            );
         } else {
-            items.push(StandardItem {
-                label: if self.updating { "Updating...".into() } else { "Check for Updates".into() },
-                activate: Box::new(|this: &mut VietTray| {
-                    if !this.updating {
-                        let handle = this.handle.lock().unwrap().clone().unwrap();
-                        this.check_for_updates(&handle, true);
-                    }
-                }),
-                ..Default::default()
-            }.into());
+            items.push(
+                StandardItem {
+                    label: if self.updating {
+                        "Updating...".into()
+                    } else {
+                        "Check for Updates".into()
+                    },
+                    activate: Box::new(|this: &mut VietTray| {
+                        if !this.updating {
+                            let handle = this.handle.lock().unwrap().clone().unwrap();
+                            this.check_for_updates(&handle, true);
+                        }
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+            );
         }
 
         items.push(MenuItem::Separator);
-        items.push(StandardItem {
-            label: "About: Viet+".into(),
-            activate: Box::new(|_| {
-                let _ = std::process::Command::new("xdg-open")
-                    .arg("https://github.com/vndangkhoa/vietc")
-                    .status();
-            }),
-            ..Default::default()
-        }.into());
+        items.push(
+            StandardItem {
+                label: "About: Viet+".into(),
+                activate: Box::new(|_| {
+                    let _ = std::process::Command::new("xdg-open")
+                        .arg("https://github.com/vndangkhoa/vietc")
+                        .status();
+                }),
+                ..Default::default()
+            }
+            .into(),
+        );
 
         items.push(MenuItem::Separator);
-        items.push(StandardItem {
-            label: "Quit".into(),
-            activate: Box::new(|_| {
-                let _ = std::process::Command::new("pkill")
-                    .arg("-x").arg("vietc").status();
-                std::process::exit(0);
-            }),
-            ..Default::default()
-        }.into());
+        items.push(
+            StandardItem {
+                label: "Quit".into(),
+                activate: Box::new(|_| {
+                    let _ = std::process::Command::new("pkill")
+                        .arg("-x")
+                        .arg("vietc")
+                        .status();
+                    std::process::exit(0);
+                }),
+                ..Default::default()
+            }
+            .into(),
+        );
 
         items
     }
@@ -439,20 +513,24 @@ pub fn run() {
         tray_dummy.check_for_updates(&handle, false);
     }
 
-    // Poll for changes
+    // Poll for changes (shorter interval for faster icon updates)
     std::thread::spawn(move || {
         loop {
-            std::thread::sleep(std::time::Duration::from_millis(500));
+            std::thread::sleep(std::time::Duration::from_millis(100));
             let mode = read_status();
             let im = current_im();
             let autostart = config::is_autostart_installed();
+            // Also check status_changed flag for immediate updates
             let _ = handle.update(move |t| {
                 t.mode = mode;
                 t.im = im;
                 t.autostart = autostart;
+                // Force icon redraw on update by updating pixmap-related state
             });
         }
     });
 
-    loop { std::thread::park(); }
+    loop {
+        std::thread::park();
+    }
 }

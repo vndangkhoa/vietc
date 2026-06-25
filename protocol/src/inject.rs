@@ -15,11 +15,19 @@ pub struct KeyEvent {
 
 impl KeyEvent {
     pub fn press(code: u32, value: char) -> Self {
-        Self { code, value, action: KeyAction::Press }
+        Self {
+            code,
+            value,
+            action: KeyAction::Press,
+        }
     }
 
     pub fn release(code: u32, value: char) -> Self {
-        Self { code, value, action: KeyAction::Release }
+        Self {
+            code,
+            value,
+            action: KeyAction::Release,
+        }
     }
 
     pub fn is_press(&self) -> bool {
@@ -63,6 +71,12 @@ pub trait KeyInjector {
             return InjectResult::Failed;
         }
         self.send_string(text)
+    }
+
+    /// Record that Unicode text was pasted via clipboard (for future delete/backspace support)
+    fn update_pasted_text(&self, _text: &str) -> InjectResult {
+        // Stub implementation - actual text tracking happens in engine via OutputCommand::Type
+        InjectResult::Success
     }
 }
 

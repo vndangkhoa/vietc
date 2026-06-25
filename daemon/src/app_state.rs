@@ -63,7 +63,12 @@ fn get_proc_window_class() -> Option<String> {
     // Read /proc/active-windows if available (some compositors expose this)
     let content = fs::read_to_string("/proc/active-windows").ok()?;
     // Format: pid window_class window_title
-    content.lines().next()?.split_whitespace().nth(1).map(|s| s.to_lowercase())
+    content
+        .lines()
+        .next()?
+        .split_whitespace()
+        .nth(1)
+        .map(|s| s.to_lowercase())
 }
 
 /// Manages per-app IME state
@@ -76,6 +81,8 @@ pub struct AppStateManager {
     english_apps: Vec<String>,
     /// Default Vietnamese apps from config
     vietnamese_apps: Vec<String>,
+    /// Bypass apps from config
+    bypass_apps: Vec<String>,
     /// Global enabled state
     global_enabled: bool,
 }
@@ -84,6 +91,7 @@ impl AppStateManager {
     pub fn new(
         english_apps: Vec<String>,
         vietnamese_apps: Vec<String>,
+        bypass_apps: Vec<String>,
         global_enabled: bool,
     ) -> Self {
         Self {
@@ -91,6 +99,7 @@ impl AppStateManager {
             overrides: HashMap::new(),
             english_apps: english_apps.iter().map(|s| s.to_lowercase()).collect(),
             vietnamese_apps: vietnamese_apps.iter().map(|s| s.to_lowercase()).collect(),
+            bypass_apps: bypass_apps.iter().map(|s| s.to_lowercase()).collect(),
             global_enabled,
         }
     }
@@ -162,14 +171,32 @@ impl AppStateManager {
     }
 
     /// Update app lists from reloaded config
-    pub fn update_lists(&mut self, english_apps: Vec<String>, vietnamese_apps: Vec<String>) {
+    pub fn update_lists(
+        &mut self,
+        english_apps: Vec<String>,
+        vietnamese_apps: Vec<String>,
+        bypass_apps: Vec<String>,
+    ) -> &Self {
         self.english_apps = english_apps.iter().map(|s| s.to_lowercase()).collect();
         self.vietnamese_apps = vietnamese_apps.iter().map(|s| s.to_lowercase()).collect();
+        self.bypass_apps = bypass_apps.iter().map(|s| s.to_lowercase()).collect();
         eprintln!(
-            "[vietc] App lists updated: {} English, {} Vietnamese",
+            "[vietc] App lists updated: {} English, {} Vietnamese, {} Bypass",
             self.english_apps.len(),
-            self.vietnamese_apps.len()
+            self.vietnamese_apps.len(),
+            self.bypass_apps.len()
         );
+        self
+    }
+
+    /// Check if the currently active application should bypass the IME completely
+    pub fn is_current_app_bypassed(&self) -> bool {
+        for pattern in &self.bypass_apps {
+            if self.current_app.contains(pattern.as_str()) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Save overrides to config file

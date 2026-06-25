@@ -1,0 +1,3964 @@
+---
+source: engine/tests/snapshot_tests.rs
+expression: cases
+---
+- input: aaf
+  display: ầ
+  events:
+    - Replace:
+        backspaces: 2
+        insert: â
+    - Replace:
+        backspaces: 2
+        insert: ầ
+- input: aas
+  display: ấ
+  events:
+    - Replace:
+        backspaces: 2
+        insert: â
+    - Replace:
+        backspaces: 2
+        insert: ấ
+- input: aaj
+  display: ậ
+  events:
+    - Replace:
+        backspaces: 2
+        insert: â
+    - Replace:
+        backspaces: 2
+        insert: ậ
+- input: aar
+  display: ẩ
+  events:
+    - Replace:
+        backspaces: 2
+        insert: â
+    - Replace:
+        backspaces: 2
+        insert: ẩ
+- input: aax
+  display: ẫ
+  events:
+    - Replace:
+        backspaces: 2
+        insert: â
+    - Replace:
+        backspaces: 2
+        insert: ẫ
+- input: aaw
+  display: ă
+  events:
+    - Replace:
+        backspaces: 2
+        insert: â
+    - Replace:
+        backspaces: 2
+        insert: ă
+- input: aaa
+  display: â
+  events:
+    - Replace:
+        backspaces: 2
+        insert: â
+- input: eee
+  display: ê
+  events:
+    - Replace:
+        backspaces: 2
+        insert: ê
+- input: ooo
+  display: ô
+  events:
+    - Replace:
+        backspaces: 2
+        insert: ô
+- input: oow
+  display: ơ
+  events:
+    - Replace:
+        backspaces: 2
+        insert: ô
+    - Replace:
+        backspaces: 2
+        insert: ơ
+- input: uuw
+  display: uư
+  events:
+    - Replace:
+        backspaces: 3
+        insert: uư
+- input: acaf
+  display: ầc
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âc
+    - Replace:
+        backspaces: 3
+        insert: ầc
+- input: acas
+  display: ấc
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âc
+    - Replace:
+        backspaces: 3
+        insert: ấc
+- input: acaj
+  display: ậc
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âc
+    - Replace:
+        backspaces: 3
+        insert: ậc
+- input: acar
+  display: ẩc
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âc
+    - Replace:
+        backspaces: 3
+        insert: ẩc
+- input: acax
+  display: ẫc
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âc
+    - Replace:
+        backspaces: 3
+        insert: ẫc
+- input: acaw
+  display: ăc
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âc
+    - Replace:
+        backspaces: 3
+        insert: ăc
+- input: acaa
+  display: âc
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âc
+- input: ecee
+  display: êc
+  events:
+    - Replace:
+        backspaces: 3
+        insert: êc
+- input: ocoo
+  display: ôc
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ôc
+- input: ocow
+  display: ơc
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ôc
+    - Replace:
+        backspaces: 3
+        insert: ơc
+- input: ucuw
+  display: ucư
+  events:
+    - Replace:
+        backspaces: 4
+        insert: ucư
+- input: amaf
+  display: ầm
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âm
+    - Replace:
+        backspaces: 3
+        insert: ầm
+- input: amas
+  display: ấm
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âm
+    - Replace:
+        backspaces: 3
+        insert: ấm
+- input: amaj
+  display: ậm
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âm
+    - Replace:
+        backspaces: 3
+        insert: ậm
+- input: amar
+  display: ẩm
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âm
+    - Replace:
+        backspaces: 3
+        insert: ẩm
+- input: amax
+  display: ẫm
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âm
+    - Replace:
+        backspaces: 3
+        insert: ẫm
+- input: amaw
+  display: ăm
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âm
+    - Replace:
+        backspaces: 3
+        insert: ăm
+- input: amaa
+  display: âm
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âm
+- input: emee
+  display: êm
+  events:
+    - Replace:
+        backspaces: 3
+        insert: êm
+- input: omoo
+  display: ôm
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ôm
+- input: omow
+  display: ơm
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ôm
+    - Replace:
+        backspaces: 3
+        insert: ơm
+- input: umuw
+  display: umư
+  events:
+    - Replace:
+        backspaces: 4
+        insert: umư
+- input: anaf
+  display: ần
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ân
+    - Replace:
+        backspaces: 3
+        insert: ần
+- input: anas
+  display: ấn
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ân
+    - Replace:
+        backspaces: 3
+        insert: ấn
+- input: anaj
+  display: ận
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ân
+    - Replace:
+        backspaces: 3
+        insert: ận
+- input: anar
+  display: ẩn
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ân
+    - Replace:
+        backspaces: 3
+        insert: ẩn
+- input: anax
+  display: ẫn
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ân
+    - Replace:
+        backspaces: 3
+        insert: ẫn
+- input: anaw
+  display: ăn
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ân
+    - Replace:
+        backspaces: 3
+        insert: ăn
+- input: anaa
+  display: ân
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ân
+- input: enee
+  display: ên
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ên
+- input: onoo
+  display: ôn
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ôn
+- input: onow
+  display: ơn
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ôn
+    - Replace:
+        backspaces: 3
+        insert: ơn
+- input: unuw
+  display: unư
+  events:
+    - Replace:
+        backspaces: 4
+        insert: unư
+- input: angaf
+  display: ầng
+  events:
+    - Replace:
+        backspaces: 4
+        insert: âng
+    - Replace:
+        backspaces: 4
+        insert: ầng
+- input: angas
+  display: ấng
+  events:
+    - Replace:
+        backspaces: 4
+        insert: âng
+    - Replace:
+        backspaces: 4
+        insert: ấng
+- input: angaj
+  display: ậng
+  events:
+    - Replace:
+        backspaces: 4
+        insert: âng
+    - Replace:
+        backspaces: 4
+        insert: ậng
+- input: angar
+  display: ẩng
+  events:
+    - Replace:
+        backspaces: 4
+        insert: âng
+    - Replace:
+        backspaces: 4
+        insert: ẩng
+- input: angax
+  display: ẫng
+  events:
+    - Replace:
+        backspaces: 4
+        insert: âng
+    - Replace:
+        backspaces: 4
+        insert: ẫng
+- input: angaw
+  display: ăng
+  events:
+    - Replace:
+        backspaces: 4
+        insert: âng
+    - Replace:
+        backspaces: 4
+        insert: ăng
+- input: angaa
+  display: âng
+  events:
+    - Replace:
+        backspaces: 4
+        insert: âng
+- input: engee
+  display: êng
+  events:
+    - Replace:
+        backspaces: 4
+        insert: êng
+- input: ongoo
+  display: ông
+  events:
+    - Replace:
+        backspaces: 4
+        insert: ông
+- input: ongow
+  display: ơng
+  events:
+    - Replace:
+        backspaces: 4
+        insert: ông
+    - Replace:
+        backspaces: 4
+        insert: ơng
+- input: unguw
+  display: ungư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: ungư
+- input: apaf
+  display: ầp
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âp
+    - Replace:
+        backspaces: 3
+        insert: ầp
+- input: apas
+  display: ấp
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âp
+    - Replace:
+        backspaces: 3
+        insert: ấp
+- input: apaj
+  display: ập
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âp
+    - Replace:
+        backspaces: 3
+        insert: ập
+- input: apar
+  display: ẩp
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âp
+    - Replace:
+        backspaces: 3
+        insert: ẩp
+- input: apax
+  display: ẫp
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âp
+    - Replace:
+        backspaces: 3
+        insert: ẫp
+- input: apaw
+  display: ăp
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âp
+    - Replace:
+        backspaces: 3
+        insert: ăp
+- input: apaa
+  display: âp
+  events:
+    - Replace:
+        backspaces: 3
+        insert: âp
+- input: epee
+  display: êp
+  events:
+    - Replace:
+        backspaces: 3
+        insert: êp
+- input: opoo
+  display: ôp
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ôp
+- input: opow
+  display: ơp
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ôp
+    - Replace:
+        backspaces: 3
+        insert: ơp
+- input: upuw
+  display: upư
+  events:
+    - Replace:
+        backspaces: 4
+        insert: upư
+- input: ataf
+  display: ầt
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ât
+    - Replace:
+        backspaces: 3
+        insert: ầt
+- input: atas
+  display: ất
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ât
+    - Replace:
+        backspaces: 3
+        insert: ất
+- input: ataj
+  display: ật
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ât
+    - Replace:
+        backspaces: 3
+        insert: ật
+- input: atar
+  display: ẩt
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ât
+    - Replace:
+        backspaces: 3
+        insert: ẩt
+- input: atax
+  display: ẫt
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ât
+    - Replace:
+        backspaces: 3
+        insert: ẫt
+- input: ataw
+  display: ăt
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ât
+    - Replace:
+        backspaces: 3
+        insert: ăt
+- input: ataa
+  display: ât
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ât
+- input: etee
+  display: êt
+  events:
+    - Replace:
+        backspaces: 3
+        insert: êt
+- input: otoo
+  display: ôt
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ôt
+- input: otow
+  display: ơt
+  events:
+    - Replace:
+        backspaces: 3
+        insert: ôt
+    - Replace:
+        backspaces: 3
+        insert: ơt
+- input: utuw
+  display: utư
+  events:
+    - Replace:
+        backspaces: 4
+        insert: utư
+- input: baaf
+  display: bầ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: bâ
+    - Replace:
+        backspaces: 3
+        insert: bầ
+- input: baas
+  display: bấ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: bâ
+    - Replace:
+        backspaces: 3
+        insert: bấ
+- input: baaj
+  display: bậ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: bâ
+    - Replace:
+        backspaces: 3
+        insert: bậ
+- input: baar
+  display: bẩ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: bâ
+    - Replace:
+        backspaces: 3
+        insert: bẩ
+- input: baax
+  display: bẫ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: bâ
+    - Replace:
+        backspaces: 3
+        insert: bẫ
+- input: baaw
+  display: bă
+  events:
+    - Replace:
+        backspaces: 3
+        insert: bâ
+    - Replace:
+        backspaces: 3
+        insert: bă
+- input: baaa
+  display: bâ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: bâ
+- input: beee
+  display: bê
+  events:
+    - Replace:
+        backspaces: 3
+        insert: bê
+- input: booo
+  display: bô
+  events:
+    - Replace:
+        backspaces: 3
+        insert: bô
+- input: boow
+  display: bơ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: bô
+    - Replace:
+        backspaces: 3
+        insert: bơ
+- input: buuw
+  display: buư
+  events:
+    - Replace:
+        backspaces: 4
+        insert: buư
+- input: bacaf
+  display: bầc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâc
+    - Replace:
+        backspaces: 4
+        insert: bầc
+- input: bacas
+  display: bấc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâc
+    - Replace:
+        backspaces: 4
+        insert: bấc
+- input: bacaj
+  display: bậc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâc
+    - Replace:
+        backspaces: 4
+        insert: bậc
+- input: bacar
+  display: bẩc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâc
+    - Replace:
+        backspaces: 4
+        insert: bẩc
+- input: bacax
+  display: bẫc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâc
+    - Replace:
+        backspaces: 4
+        insert: bẫc
+- input: bacaw
+  display: băc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâc
+    - Replace:
+        backspaces: 4
+        insert: băc
+- input: bacaa
+  display: bâc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâc
+- input: becee
+  display: bêc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bêc
+- input: bocoo
+  display: bôc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bôc
+- input: bocow
+  display: bơc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bôc
+    - Replace:
+        backspaces: 4
+        insert: bơc
+- input: bucuw
+  display: bucư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bucư
+- input: bachaf
+  display: bầch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bâch
+    - Replace:
+        backspaces: 5
+        insert: bầch
+- input: bachas
+  display: bấch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bâch
+    - Replace:
+        backspaces: 5
+        insert: bấch
+- input: bachaj
+  display: bậch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bâch
+    - Replace:
+        backspaces: 5
+        insert: bậch
+- input: bachar
+  display: bẩch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bâch
+    - Replace:
+        backspaces: 5
+        insert: bẩch
+- input: bachax
+  display: bẫch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bâch
+    - Replace:
+        backspaces: 5
+        insert: bẫch
+- input: bachaw
+  display: băch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bâch
+    - Replace:
+        backspaces: 5
+        insert: băch
+- input: bachaa
+  display: bâch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bâch
+- input: bechee
+  display: bêch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bêch
+- input: bochoo
+  display: bôch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bôch
+- input: bochow
+  display: bơch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bôch
+    - Replace:
+        backspaces: 5
+        insert: bơch
+- input: buchuw
+  display: buchư
+  events:
+    - Replace:
+        backspaces: 6
+        insert: buchư
+- input: bamaf
+  display: bầm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâm
+    - Replace:
+        backspaces: 4
+        insert: bầm
+- input: bamas
+  display: bấm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâm
+    - Replace:
+        backspaces: 4
+        insert: bấm
+- input: bamaj
+  display: bậm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâm
+    - Replace:
+        backspaces: 4
+        insert: bậm
+- input: bamar
+  display: bẩm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâm
+    - Replace:
+        backspaces: 4
+        insert: bẩm
+- input: bamax
+  display: bẫm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâm
+    - Replace:
+        backspaces: 4
+        insert: bẫm
+- input: bamaw
+  display: băm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâm
+    - Replace:
+        backspaces: 4
+        insert: băm
+- input: bamaa
+  display: bâm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâm
+- input: bemee
+  display: bêm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bêm
+- input: bomoo
+  display: bôm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bôm
+- input: bomow
+  display: bơm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bôm
+    - Replace:
+        backspaces: 4
+        insert: bơm
+- input: bumuw
+  display: bumư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bumư
+- input: banaf
+  display: bần
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bân
+    - Replace:
+        backspaces: 4
+        insert: bần
+- input: banas
+  display: bấn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bân
+    - Replace:
+        backspaces: 4
+        insert: bấn
+- input: banaj
+  display: bận
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bân
+    - Replace:
+        backspaces: 4
+        insert: bận
+- input: banar
+  display: bẩn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bân
+    - Replace:
+        backspaces: 4
+        insert: bẩn
+- input: banax
+  display: bẫn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bân
+    - Replace:
+        backspaces: 4
+        insert: bẫn
+- input: banaw
+  display: băn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bân
+    - Replace:
+        backspaces: 4
+        insert: băn
+- input: banaa
+  display: bân
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bân
+- input: benee
+  display: bên
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bên
+- input: bonoo
+  display: bôn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bôn
+- input: bonow
+  display: bơn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bôn
+    - Replace:
+        backspaces: 4
+        insert: bơn
+- input: bunuw
+  display: bunư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bunư
+- input: bangaf
+  display: bầng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bâng
+    - Replace:
+        backspaces: 5
+        insert: bầng
+- input: bangas
+  display: bấng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bâng
+    - Replace:
+        backspaces: 5
+        insert: bấng
+- input: bangaj
+  display: bậng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bâng
+    - Replace:
+        backspaces: 5
+        insert: bậng
+- input: bangar
+  display: bẩng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bâng
+    - Replace:
+        backspaces: 5
+        insert: bẩng
+- input: bangax
+  display: bẫng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bâng
+    - Replace:
+        backspaces: 5
+        insert: bẫng
+- input: bangaw
+  display: băng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bâng
+    - Replace:
+        backspaces: 5
+        insert: băng
+- input: bangaa
+  display: bâng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bâng
+- input: bengee
+  display: bêng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bêng
+- input: bongoo
+  display: bông
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bông
+- input: bongow
+  display: bơng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bông
+    - Replace:
+        backspaces: 5
+        insert: bơng
+- input: bunguw
+  display: bungư
+  events:
+    - Replace:
+        backspaces: 6
+        insert: bungư
+- input: banhaf
+  display: bầnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bânh
+    - Replace:
+        backspaces: 5
+        insert: bầnh
+- input: banhas
+  display: bấnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bânh
+    - Replace:
+        backspaces: 5
+        insert: bấnh
+- input: banhaj
+  display: bậnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bânh
+    - Replace:
+        backspaces: 5
+        insert: bậnh
+- input: banhar
+  display: bẩnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bânh
+    - Replace:
+        backspaces: 5
+        insert: bẩnh
+- input: banhax
+  display: bẫnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bânh
+    - Replace:
+        backspaces: 5
+        insert: bẫnh
+- input: banhaw
+  display: bănh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bânh
+    - Replace:
+        backspaces: 5
+        insert: bănh
+- input: banhaa
+  display: bânh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bânh
+- input: benhee
+  display: bênh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bênh
+- input: bonhoo
+  display: bônh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bônh
+- input: bonhow
+  display: bơnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bônh
+    - Replace:
+        backspaces: 5
+        insert: bơnh
+- input: bunhuw
+  display: bunhư
+  events:
+    - Replace:
+        backspaces: 6
+        insert: bunhư
+- input: bapaf
+  display: bầp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâp
+    - Replace:
+        backspaces: 4
+        insert: bầp
+- input: bapas
+  display: bấp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâp
+    - Replace:
+        backspaces: 4
+        insert: bấp
+- input: bapaj
+  display: bập
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâp
+    - Replace:
+        backspaces: 4
+        insert: bập
+- input: bapar
+  display: bẩp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâp
+    - Replace:
+        backspaces: 4
+        insert: bẩp
+- input: bapax
+  display: bẫp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâp
+    - Replace:
+        backspaces: 4
+        insert: bẫp
+- input: bapaw
+  display: băp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâp
+    - Replace:
+        backspaces: 4
+        insert: băp
+- input: bapaa
+  display: bâp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bâp
+- input: bepee
+  display: bêp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bêp
+- input: bopoo
+  display: bôp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bôp
+- input: bopow
+  display: bơp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bôp
+    - Replace:
+        backspaces: 4
+        insert: bơp
+- input: bupuw
+  display: bupư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: bupư
+- input: bataf
+  display: bầt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bât
+    - Replace:
+        backspaces: 4
+        insert: bầt
+- input: batas
+  display: bất
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bât
+    - Replace:
+        backspaces: 4
+        insert: bất
+- input: bataj
+  display: bật
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bât
+    - Replace:
+        backspaces: 4
+        insert: bật
+- input: batar
+  display: bẩt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bât
+    - Replace:
+        backspaces: 4
+        insert: bẩt
+- input: batax
+  display: bẫt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bât
+    - Replace:
+        backspaces: 4
+        insert: bẫt
+- input: bataw
+  display: băt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bât
+    - Replace:
+        backspaces: 4
+        insert: băt
+- input: bataa
+  display: bât
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bât
+- input: betee
+  display: bêt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bêt
+- input: botoo
+  display: bôt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bôt
+- input: botow
+  display: bơt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: bôt
+    - Replace:
+        backspaces: 4
+        insert: bơt
+- input: butuw
+  display: butư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: butư
+- input: caaf
+  display: cầ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: câ
+    - Replace:
+        backspaces: 3
+        insert: cầ
+- input: caas
+  display: cấ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: câ
+    - Replace:
+        backspaces: 3
+        insert: cấ
+- input: caaj
+  display: cậ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: câ
+    - Replace:
+        backspaces: 3
+        insert: cậ
+- input: caar
+  display: cẩ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: câ
+    - Replace:
+        backspaces: 3
+        insert: cẩ
+- input: caax
+  display: cẫ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: câ
+    - Replace:
+        backspaces: 3
+        insert: cẫ
+- input: caaw
+  display: că
+  events:
+    - Replace:
+        backspaces: 3
+        insert: câ
+    - Replace:
+        backspaces: 3
+        insert: că
+- input: caaa
+  display: câ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: câ
+- input: ceee
+  display: cê
+  events:
+    - Replace:
+        backspaces: 3
+        insert: cê
+- input: cooo
+  display: cô
+  events:
+    - Replace:
+        backspaces: 3
+        insert: cô
+- input: coow
+  display: cơ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: cô
+    - Replace:
+        backspaces: 3
+        insert: cơ
+- input: cuuw
+  display: cuư
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cuư
+- input: cacaf
+  display: cầc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câc
+    - Replace:
+        backspaces: 4
+        insert: cầc
+- input: cacas
+  display: cấc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câc
+    - Replace:
+        backspaces: 4
+        insert: cấc
+- input: cacaj
+  display: cậc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câc
+    - Replace:
+        backspaces: 4
+        insert: cậc
+- input: cacar
+  display: cẩc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câc
+    - Replace:
+        backspaces: 4
+        insert: cẩc
+- input: cacax
+  display: cẫc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câc
+    - Replace:
+        backspaces: 4
+        insert: cẫc
+- input: cacaw
+  display: căc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câc
+    - Replace:
+        backspaces: 4
+        insert: căc
+- input: cacaa
+  display: câc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câc
+- input: cecee
+  display: cêc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cêc
+- input: cocoo
+  display: côc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: côc
+- input: cocow
+  display: cơc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: côc
+    - Replace:
+        backspaces: 4
+        insert: cơc
+- input: cucuw
+  display: cucư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cucư
+- input: cachaf
+  display: cầch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: câch
+    - Replace:
+        backspaces: 5
+        insert: cầch
+- input: cachas
+  display: cấch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: câch
+    - Replace:
+        backspaces: 5
+        insert: cấch
+- input: cachaj
+  display: cậch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: câch
+    - Replace:
+        backspaces: 5
+        insert: cậch
+- input: cachar
+  display: cẩch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: câch
+    - Replace:
+        backspaces: 5
+        insert: cẩch
+- input: cachax
+  display: cẫch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: câch
+    - Replace:
+        backspaces: 5
+        insert: cẫch
+- input: cachaw
+  display: căch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: câch
+    - Replace:
+        backspaces: 5
+        insert: căch
+- input: cachaa
+  display: câch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: câch
+- input: cechee
+  display: cêch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cêch
+- input: cochoo
+  display: côch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: côch
+- input: cochow
+  display: cơch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: côch
+    - Replace:
+        backspaces: 5
+        insert: cơch
+- input: cuchuw
+  display: cuchư
+  events:
+    - Replace:
+        backspaces: 6
+        insert: cuchư
+- input: camaf
+  display: cầm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câm
+    - Replace:
+        backspaces: 4
+        insert: cầm
+- input: camas
+  display: cấm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câm
+    - Replace:
+        backspaces: 4
+        insert: cấm
+- input: camaj
+  display: cậm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câm
+    - Replace:
+        backspaces: 4
+        insert: cậm
+- input: camar
+  display: cẩm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câm
+    - Replace:
+        backspaces: 4
+        insert: cẩm
+- input: camax
+  display: cẫm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câm
+    - Replace:
+        backspaces: 4
+        insert: cẫm
+- input: camaw
+  display: căm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câm
+    - Replace:
+        backspaces: 4
+        insert: căm
+- input: camaa
+  display: câm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câm
+- input: cemee
+  display: cêm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cêm
+- input: comoo
+  display: côm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: côm
+- input: comow
+  display: cơm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: côm
+    - Replace:
+        backspaces: 4
+        insert: cơm
+- input: cumuw
+  display: cumư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cumư
+- input: canaf
+  display: cần
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cân
+    - Replace:
+        backspaces: 4
+        insert: cần
+- input: canas
+  display: cấn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cân
+    - Replace:
+        backspaces: 4
+        insert: cấn
+- input: canaj
+  display: cận
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cân
+    - Replace:
+        backspaces: 4
+        insert: cận
+- input: canar
+  display: cẩn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cân
+    - Replace:
+        backspaces: 4
+        insert: cẩn
+- input: canax
+  display: cẫn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cân
+    - Replace:
+        backspaces: 4
+        insert: cẫn
+- input: canaw
+  display: căn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cân
+    - Replace:
+        backspaces: 4
+        insert: căn
+- input: canaa
+  display: cân
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cân
+- input: cenee
+  display: cên
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cên
+- input: conoo
+  display: côn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: côn
+- input: conow
+  display: cơn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: côn
+    - Replace:
+        backspaces: 4
+        insert: cơn
+- input: cunuw
+  display: cunư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cunư
+- input: cangaf
+  display: cầng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: câng
+    - Replace:
+        backspaces: 5
+        insert: cầng
+- input: cangas
+  display: cấng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: câng
+    - Replace:
+        backspaces: 5
+        insert: cấng
+- input: cangaj
+  display: cậng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: câng
+    - Replace:
+        backspaces: 5
+        insert: cậng
+- input: cangar
+  display: cẩng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: câng
+    - Replace:
+        backspaces: 5
+        insert: cẩng
+- input: cangax
+  display: cẫng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: câng
+    - Replace:
+        backspaces: 5
+        insert: cẫng
+- input: cangaw
+  display: căng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: câng
+    - Replace:
+        backspaces: 5
+        insert: căng
+- input: cangaa
+  display: câng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: câng
+- input: cengee
+  display: cêng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cêng
+- input: congoo
+  display: công
+  events:
+    - Replace:
+        backspaces: 5
+        insert: công
+- input: congow
+  display: cơng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: công
+    - Replace:
+        backspaces: 5
+        insert: cơng
+- input: cunguw
+  display: cungư
+  events:
+    - Replace:
+        backspaces: 6
+        insert: cungư
+- input: canhaf
+  display: cầnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cânh
+    - Replace:
+        backspaces: 5
+        insert: cầnh
+- input: canhas
+  display: cấnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cânh
+    - Replace:
+        backspaces: 5
+        insert: cấnh
+- input: canhaj
+  display: cậnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cânh
+    - Replace:
+        backspaces: 5
+        insert: cậnh
+- input: canhar
+  display: cẩnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cânh
+    - Replace:
+        backspaces: 5
+        insert: cẩnh
+- input: canhax
+  display: cẫnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cânh
+    - Replace:
+        backspaces: 5
+        insert: cẫnh
+- input: canhaw
+  display: cănh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cânh
+    - Replace:
+        backspaces: 5
+        insert: cănh
+- input: canhaa
+  display: cânh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cânh
+- input: cenhee
+  display: cênh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cênh
+- input: conhoo
+  display: cônh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cônh
+- input: conhow
+  display: cơnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cônh
+    - Replace:
+        backspaces: 5
+        insert: cơnh
+- input: cunhuw
+  display: cunhư
+  events:
+    - Replace:
+        backspaces: 6
+        insert: cunhư
+- input: capaf
+  display: cầp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câp
+    - Replace:
+        backspaces: 4
+        insert: cầp
+- input: capas
+  display: cấp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câp
+    - Replace:
+        backspaces: 4
+        insert: cấp
+- input: capaj
+  display: cập
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câp
+    - Replace:
+        backspaces: 4
+        insert: cập
+- input: capar
+  display: cẩp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câp
+    - Replace:
+        backspaces: 4
+        insert: cẩp
+- input: capax
+  display: cẫp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câp
+    - Replace:
+        backspaces: 4
+        insert: cẫp
+- input: capaw
+  display: căp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câp
+    - Replace:
+        backspaces: 4
+        insert: căp
+- input: capaa
+  display: câp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: câp
+- input: cepee
+  display: cêp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cêp
+- input: copoo
+  display: côp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: côp
+- input: copow
+  display: cơp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: côp
+    - Replace:
+        backspaces: 4
+        insert: cơp
+- input: cupuw
+  display: cupư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cupư
+- input: cataf
+  display: cầt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cât
+    - Replace:
+        backspaces: 4
+        insert: cầt
+- input: catas
+  display: cất
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cât
+    - Replace:
+        backspaces: 4
+        insert: cất
+- input: cataj
+  display: cật
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cât
+    - Replace:
+        backspaces: 4
+        insert: cật
+- input: catar
+  display: cẩt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cât
+    - Replace:
+        backspaces: 4
+        insert: cẩt
+- input: catax
+  display: cẫt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cât
+    - Replace:
+        backspaces: 4
+        insert: cẫt
+- input: cataw
+  display: căt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cât
+    - Replace:
+        backspaces: 4
+        insert: căt
+- input: cataa
+  display: cât
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cât
+- input: cetee
+  display: cêt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: cêt
+- input: cotoo
+  display: côt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: côt
+- input: cotow
+  display: cơt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: côt
+    - Replace:
+        backspaces: 4
+        insert: cơt
+- input: cutuw
+  display: cutư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: cutư
+- input: chaaf
+  display: chầ
+  events:
+    - Replace:
+        backspaces: 4
+        insert: châ
+    - Replace:
+        backspaces: 4
+        insert: chầ
+- input: chaas
+  display: chấ
+  events:
+    - Replace:
+        backspaces: 4
+        insert: châ
+    - Replace:
+        backspaces: 4
+        insert: chấ
+- input: chaaj
+  display: chậ
+  events:
+    - Replace:
+        backspaces: 4
+        insert: châ
+    - Replace:
+        backspaces: 4
+        insert: chậ
+- input: chaar
+  display: chẩ
+  events:
+    - Replace:
+        backspaces: 4
+        insert: châ
+    - Replace:
+        backspaces: 4
+        insert: chẩ
+- input: chaax
+  display: chẫ
+  events:
+    - Replace:
+        backspaces: 4
+        insert: châ
+    - Replace:
+        backspaces: 4
+        insert: chẫ
+- input: chaaw
+  display: chă
+  events:
+    - Replace:
+        backspaces: 4
+        insert: châ
+    - Replace:
+        backspaces: 4
+        insert: chă
+- input: chaaa
+  display: châ
+  events:
+    - Replace:
+        backspaces: 4
+        insert: châ
+- input: cheee
+  display: chê
+  events:
+    - Replace:
+        backspaces: 4
+        insert: chê
+- input: chooo
+  display: chô
+  events:
+    - Replace:
+        backspaces: 4
+        insert: chô
+- input: choow
+  display: chơ
+  events:
+    - Replace:
+        backspaces: 4
+        insert: chô
+    - Replace:
+        backspaces: 4
+        insert: chơ
+- input: chuuw
+  display: chuư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chuư
+- input: chacaf
+  display: chầc
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châc
+    - Replace:
+        backspaces: 5
+        insert: chầc
+- input: chacas
+  display: chấc
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châc
+    - Replace:
+        backspaces: 5
+        insert: chấc
+- input: chacaj
+  display: chậc
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châc
+    - Replace:
+        backspaces: 5
+        insert: chậc
+- input: chacar
+  display: chẩc
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châc
+    - Replace:
+        backspaces: 5
+        insert: chẩc
+- input: chacax
+  display: chẫc
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châc
+    - Replace:
+        backspaces: 5
+        insert: chẫc
+- input: chacaw
+  display: chăc
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châc
+    - Replace:
+        backspaces: 5
+        insert: chăc
+- input: chacaa
+  display: châc
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châc
+- input: checee
+  display: chêc
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chêc
+- input: chocoo
+  display: chôc
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chôc
+- input: chocow
+  display: chơc
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chôc
+    - Replace:
+        backspaces: 5
+        insert: chơc
+- input: chucuw
+  display: chucư
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chucư
+- input: chachaf
+  display: chầch
+  events:
+    - Replace:
+        backspaces: 6
+        insert: châch
+    - Replace:
+        backspaces: 6
+        insert: chầch
+- input: chachas
+  display: chấch
+  events:
+    - Replace:
+        backspaces: 6
+        insert: châch
+    - Replace:
+        backspaces: 6
+        insert: chấch
+- input: chachaj
+  display: chậch
+  events:
+    - Replace:
+        backspaces: 6
+        insert: châch
+    - Replace:
+        backspaces: 6
+        insert: chậch
+- input: chachar
+  display: chẩch
+  events:
+    - Replace:
+        backspaces: 6
+        insert: châch
+    - Replace:
+        backspaces: 6
+        insert: chẩch
+- input: chachax
+  display: chẫch
+  events:
+    - Replace:
+        backspaces: 6
+        insert: châch
+    - Replace:
+        backspaces: 6
+        insert: chẫch
+- input: chachaw
+  display: chăch
+  events:
+    - Replace:
+        backspaces: 6
+        insert: châch
+    - Replace:
+        backspaces: 6
+        insert: chăch
+- input: chachaa
+  display: châch
+  events:
+    - Replace:
+        backspaces: 6
+        insert: châch
+- input: chechee
+  display: chêch
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chêch
+- input: chochoo
+  display: chôch
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chôch
+- input: chochow
+  display: chơch
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chôch
+    - Replace:
+        backspaces: 6
+        insert: chơch
+- input: chuchuw
+  display: chuchư
+  events:
+    - Replace:
+        backspaces: 7
+        insert: chuchư
+- input: chamaf
+  display: chầm
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châm
+    - Replace:
+        backspaces: 5
+        insert: chầm
+- input: chamas
+  display: chấm
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châm
+    - Replace:
+        backspaces: 5
+        insert: chấm
+- input: chamaj
+  display: chậm
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châm
+    - Replace:
+        backspaces: 5
+        insert: chậm
+- input: chamar
+  display: chẩm
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châm
+    - Replace:
+        backspaces: 5
+        insert: chẩm
+- input: chamax
+  display: chẫm
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châm
+    - Replace:
+        backspaces: 5
+        insert: chẫm
+- input: chamaw
+  display: chăm
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châm
+    - Replace:
+        backspaces: 5
+        insert: chăm
+- input: chamaa
+  display: châm
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châm
+- input: chemee
+  display: chêm
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chêm
+- input: chomoo
+  display: chôm
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chôm
+- input: chomow
+  display: chơm
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chôm
+    - Replace:
+        backspaces: 5
+        insert: chơm
+- input: chumuw
+  display: chumư
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chumư
+- input: chanaf
+  display: chần
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chân
+    - Replace:
+        backspaces: 5
+        insert: chần
+- input: chanas
+  display: chấn
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chân
+    - Replace:
+        backspaces: 5
+        insert: chấn
+- input: chanaj
+  display: chận
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chân
+    - Replace:
+        backspaces: 5
+        insert: chận
+- input: chanar
+  display: chẩn
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chân
+    - Replace:
+        backspaces: 5
+        insert: chẩn
+- input: chanax
+  display: chẫn
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chân
+    - Replace:
+        backspaces: 5
+        insert: chẫn
+- input: chanaw
+  display: chăn
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chân
+    - Replace:
+        backspaces: 5
+        insert: chăn
+- input: chanaa
+  display: chân
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chân
+- input: chenee
+  display: chên
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chên
+- input: chonoo
+  display: chôn
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chôn
+- input: chonow
+  display: chơn
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chôn
+    - Replace:
+        backspaces: 5
+        insert: chơn
+- input: chunuw
+  display: chunư
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chunư
+- input: changaf
+  display: chầng
+  events:
+    - Replace:
+        backspaces: 6
+        insert: châng
+    - Replace:
+        backspaces: 6
+        insert: chầng
+- input: changas
+  display: chấng
+  events:
+    - Replace:
+        backspaces: 6
+        insert: châng
+    - Replace:
+        backspaces: 6
+        insert: chấng
+- input: changaj
+  display: chậng
+  events:
+    - Replace:
+        backspaces: 6
+        insert: châng
+    - Replace:
+        backspaces: 6
+        insert: chậng
+- input: changar
+  display: chẩng
+  events:
+    - Replace:
+        backspaces: 6
+        insert: châng
+    - Replace:
+        backspaces: 6
+        insert: chẩng
+- input: changax
+  display: chẫng
+  events:
+    - Replace:
+        backspaces: 6
+        insert: châng
+    - Replace:
+        backspaces: 6
+        insert: chẫng
+- input: changaw
+  display: chăng
+  events:
+    - Replace:
+        backspaces: 6
+        insert: châng
+    - Replace:
+        backspaces: 6
+        insert: chăng
+- input: changaa
+  display: châng
+  events:
+    - Replace:
+        backspaces: 6
+        insert: châng
+- input: chengee
+  display: chêng
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chêng
+- input: chongoo
+  display: chông
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chông
+- input: chongow
+  display: chơng
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chông
+    - Replace:
+        backspaces: 6
+        insert: chơng
+- input: chunguw
+  display: chungư
+  events:
+    - Replace:
+        backspaces: 7
+        insert: chungư
+- input: chanhaf
+  display: chầnh
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chânh
+    - Replace:
+        backspaces: 6
+        insert: chầnh
+- input: chanhas
+  display: chấnh
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chânh
+    - Replace:
+        backspaces: 6
+        insert: chấnh
+- input: chanhaj
+  display: chậnh
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chânh
+    - Replace:
+        backspaces: 6
+        insert: chậnh
+- input: chanhar
+  display: chẩnh
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chânh
+    - Replace:
+        backspaces: 6
+        insert: chẩnh
+- input: chanhax
+  display: chẫnh
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chânh
+    - Replace:
+        backspaces: 6
+        insert: chẫnh
+- input: chanhaw
+  display: chănh
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chânh
+    - Replace:
+        backspaces: 6
+        insert: chănh
+- input: chanhaa
+  display: chânh
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chânh
+- input: chenhee
+  display: chênh
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chênh
+- input: chonhoo
+  display: chônh
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chônh
+- input: chonhow
+  display: chơnh
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chônh
+    - Replace:
+        backspaces: 6
+        insert: chơnh
+- input: chunhuw
+  display: chunhư
+  events:
+    - Replace:
+        backspaces: 7
+        insert: chunhư
+- input: chapaf
+  display: chầp
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châp
+    - Replace:
+        backspaces: 5
+        insert: chầp
+- input: chapas
+  display: chấp
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châp
+    - Replace:
+        backspaces: 5
+        insert: chấp
+- input: chapaj
+  display: chập
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châp
+    - Replace:
+        backspaces: 5
+        insert: chập
+- input: chapar
+  display: chẩp
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châp
+    - Replace:
+        backspaces: 5
+        insert: chẩp
+- input: chapax
+  display: chẫp
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châp
+    - Replace:
+        backspaces: 5
+        insert: chẫp
+- input: chapaw
+  display: chăp
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châp
+    - Replace:
+        backspaces: 5
+        insert: chăp
+- input: chapaa
+  display: châp
+  events:
+    - Replace:
+        backspaces: 5
+        insert: châp
+- input: chepee
+  display: chêp
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chêp
+- input: chopoo
+  display: chôp
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chôp
+- input: chopow
+  display: chơp
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chôp
+    - Replace:
+        backspaces: 5
+        insert: chơp
+- input: chupuw
+  display: chupư
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chupư
+- input: chataf
+  display: chầt
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chât
+    - Replace:
+        backspaces: 5
+        insert: chầt
+- input: chatas
+  display: chất
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chât
+    - Replace:
+        backspaces: 5
+        insert: chất
+- input: chataj
+  display: chật
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chât
+    - Replace:
+        backspaces: 5
+        insert: chật
+- input: chatar
+  display: chẩt
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chât
+    - Replace:
+        backspaces: 5
+        insert: chẩt
+- input: chatax
+  display: chẫt
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chât
+    - Replace:
+        backspaces: 5
+        insert: chẫt
+- input: chataw
+  display: chăt
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chât
+    - Replace:
+        backspaces: 5
+        insert: chăt
+- input: chataa
+  display: chât
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chât
+- input: chetee
+  display: chêt
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chêt
+- input: chotoo
+  display: chôt
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chôt
+- input: chotow
+  display: chơt
+  events:
+    - Replace:
+        backspaces: 5
+        insert: chôt
+    - Replace:
+        backspaces: 5
+        insert: chơt
+- input: chutuw
+  display: chutư
+  events:
+    - Replace:
+        backspaces: 6
+        insert: chutư
+- input: daaf
+  display: dầ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: dâ
+    - Replace:
+        backspaces: 3
+        insert: dầ
+- input: daas
+  display: dấ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: dâ
+    - Replace:
+        backspaces: 3
+        insert: dấ
+- input: daaj
+  display: dậ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: dâ
+    - Replace:
+        backspaces: 3
+        insert: dậ
+- input: daar
+  display: dẩ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: dâ
+    - Replace:
+        backspaces: 3
+        insert: dẩ
+- input: daax
+  display: dẫ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: dâ
+    - Replace:
+        backspaces: 3
+        insert: dẫ
+- input: daaw
+  display: dă
+  events:
+    - Replace:
+        backspaces: 3
+        insert: dâ
+    - Replace:
+        backspaces: 3
+        insert: dă
+- input: daaa
+  display: dâ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: dâ
+- input: deee
+  display: dê
+  events:
+    - Replace:
+        backspaces: 3
+        insert: dê
+- input: dooo
+  display: dô
+  events:
+    - Replace:
+        backspaces: 3
+        insert: dô
+- input: doow
+  display: dơ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: dô
+    - Replace:
+        backspaces: 3
+        insert: dơ
+- input: duuw
+  display: duư
+  events:
+    - Replace:
+        backspaces: 4
+        insert: duư
+- input: dacaf
+  display: dầc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâc
+    - Replace:
+        backspaces: 4
+        insert: dầc
+- input: dacas
+  display: dấc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâc
+    - Replace:
+        backspaces: 4
+        insert: dấc
+- input: dacaj
+  display: dậc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâc
+    - Replace:
+        backspaces: 4
+        insert: dậc
+- input: dacar
+  display: dẩc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâc
+    - Replace:
+        backspaces: 4
+        insert: dẩc
+- input: dacax
+  display: dẫc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâc
+    - Replace:
+        backspaces: 4
+        insert: dẫc
+- input: dacaw
+  display: dăc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâc
+    - Replace:
+        backspaces: 4
+        insert: dăc
+- input: dacaa
+  display: dâc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâc
+- input: decee
+  display: dêc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dêc
+- input: docoo
+  display: dôc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dôc
+- input: docow
+  display: dơc
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dôc
+    - Replace:
+        backspaces: 4
+        insert: dơc
+- input: ducuw
+  display: ducư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: ducư
+- input: dachaf
+  display: dầch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dâch
+    - Replace:
+        backspaces: 5
+        insert: dầch
+- input: dachas
+  display: dấch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dâch
+    - Replace:
+        backspaces: 5
+        insert: dấch
+- input: dachaj
+  display: dậch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dâch
+    - Replace:
+        backspaces: 5
+        insert: dậch
+- input: dachar
+  display: dẩch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dâch
+    - Replace:
+        backspaces: 5
+        insert: dẩch
+- input: dachax
+  display: dẫch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dâch
+    - Replace:
+        backspaces: 5
+        insert: dẫch
+- input: dachaw
+  display: dăch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dâch
+    - Replace:
+        backspaces: 5
+        insert: dăch
+- input: dachaa
+  display: dâch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dâch
+- input: dechee
+  display: dêch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dêch
+- input: dochoo
+  display: dôch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dôch
+- input: dochow
+  display: dơch
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dôch
+    - Replace:
+        backspaces: 5
+        insert: dơch
+- input: duchuw
+  display: duchư
+  events:
+    - Replace:
+        backspaces: 6
+        insert: duchư
+- input: damaf
+  display: dầm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâm
+    - Replace:
+        backspaces: 4
+        insert: dầm
+- input: damas
+  display: dấm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâm
+    - Replace:
+        backspaces: 4
+        insert: dấm
+- input: damaj
+  display: dậm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâm
+    - Replace:
+        backspaces: 4
+        insert: dậm
+- input: damar
+  display: dẩm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâm
+    - Replace:
+        backspaces: 4
+        insert: dẩm
+- input: damax
+  display: dẫm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâm
+    - Replace:
+        backspaces: 4
+        insert: dẫm
+- input: damaw
+  display: dăm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâm
+    - Replace:
+        backspaces: 4
+        insert: dăm
+- input: damaa
+  display: dâm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâm
+- input: demee
+  display: dêm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dêm
+- input: domoo
+  display: dôm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dôm
+- input: domow
+  display: dơm
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dôm
+    - Replace:
+        backspaces: 4
+        insert: dơm
+- input: dumuw
+  display: dumư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dumư
+- input: danaf
+  display: dần
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dân
+    - Replace:
+        backspaces: 4
+        insert: dần
+- input: danas
+  display: dấn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dân
+    - Replace:
+        backspaces: 4
+        insert: dấn
+- input: danaj
+  display: dận
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dân
+    - Replace:
+        backspaces: 4
+        insert: dận
+- input: danar
+  display: dẩn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dân
+    - Replace:
+        backspaces: 4
+        insert: dẩn
+- input: danax
+  display: dẫn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dân
+    - Replace:
+        backspaces: 4
+        insert: dẫn
+- input: danaw
+  display: dăn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dân
+    - Replace:
+        backspaces: 4
+        insert: dăn
+- input: danaa
+  display: dân
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dân
+- input: denee
+  display: dên
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dên
+- input: donoo
+  display: dôn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dôn
+- input: donow
+  display: dơn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dôn
+    - Replace:
+        backspaces: 4
+        insert: dơn
+- input: dunuw
+  display: dunư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dunư
+- input: dangaf
+  display: dầng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dâng
+    - Replace:
+        backspaces: 5
+        insert: dầng
+- input: dangas
+  display: dấng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dâng
+    - Replace:
+        backspaces: 5
+        insert: dấng
+- input: dangaj
+  display: dậng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dâng
+    - Replace:
+        backspaces: 5
+        insert: dậng
+- input: dangar
+  display: dẩng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dâng
+    - Replace:
+        backspaces: 5
+        insert: dẩng
+- input: dangax
+  display: dẫng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dâng
+    - Replace:
+        backspaces: 5
+        insert: dẫng
+- input: dangaw
+  display: dăng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dâng
+    - Replace:
+        backspaces: 5
+        insert: dăng
+- input: dangaa
+  display: dâng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dâng
+- input: dengee
+  display: dêng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dêng
+- input: dongoo
+  display: dông
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dông
+- input: dongow
+  display: dơng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dông
+    - Replace:
+        backspaces: 5
+        insert: dơng
+- input: dunguw
+  display: dungư
+  events:
+    - Replace:
+        backspaces: 6
+        insert: dungư
+- input: danhaf
+  display: dầnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dânh
+    - Replace:
+        backspaces: 5
+        insert: dầnh
+- input: danhas
+  display: dấnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dânh
+    - Replace:
+        backspaces: 5
+        insert: dấnh
+- input: danhaj
+  display: dậnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dânh
+    - Replace:
+        backspaces: 5
+        insert: dậnh
+- input: danhar
+  display: dẩnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dânh
+    - Replace:
+        backspaces: 5
+        insert: dẩnh
+- input: danhax
+  display: dẫnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dânh
+    - Replace:
+        backspaces: 5
+        insert: dẫnh
+- input: danhaw
+  display: dănh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dânh
+    - Replace:
+        backspaces: 5
+        insert: dănh
+- input: danhaa
+  display: dânh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dânh
+- input: denhee
+  display: dênh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dênh
+- input: donhoo
+  display: dônh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dônh
+- input: donhow
+  display: dơnh
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dônh
+    - Replace:
+        backspaces: 5
+        insert: dơnh
+- input: dunhuw
+  display: dunhư
+  events:
+    - Replace:
+        backspaces: 6
+        insert: dunhư
+- input: dapaf
+  display: dầp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâp
+    - Replace:
+        backspaces: 4
+        insert: dầp
+- input: dapas
+  display: dấp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâp
+    - Replace:
+        backspaces: 4
+        insert: dấp
+- input: dapaj
+  display: dập
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâp
+    - Replace:
+        backspaces: 4
+        insert: dập
+- input: dapar
+  display: dẩp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâp
+    - Replace:
+        backspaces: 4
+        insert: dẩp
+- input: dapax
+  display: dẫp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâp
+    - Replace:
+        backspaces: 4
+        insert: dẫp
+- input: dapaw
+  display: dăp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâp
+    - Replace:
+        backspaces: 4
+        insert: dăp
+- input: dapaa
+  display: dâp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dâp
+- input: depee
+  display: dêp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dêp
+- input: dopoo
+  display: dôp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dôp
+- input: dopow
+  display: dơp
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dôp
+    - Replace:
+        backspaces: 4
+        insert: dơp
+- input: dupuw
+  display: dupư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dupư
+- input: dataf
+  display: dầt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dât
+    - Replace:
+        backspaces: 4
+        insert: dầt
+- input: datas
+  display: dất
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dât
+    - Replace:
+        backspaces: 4
+        insert: dất
+- input: dataj
+  display: dật
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dât
+    - Replace:
+        backspaces: 4
+        insert: dật
+- input: datar
+  display: dẩt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dât
+    - Replace:
+        backspaces: 4
+        insert: dẩt
+- input: datax
+  display: dẫt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dât
+    - Replace:
+        backspaces: 4
+        insert: dẫt
+- input: dataw
+  display: dăt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dât
+    - Replace:
+        backspaces: 4
+        insert: dăt
+- input: dataa
+  display: dât
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dât
+- input: detee
+  display: dêt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dêt
+- input: dotoo
+  display: dôt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dôt
+- input: dotow
+  display: dơt
+  events:
+    - Replace:
+        backspaces: 4
+        insert: dôt
+    - Replace:
+        backspaces: 4
+        insert: dơt
+- input: dutuw
+  display: dutư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: dutư
+- input: gaaf
+  display: gầ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: gâ
+    - Replace:
+        backspaces: 3
+        insert: gầ
+- input: gaas
+  display: gấ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: gâ
+    - Replace:
+        backspaces: 3
+        insert: gấ
+- input: gaaj
+  display: gậ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: gâ
+    - Replace:
+        backspaces: 3
+        insert: gậ
+- input: gaar
+  display: gẩ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: gâ
+    - Replace:
+        backspaces: 3
+        insert: gẩ
+- input: gaax
+  display: gẫ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: gâ
+    - Replace:
+        backspaces: 3
+        insert: gẫ
+- input: gaaw
+  display: gă
+  events:
+    - Replace:
+        backspaces: 3
+        insert: gâ
+    - Replace:
+        backspaces: 3
+        insert: gă
+- input: gaaa
+  display: gâ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: gâ
+- input: geee
+  display: gê
+  events:
+    - Replace:
+        backspaces: 3
+        insert: gê
+- input: gooo
+  display: gô
+  events:
+    - Replace:
+        backspaces: 3
+        insert: gô
+- input: goow
+  display: gơ
+  events:
+    - Replace:
+        backspaces: 3
+        insert: gô
+    - Replace:
+        backspaces: 3
+        insert: gơ
+- input: guuw
+  display: guư
+  events:
+    - Replace:
+        backspaces: 4
+        insert: guư
+- input: ganaf
+  display: gần
+  events:
+    - Replace:
+        backspaces: 4
+        insert: gân
+    - Replace:
+        backspaces: 4
+        insert: gần
+- input: ganas
+  display: gấn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: gân
+    - Replace:
+        backspaces: 4
+        insert: gấn
+- input: ganaj
+  display: gận
+  events:
+    - Replace:
+        backspaces: 4
+        insert: gân
+    - Replace:
+        backspaces: 4
+        insert: gận
+- input: ganar
+  display: gẩn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: gân
+    - Replace:
+        backspaces: 4
+        insert: gẩn
+- input: ganax
+  display: gẫn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: gân
+    - Replace:
+        backspaces: 4
+        insert: gẫn
+- input: ganaw
+  display: găn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: gân
+    - Replace:
+        backspaces: 4
+        insert: găn
+- input: ganaa
+  display: gân
+  events:
+    - Replace:
+        backspaces: 4
+        insert: gân
+- input: genee
+  display: gên
+  events:
+    - Replace:
+        backspaces: 4
+        insert: gên
+- input: gonoo
+  display: gôn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: gôn
+- input: gonow
+  display: gơn
+  events:
+    - Replace:
+        backspaces: 4
+        insert: gôn
+    - Replace:
+        backspaces: 4
+        insert: gơn
+- input: gunuw
+  display: gunư
+  events:
+    - Replace:
+        backspaces: 5
+        insert: gunư
+- input: gangaf
+  display: gầng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: gâng
+    - Replace:
+        backspaces: 5
+        insert: gầng
+- input: gangas
+  display: gấng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: gâng
+    - Replace:
+        backspaces: 5
+        insert: gấng
+- input: gangaj
+  display: gậng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: gâng
+    - Replace:
+        backspaces: 5
+        insert: gậng
+- input: gangar
+  display: gẩng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: gâng
+    - Replace:
+        backspaces: 5
+        insert: gẩng
+- input: gangax
+  display: gẫng
+  events:
+    - Replace:
+        backspaces: 5
+        insert: gâng
+    - Replace:
+        backspaces: 5
+        insert: gẫng

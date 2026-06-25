@@ -1,89 +1,114 @@
-use std::io::{self, Write};
-use vietc_engine::{Engine, EngineEvent, InputMethod};
-
-fn get_display(events: &[EngineEvent]) -> String {
-    let mut display = String::new();
-    for ev in events {
-        match ev {
-            EngineEvent::Flush(text) => { if !display.ends_with(text) { display.push_str(text); } }
-            EngineEvent::Insert(text) => display.push_str(text),
-            EngineEvent::Replace { backspaces, insert } => {
-                for _ in 0..*backspaces { display.pop(); }
-                display.push_str(insert);
-            }
-            EngineEvent::AutoRestore(word) => {
-                for _ in 0..word.len() { display.pop(); }
-                display.push_str(word);
-            }
-            EngineEvent::UndoTones { backspaces, restored } => {
-                for _ in 0..*backspaces { display.pop(); }
-                display.push_str(restored);
-            }
-        }
-    }
-    display
-}
-
-fn process_input(e: &mut Engine, input: &str) -> Vec<EngineEvent> {
-    let mut events = Vec::new();
-    for ch in input.chars() {
-        if let Some(ev) = e.process_key(ch) { events.push(ev); }
-    }
-    events
-}
+use std::fs::File;
 
 const INITIALS: &[&str] = &[
-    "", "b", "c", "ch", "d", "g", "gh", "h", "k", "kh", "l", "m", "n",
-    "ng", "ngh", "nh", "p", "ph", "q", "r", "s", "t", "th", "tr", "v", "x",
+    "", "b", "c", "ch", "d", "g", "gh", "h", "k", "kh", "l", "m", "n", "ng", "ngh", "nh", "p",
+    "ph", "q", "r", "s", "t", "th", "tr", "v", "x",
 ];
 
 const FINALS: &[&str] = &["", "c", "ch", "m", "n", "ng", "nh", "p", "t"];
 
 fn is_valid(init: &str, fin: &str) -> bool {
-    if init == "ngh" && !fin.is_empty() && fin != "n" && fin != "ng" && fin != "nh" { return false; }
-    if init == "gh" && !fin.is_empty() { return false; }
-    if init == "q" { return false; }
-    if init == "g" && !fin.is_empty() && fin != "n" && fin != "ng" { return false; }
-    if fin == "ch" && init == "" { return false; }
-    if fin == "nh" && init == "" { return false; }
+    if init == "ngh" && !fin.is_empty() && fin != "n" && fin != "ng" && fin != "nh" {
+        return false;
+    }
+    if init == "gh" && !fin.is_empty() {
+        return false;
+    }
+    if init == "q" {
+        return false;
+    }
+    if init == "g" && !fin.is_empty() && fin != "n" && fin != "ng" {
+        return false;
+    }
+    if fin == "ch" && init.is_empty() {
+        return false;
+    }
+    if fin == "nh" && init.is_empty() {
+        return false;
+    }
     true
 }
 
 fn main() {
-    // Telex base vowels (as typed, before mod)
+    // Telex
     let telex_vowels: Vec<(&str, &str)> = vec![
-        ("a", "af"), ("a", "as"), ("a", "aj"), ("a", "ar"), ("a", "ax"),
-        ("a", "aw"), ("a", "aa"),
+        ("a", "af"),
+        ("a", "as"),
+        ("a", "aj"),
+        ("a", "ar"),
+        ("a", "ax"),
+        ("a", "aw"),
+        ("a", "aa"),
         ("e", "ee"),
-        ("o", "oo"), ("o", "ow"),
+        ("o", "oo"),
+        ("o", "ow"),
         ("u", "uw"),
     ];
 
-    let mut count = 0;
-    let stdout = io::stdout();
-    let mut handle = stdout.lock();
-
+    let mut telex_inputs = Vec::new();
     for &init in INITIALS {
         for &fin in FINALS {
-            if !is_valid(init, fin) { continue; }
+            if !is_valid(init, fin) {
+                continue;
+            }
             for &(base, mod_str) in &telex_vowels {
                 let plain = format!("{}{}{}", init, base, fin);
                 let full = format!("{}{}", plain, mod_str);
-                if plain.len() > 10 { continue; }
-
-                let mut e = Engine::new(InputMethod::Telex);
-                let result = get_display(&process_input(&mut e, &full));
-
-                if !result.is_empty() && result.len() <= 12 && result != full && result != plain {
-                    count += 1;
-                    let _ = writeln!(handle, "{{\"i\":\"{full}\",\"e\":\"{result}\",\"m\":\"telex\"}}");
+                if plain.len() > 10 {
+                    continue;
                 }
-                if count >= 1000 { break; }
+                telex_inputs.push(full);
             }
-            if count >= 1000 { break; }
         }
-        if count >= 1000 { break; }
     }
+    // Limit to 500 cases to keep snapshot size reasonable but comprehensive
+    telex_inputs.truncate(500);
 
-    eprintln!("Generated {count} test cases");
+    // VNI
+    let vni_vowels: Vec<(&str, &str)> = vec![
+        ("a", "1"),
+        ("a", "2"),
+        ("a", "3"),
+        ("a", "4"),
+        ("a", "5"),
+        ("a", "6"),
+        ("a", "8"),
+        ("e", "6"),
+        ("o", "6"),
+        ("o", "7"),
+        ("u", "7"),
+    ];
+
+    let mut vni_inputs = Vec::new();
+    for &init in INITIALS {
+        for &fin in FINALS {
+            if !is_valid(init, fin) {
+                continue;
+            }
+            for &(base, mod_str) in &vni_vowels {
+                let plain = format!("{}{}{}", init, base, fin);
+                let full = format!("{}{}", plain, mod_str);
+                if plain.len() > 10 {
+                    continue;
+                }
+                vni_inputs.push(full);
+            }
+        }
+    }
+    vni_inputs.truncate(500);
+
+    // Ensure output directory exists
+    std::fs::create_dir_all("tests/testdata").unwrap();
+
+    let mut f_telex = File::create("tests/testdata/telex_inputs.json").unwrap();
+    serde_json::to_writer_pretty(&mut f_telex, &telex_inputs).unwrap();
+
+    let mut f_vni = File::create("tests/testdata/vni_inputs.json").unwrap();
+    serde_json::to_writer_pretty(&mut f_vni, &vni_inputs).unwrap();
+
+    println!(
+        "Generated {} Telex and {} VNI test inputs under tests/testdata/",
+        telex_inputs.len(),
+        vni_inputs.len()
+    );
 }

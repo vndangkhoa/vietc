@@ -1,19 +1,19 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use vietc_engine::{Engine, EngineEvent, InputMethod};
 
-mod config;
 mod app_state;
+mod config;
 mod display;
 
-use config::Config;
 use app_state::AppStateManager;
+use config::Config;
 
 fn get_log_path() -> Option<PathBuf> {
     dirs::config_dir().map(|p| p.join("vietc").join("vietc.log"))
@@ -98,6 +98,7 @@ impl Daemon {
         let mut app_state = AppStateManager::new(
             config.app_state.english_apps.clone(),
             config.app_state.vietnamese_apps.clone(),
+            config.app_state.bypass_apps.clone(),
             config.start_enabled,
         );
         app_state.load_overrides();
@@ -133,7 +134,10 @@ impl Daemon {
             if let Ok(content) = fs::read_to_string(&status_path) {
                 let expect_enabled = content.trim() == "vn";
                 if self.engine.is_enabled() != expect_enabled {
-                    log_info(&format!("[vietc] Syncing enabled status from file: {}", expect_enabled));
+                    log_info(&format!(
+                        "[vietc] Syncing enabled status from file: {}",
+                        expect_enabled
+                    ));
                     self.engine.set_enabled(expect_enabled);
                     self.engine_enabled.store(expect_enabled, Ordering::SeqCst);
                 }
@@ -167,6 +171,7 @@ impl Daemon {
                 self.app_state.update_lists(
                     new_config.app_state.english_apps.clone(),
                     new_config.app_state.vietnamese_apps.clone(),
+                    new_config.app_state.bypass_apps.clone(),
                 );
 
                 self.grab_enabled = new_config.grab;
@@ -185,13 +190,38 @@ impl Daemon {
     fn process_key(&mut self, ch: char) -> Vec<OutputCommand> {
         let mut commands = Vec::new();
 
+        // Log each keystroke with character info
+        log_info(&format!(
+            "[vietc] process_key: U+{:04X} '{}' raw_buffer='{}' enabled={}",
+            ch as u32,
+            ch,
+            self.engine.buffer(),
+            self.engine.is_enabled()
+        ));
+
         if let Some(event) = self.engine.process_key(ch) {
-            log_info(&format!("[vietc] key='{}' buf='{}' -> {:?}", ch, self.engine.buffer(), event));
+            log_info(&format!(
+                "[vietc] key='{}' buf='{}' -> {:?}",
+                ch,
+                self.engine.buffer(),
+                event
+            ));
             match event {
                 EngineEvent::Flush(text) => {
+                    log_info(&format!(
+                        "[vietc] Flush text len={}, bytes={} text={}",
+                        text.len(),
+                        text.len() * 3,
+                        text.escape_default()
+                    ));
                     commands.push(OutputCommand::Type(text));
                 }
                 EngineEvent::Insert(text) => {
+                    log_info(&format!(
+                        "[vietc] Insert text len={}, text={}",
+                        text.len(),
+                        text
+                    ));
                     commands.push(OutputCommand::Type(text));
                 }
                 EngineEvent::AutoRestore(word) => {
@@ -200,16 +230,42 @@ impl Daemon {
                     commands.push(OutputCommand::Type(word));
                 }
                 EngineEvent::Replace { backspaces, insert } => {
+                    log_info(&format!(
+                        "[vietc] Replace BS={} text=\"{}\"",
+                        backspaces, insert
+                    ));
                     commands.push(OutputCommand::Backspace(backspaces));
                     commands.push(OutputCommand::Type(insert));
                 }
-                EngineEvent::UndoTones { backspaces, restored } => {
+                EngineEvent::UndoTones {
+                    backspaces,
+                    restored,
+                } => {
+                    log_info(&format!(
+                        "[vietc] UndoTones BS={} restored=\"{}\"",
+                        backspaces, restored
+                    ));
                     commands.push(OutputCommand::Backspace(backspaces));
                     commands.push(OutputCommand::Type(restored));
                 }
+                EngineEvent::Paste(text) => {
+                    log_info(&format!(
+                        "[vietc] Paste raw text len={}, bytes={} text={}",
+                        text.len(),
+                        text.len() * 3,
+                        text.escape_default()
+                    ));
+                    // Exit paste mode after pasting
+                    self.engine.exit_paste_mode();
+                    commands.push(OutputCommand::Type(text));
+                }
             }
         } else {
-            log_info(&format!("[vietc] key='{}' -> (no event, buf='{}')", ch, self.engine.buffer()));
+            log_info(&format!(
+                "[vietc] key='{}' -> (no event, buf='{}')",
+                ch,
+                self.engine.buffer()
+            ));
         }
 
         commands
@@ -217,8 +273,33 @@ impl Daemon {
 
     fn toggle(&mut self) {
         let new_state = self.app_state.toggle_current_app();
+        log_info(&format!(
+            "[vietc] toggle: engine.enabled={}",
+            self.engine.is_enabled()
+        ));
+
         self.engine.set_enabled(new_state);
         self.write_status();
+
+        // Reset engine buffer when enabling Vietnamese mode to clear stale state
+        if new_state {
+            log_info(&format!(
+                "[vietc] reset() called - raw_buffer='{}' before reset",
+                self.engine.buffer()
+            ));
+            self.engine.reset();
+            log_info(&format!(
+                "[vietc] after reset() - raw_buffer='{}'",
+                self.engine.buffer()
+            ));
+        }
+    }
+
+    fn is_current_app_bypassed(&self) -> bool {
+        if !self.config.app_state.enabled {
+            return false;
+        }
+        self.app_state.is_current_app_bypassed()
     }
 
     fn check_app_change_with(&mut self, new_class: String) {
@@ -248,10 +329,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let compositor = display::detect_compositor();
 
     log_info(&format!("Viet+ Daemon v{}", env!("CARGO_PKG_VERSION")));
-    log_info(&format!("Display: {:?} ({})", display, compositor.unwrap_or_else(|| "unknown".into())));
+    log_info(&format!(
+        "Display: {:?} ({})",
+        display,
+        compositor.unwrap_or_else(|| "unknown".into())
+    ));
     log_info(&format!("Input method: {:?}", daemon.config.input_method));
-    log_info(&format!("Toggle key: Ctrl+{}", daemon.config.toggle_key.to_uppercase()));
-    log_info(&format!("App memory: {}", if daemon.config.app_state.enabled { "ON" } else { "OFF" }));
+    log_info(&format!(
+        "Toggle key: Ctrl+{}",
+        daemon.config.toggle_key.to_uppercase()
+    ));
+    log_info(&format!(
+        "App memory: {}",
+        if daemon.config.app_state.enabled {
+            "ON"
+        } else {
+            "OFF"
+        }
+    ));
 
     // Spawn background monitor for active window, config changes, and status changes
     let shared_active_window = Arc::new(Mutex::new(String::new()));
@@ -288,7 +383,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         status_changed.store(true, Ordering::SeqCst);
                     }
                 }
-                
+
                 // Check config modified every 1.5 seconds (6 * 250ms)
                 window_check_counter += 1;
                 if window_check_counter >= 6 {
@@ -361,9 +456,10 @@ fn open_keyboard_device() -> Result<(evdev::Device, String), Box<dyn std::error:
                     if dev_name.eq_ignore_ascii_case("vietc") {
                         continue;
                     }
-                    if device.supported_keys().is_some_and(|k| {
-                        k.contains(evdev::Key::KEY_A)
-                    }) {
+                    if device
+                        .supported_keys()
+                        .is_some_and(|k| k.contains(evdev::Key::KEY_A))
+                    {
                         return Ok((device, format!("{} ({})", entry.path().display(), dev_name)));
                     }
                 }
@@ -390,14 +486,16 @@ fn open_keyboard_device() -> Result<(evdev::Device, String), Box<dyn std::error:
                  but your current session hasn't picked it up yet. \
                  Please LOG OUT and LOG BACK IN to activate group permissions.",
                 permission_denied_count, total_event_count
-            ).into())
+            )
+            .into())
         } else {
             Err(format!(
                 "Permission denied on {}/{} devices. Add your user to the 'input' group: \
                  sudo usermod -aG input $USER && sudo usermod -aG vinput $USER, \
                  then log out and log back in.",
                 permission_denied_count, total_event_count
-            ).into())
+            )
+            .into())
         }
     } else {
         Err("No keyboard device found".into())
@@ -422,7 +520,10 @@ fn run_with_evdev(
                 true
             }
             Err(e) => {
-                log_info(&format!("[vietc] Could not grab keyboard: {} (run as root for grab)", e));
+                log_info(&format!(
+                    "[vietc] Could not grab keyboard: {} (run as root for grab)",
+                    e
+                ));
                 log_info("[vietc] Falling back to non-grabbing mode (may have race)");
                 false
             }
@@ -443,13 +544,18 @@ fn run_with_evdev(
     loop {
         // Check for event timeout (grab safety)
         if grabbed && last_event_time.elapsed() > std::time::Duration::from_secs(30) {
-            log_info("[vietc] No events for 30s — releasing grab timeout, releasing grab for safety");
+            log_info(
+                "[vietc] No events for 30s — releasing grab timeout, releasing grab for safety",
+            );
             let _ = device.ungrab();
             return Ok(());
         }
 
         let caps = is_caps_lock_on(&device);
-        let key_state = device.get_key_state().ok();
+        let mut key_state = device
+            .get_key_state()
+            .ok()
+            .unwrap_or_else(evdev::AttributeSet::new);
         let events = device.fetch_events()?;
         last_event_time = std::time::Instant::now();
 
@@ -463,7 +569,10 @@ fn run_with_evdev(
         {
             let active_window = shared_active_window.lock().unwrap().clone();
             if active_window != last_active_window {
-                log_info(&format!("[vietc] Window changed: '{}' -> '{}'", last_active_window, active_window));
+                log_info(&format!(
+                    "[vietc] Window changed: '{}' -> '{}'",
+                    last_active_window, active_window
+                ));
                 last_active_window = active_window.clone();
                 daemon.engine.reset();
                 log_info("[vietc] Reset engine buffer due to window change");
@@ -487,8 +596,22 @@ fn run_with_evdev(
                 let value = event.value();
                 let keycode = key.0;
 
-                if value == 1
-                    && is_toggle_combination_state(&key_state, &daemon.config.toggle_key)
+                // Update key state dynamically
+                if value == 1 {
+                    key_state.insert(key);
+                } else if value == 0 {
+                    key_state.remove(key);
+                }
+
+                // Completely bypass all IME processing/interception for terminal emulators, IDE terminals, and games
+                if daemon.is_current_app_bypassed() {
+                    if grabbed {
+                        injector.send_key_event(keycode, value);
+                    }
+                    continue;
+                }
+
+                if value == 1 && is_toggle_combination_state(&key_state, &daemon.config.toggle_key)
                 {
                     daemon.toggle();
                     continue;
@@ -508,7 +631,7 @@ fn run_with_evdev(
                     }
                 } else {
                     // Grabbing mode: all output goes through uinput only.
-                    
+
                     // If Ctrl, Alt, or Meta/Super is pressed, bypass the engine completely and forward raw key events.
                     if is_modifier_pressed(&key_state) {
                         injector.send_key_event(keycode, value);
@@ -533,10 +656,8 @@ fn run_with_evdev(
                         }
                         if let Some(mut ch) = key_to_char(key) {
                             let shift = is_modifier_held_shift(&key_state);
-                            if ch.is_ascii_alphabetic() {
-                                if shift ^ caps {
-                                    ch = ch.to_ascii_uppercase();
-                                }
+                            if ch.is_ascii_alphabetic() && (shift ^ caps) {
+                                ch = ch.to_ascii_uppercase();
                             }
                             let commands = daemon.process_key(ch);
                             if !commands.is_empty() {
@@ -576,8 +697,7 @@ fn run_stdin_mode(
     _engine_enabled: Arc<AtomicBool>,
     display: display::DisplayServer,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use std::io::{self, Read, IsTerminal};
-
+    use std::io::{self, IsTerminal, Read};
 
     if !io::stdin().is_terminal() {
         log_info("[vietc] Warning: No keyboard device and no terminal.");
@@ -603,7 +723,8 @@ fn run_stdin_mode(
             if let Ok((device, path)) = open_keyboard_device() {
                 log_info(&format!("[vietc] Keyboard device found: {}", path));
                 return run_with_evdev(
-                    device, daemon,
+                    device,
+                    daemon,
                     shared_active_window,
                     config_changed,
                     status_changed,
@@ -633,7 +754,10 @@ fn run_stdin_mode(
         {
             let active_window = shared_active_window.lock().unwrap().clone();
             if active_window != last_active_window {
-                log_info(&format!("[vietc] Window changed: '{}' -> '{}'", last_active_window, active_window));
+                log_info(&format!(
+                    "[vietc] Window changed: '{}' -> '{}'",
+                    last_active_window, active_window
+                ));
                 last_active_window = active_window.clone();
                 daemon.engine.reset();
                 log_info("[vietc] Reset engine buffer due to window change");
@@ -672,15 +796,26 @@ fn run_stdin_mode(
 /// Execute commands — accumulate backspaces and text, then inject through
 /// a single channel (ydotool or wtype) to avoid reordering between backspaces
 /// (uinput) and text (ydotool).
-fn execute_commands(injector: &dyn vietc_protocol::KeyInjector, commands: &[OutputCommand], grabbed: bool) {
+fn execute_commands(
+    injector: &dyn vietc_protocol::KeyInjector,
+    commands: &[OutputCommand],
+    grabbed: bool,
+) {
     let mut pending_backspaces: usize = 0;
     let mut pending_text = String::new();
 
     for cmd in commands {
         match cmd {
             OutputCommand::Backspace(count) => {
-                let adjusted = if grabbed { count.saturating_sub(1) } else { *count };
-                log_info(&format!("[vietc] cmd: Backspace({}) -> adjusted={}", count, adjusted));
+                let adjusted = if grabbed {
+                    count.saturating_sub(1)
+                } else {
+                    *count
+                };
+                log_info(&format!(
+                    "[vietc] cmd: Backspace({}) -> adjusted={}",
+                    count, adjusted
+                ));
                 pending_backspaces += adjusted;
             }
             OutputCommand::Type(text) => {
@@ -691,13 +826,32 @@ fn execute_commands(injector: &dyn vietc_protocol::KeyInjector, commands: &[Outp
     }
 
     if pending_backspaces > 0 || !pending_text.is_empty() {
-        log_info(&format!("[vietc] inject: BS={} text=\"{}\"", pending_backspaces, pending_text));
-        injector.inject_replacement(pending_backspaces, &pending_text);
+        log_info(&format!(
+            "[vietc] inject: BS={} text=\"{}\"",
+            pending_backspaces, pending_text
+        ));
+
+        // Use injector for text (ydotool/xdotool/wtype)
+        let _ = injector.inject_replacement(pending_backspaces, &pending_text);
+    } else if !commands.is_empty() {
+        // Empty text but commands exist (e.g. Backspace only or Flush empty string)
+        log_info(&format!("[vietc] inject: BS={}", pending_backspaces));
+
+        let _ = injector.inject_replacement(pending_backspaces, &pending_text);
     }
+
     injector.flush();
+
+    // Sleep briefly to let the display server and target application process the
+    // injected key strokes and clear any modifier states before we handle subsequent physical keys.
+    if grabbed && !commands.is_empty() {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
 }
 
-fn create_injector(display: display::DisplayServer) -> Result<Box<dyn vietc_protocol::KeyInjector>, Box<dyn std::error::Error>> {
+fn create_injector(
+    display: display::DisplayServer,
+) -> Result<Box<dyn vietc_protocol::KeyInjector>, Box<dyn std::error::Error>> {
     // Try Wayland input method first (if compiled with wayland feature)
     #[cfg(feature = "wayland")]
     {
@@ -738,12 +892,7 @@ fn create_injector(display: display::DisplayServer) -> Result<Box<dyn vietc_prot
     Err("No injection backend available".into())
 }
 
-fn is_modifier_pressed(key_state: &Option<evdev::AttributeSet<evdev::Key>>) -> bool {
-    let key_state = match key_state {
-        Some(ks) => ks,
-        None => return false,
-    };
-
+fn is_modifier_pressed(key_state: &evdev::AttributeSet<evdev::Key>) -> bool {
     key_state.contains(evdev::Key::KEY_LEFTCTRL)
         || key_state.contains(evdev::Key::KEY_RIGHTCTRL)
         || key_state.contains(evdev::Key::KEY_LEFTALT)
@@ -752,12 +901,8 @@ fn is_modifier_pressed(key_state: &Option<evdev::AttributeSet<evdev::Key>>) -> b
         || key_state.contains(evdev::Key::KEY_RIGHTMETA)
 }
 
-fn is_modifier_held_shift(key_state: &Option<evdev::AttributeSet<evdev::Key>>) -> bool {
-    let ks = match key_state {
-        Some(ks) => ks,
-        None => return false,
-    };
-    ks.contains(evdev::Key::KEY_LEFTSHIFT) || ks.contains(evdev::Key::KEY_RIGHTSHIFT)
+fn is_modifier_held_shift(key_state: &evdev::AttributeSet<evdev::Key>) -> bool {
+    key_state.contains(evdev::Key::KEY_LEFTSHIFT) || key_state.contains(evdev::Key::KEY_RIGHTSHIFT)
 }
 
 fn is_caps_lock_on(device: &evdev::Device) -> bool {
@@ -768,12 +913,7 @@ fn is_caps_lock_on(device: &evdev::Device) -> bool {
     }
 }
 
-fn is_toggle_combination_state(key_state: &Option<evdev::AttributeSet<evdev::Key>>, key: &str) -> bool {
-    let key_state = match key_state {
-        Some(ks) => ks,
-        None => return false,
-    };
-
+fn is_toggle_combination_state(key_state: &evdev::AttributeSet<evdev::Key>, key: &str) -> bool {
     let ctrl_pressed = key_state.contains(evdev::Key::KEY_LEFTCTRL)
         || key_state.contains(evdev::Key::KEY_RIGHTCTRL);
 

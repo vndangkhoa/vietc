@@ -1,4 +1,4 @@
-.PHONY: build build-x11 build-wayland build-all build-ui test test-cli run run-x11 run-wayland clean install install-x11 install-wayland install-ui install-config appimage fmt lint tree
+.PHONY: build build-x11 build-wayland build-all build-ui test test-cli run run-x11 run-wayland clean install install-x11 install-wayland install-ui install-config appimage deb fmt lint tree
 
 # Build core crates
 build:
@@ -85,6 +85,11 @@ deb:
 appimage:
 	VERSION=$$(grep '^version' engine/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/') && \
 	bash packaging/appimage/build-appimage.sh "$$VERSION"
+
+# Build Debian package
+deb:
+	VERSION=$$(grep '^version' engine/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/') && \
+	bash packaging/build-deb.sh "$$VERSION"
 
 # Clean build artifacts
 clean:

@@ -53,6 +53,9 @@ pub struct AppStateConfig {
 
     #[serde(default)]
     pub vietnamese_apps: Vec<String>,
+
+    #[serde(default = "default_bypass_apps")]
+    pub bypass_apps: Vec<String>,
 }
 
 impl Default for AutoRestoreConfig {
@@ -70,16 +73,29 @@ impl Default for AppStateConfig {
             enabled: true,
             english_apps: default_english_apps(),
             vietnamese_apps: default_vietnamese_apps(),
+            bypass_apps: default_bypass_apps(),
         }
     }
 }
 
-fn default_input_method() -> String { "telex".into() }
-fn default_toggle_key() -> String { "space".into() }
-fn default_start_enabled() -> bool { true }
-fn default_true() -> bool { true }
-fn default_false() -> bool { false }
-fn default_restore_keys() -> Vec<String> { vec!["space".into(), "escape".into()] }
+fn default_input_method() -> String {
+    "telex".into()
+}
+fn default_toggle_key() -> String {
+    "space".into()
+}
+fn default_start_enabled() -> bool {
+    true
+}
+fn default_true() -> bool {
+    true
+}
+fn default_false() -> bool {
+    false
+}
+fn default_restore_keys() -> Vec<String> {
+    vec!["space".into(), "escape".into()]
+}
 
 fn default_english_apps() -> Vec<String> {
     vec![
@@ -90,10 +106,26 @@ fn default_english_apps() -> Vec<String> {
         "webstorm".into(),
         "vim".into(),
         "nvim".into(),
+    ]
+}
+
+fn default_bypass_apps() -> Vec<String> {
+    vec![
         "terminal".into(),
         "kitty".into(),
         "alacritty".into(),
         "foot".into(),
+        "wezterm".into(),
+        "konsole".into(),
+        "gnome-terminal".into(),
+        "st".into(),
+        "urxvt".into(),
+        "xterm".into(),
+        "steam".into(),
+        "dota".into(),
+        "csgo".into(),
+        "minecraft".into(),
+        "factorio".into(),
     ]
 }
 
@@ -233,7 +265,10 @@ vs = "với"
         assert!(!config.auto_restore.enabled);
         assert!(config.app_state.enabled);
         assert_eq!(config.app_state.english_apps, vec!["code", "vim"]);
-        assert_eq!(config.app_state.vietnamese_apps, vec!["telegram", "discord"]);
+        assert_eq!(
+            config.app_state.vietnamese_apps,
+            vec!["telegram", "discord"]
+        );
         assert_eq!(config.macros.get("ko").unwrap(), "không");
         assert_eq!(config.macros.get("dc").unwrap(), "được");
         assert_eq!(config.macros.get("vs").unwrap(), "với");
@@ -289,12 +324,14 @@ foo = "bar"
     fn parse_app_lists() {
         let toml = r#"
 [app_state]
-english_apps = ["vim", "neovim", "kitty"]
+english_apps = ["vim", "neovim"]
 vietnamese_apps = ["zalo", "messenger"]
+bypass_apps = ["kitty"]
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.app_state.english_apps, vec!["vim", "neovim", "kitty"]);
+        assert_eq!(config.app_state.english_apps, vec!["vim", "neovim"]);
         assert_eq!(config.app_state.vietnamese_apps, vec!["zalo", "messenger"]);
+        assert_eq!(config.app_state.bypass_apps, vec!["kitty"]);
     }
 
     #[test]
@@ -311,14 +348,29 @@ vietnamese_apps = ["zalo", "messenger"]
         let config = Config::default();
         assert!(config.app_state.english_apps.contains(&"code".to_string()));
         assert!(config.app_state.english_apps.contains(&"vim".to_string()));
-        assert!(config.app_state.english_apps.contains(&"kitty".to_string()));
+    }
+
+    #[test]
+    fn default_config_bypass_apps() {
+        let config = Config::default();
+        assert!(config.app_state.bypass_apps.contains(&"kitty".to_string()));
+        assert!(config
+            .app_state
+            .bypass_apps
+            .contains(&"alacritty".to_string()));
     }
 
     #[test]
     fn default_config_vietnamese_apps() {
         let config = Config::default();
-        assert!(config.app_state.vietnamese_apps.contains(&"telegram".to_string()));
-        assert!(config.app_state.vietnamese_apps.contains(&"firefox".to_string()));
+        assert!(config
+            .app_state
+            .vietnamese_apps
+            .contains(&"telegram".to_string()));
+        assert!(config
+            .app_state
+            .vietnamese_apps
+            .contains(&"firefox".to_string()));
     }
 
     #[test]

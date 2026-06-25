@@ -6,7 +6,10 @@ mod tests {
         let mut events = Vec::new();
         for ch in input.chars() {
             if ch == '\x08' {
-                events.push(EngineEvent::Replace { backspaces: 1, insert: String::new() });
+                events.push(EngineEvent::Replace {
+                    backspaces: 1,
+                    insert: String::new(),
+                });
                 let _ = engine.process_key(ch);
                 continue;
             }
@@ -26,7 +29,7 @@ mod tests {
         let mut output = String::new();
         for ev in events {
             match ev {
-                EngineEvent::Flush(text) | EngineEvent::Insert(text) => {
+                EngineEvent::Flush(text) | EngineEvent::Insert(text) | EngineEvent::Paste(text) => {
                     output.push_str(text);
                 }
                 EngineEvent::Replace { backspaces, insert } => {
@@ -41,7 +44,10 @@ mod tests {
                     }
                     output.push_str(word);
                 }
-                EngineEvent::UndoTones { backspaces, restored } => {
+                EngineEvent::UndoTones {
+                    backspaces,
+                    restored,
+                } => {
                     for _ in 0..*backspaces {
                         output.push('\x08');
                     }
@@ -56,7 +62,7 @@ mod tests {
         let mut display = String::new();
         for ev in events {
             match ev {
-                EngineEvent::Flush(text) => {
+                EngineEvent::Flush(text) | EngineEvent::Paste(text) => {
                     if !display.ends_with(text) {
                         display.push_str(text);
                     }
@@ -76,7 +82,10 @@ mod tests {
                     }
                     display.push_str(word);
                 }
-                EngineEvent::UndoTones { backspaces, restored } => {
+                EngineEvent::UndoTones {
+                    backspaces,
+                    restored,
+                } => {
                     for _ in 0..*backspaces {
                         display.pop();
                     }
@@ -972,7 +981,10 @@ mod tests {
         e.process_key('s');
         let event = e.process_escape();
         match event {
-            Some(EngineEvent::UndoTones { backspaces, restored }) => {
+            Some(EngineEvent::UndoTones {
+                backspaces,
+                restored,
+            }) => {
                 assert_eq!(backspaces, 1);
                 assert_eq!(restored, "a");
             }
@@ -988,7 +1000,10 @@ mod tests {
         }
         let event = e.process_escape();
         match event {
-            Some(EngineEvent::UndoTones { backspaces, restored }) => {
+            Some(EngineEvent::UndoTones {
+                backspaces,
+                restored,
+            }) => {
                 assert_eq!(backspaces, 4);
                 assert_eq!(restored, "chao");
             }
@@ -1113,7 +1128,10 @@ mod tests {
     fn macro_long_expansion() {
         let mut e = Engine::new(InputMethod::Telex);
         e.add_macro("bhg".into(), "bài họcгруппа".into());
-        assert_eq!(get_display(&process_input(&mut e, "bhg ")), "bài họcгруппа ");
+        assert_eq!(
+            get_display(&process_input(&mut e, "bhg ")),
+            "bài họcгруппа "
+        );
     }
 
     #[test]
@@ -1129,7 +1147,10 @@ mod tests {
         let mut e = Engine::new(InputMethod::Telex);
         e.add_macro("vs".into(), "với".into());
         // "vs" expands, then "hello" is English
-        assert_eq!(get_display(&process_input(&mut e, "vs hello ")), "với hello ");
+        assert_eq!(
+            get_display(&process_input(&mut e, "vs hello ")),
+            "với hello "
+        );
     }
 
     // ================================================================
@@ -1212,10 +1233,13 @@ mod tests {
         let mut e = Engine::new(InputMethod::Telex);
         let events = process_input(&mut e, "was ");
         // Verify auto-restore produces correct backspace counts
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
         assert_eq!(replace_events.len(), 3);
         // w-pending: backspace 1 (delete 'w' from screen)
         assert_eq!(replace_events[0], (1, "".to_string()));
@@ -1415,10 +1439,13 @@ mod tests {
         let mut e = Engine::new(InputMethod::Telex);
         let events = process_input(&mut e, "as");
         // Find the Replace event
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
         assert_eq!(replace_events.len(), 1, "Expected 1 Replace event for 'as'");
         assert_eq!(replace_events[0], (2, "á".to_string()));
         assert_eq!(get_display(&events), "á");
@@ -1428,10 +1455,13 @@ mod tests {
     fn backspace_count_double_letter() {
         let mut e = Engine::new(InputMethod::Telex);
         let events = process_input(&mut e, "aa");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
         assert_eq!(replace_events.len(), 1);
         assert_eq!(replace_events[0], (2, "â".to_string()));
         assert_eq!(get_display(&events), "â");
@@ -1441,10 +1471,13 @@ mod tests {
     fn backspace_count_w_modifier() {
         let mut e = Engine::new(InputMethod::Telex);
         let events = process_input(&mut e, "aw");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
         assert_eq!(replace_events.len(), 1);
         assert_eq!(replace_events[0], (2, "ă".to_string()));
         assert_eq!(get_display(&events), "ă");
@@ -1454,12 +1487,20 @@ mod tests {
     fn backspace_count_w_modifier_then_tone() {
         let mut e = Engine::new(InputMethod::Telex);
         let events = process_input(&mut e, "aws");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
         // "aw" → Replace {2, "ă"}, then "s" → Replace {2, "ắ"}
-        assert_eq!(replace_events.len(), 2, "Expected 2 Replace events: {:?}", replace_events);
+        assert_eq!(
+            replace_events.len(),
+            2,
+            "Expected 2 Replace events: {:?}",
+            replace_events
+        );
         assert_eq!(replace_events[0], (2, "ă".to_string()));
         assert_eq!(replace_events[1], (2, "ắ".to_string()));
         assert_eq!(get_display(&events), "ắ");
@@ -1469,12 +1510,20 @@ mod tests {
     fn backspace_count_compound_vowel_tone() {
         let mut e = Engine::new(InputMethod::Telex);
         let events = process_input(&mut e, "oas");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
         // "oas" → tone on second vowel: Replace {3, "oá"}
-        assert_eq!(replace_events.len(), 1, "Expected 1 Replace event: {:?}", replace_events);
+        assert_eq!(
+            replace_events.len(),
+            1,
+            "Expected 1 Replace event: {:?}",
+            replace_events
+        );
         assert_eq!(replace_events[0], (3, "oá".to_string()));
         assert_eq!(get_display(&events), "oá");
     }
@@ -1483,12 +1532,20 @@ mod tests {
     fn backspace_count_compound_vowel_uy_tone() {
         let mut e = Engine::new(InputMethod::Telex);
         let events = process_input(&mut e, "uys");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
         // "uys" → tone on first vowel: Replace {3, "uý"}
-        assert_eq!(replace_events.len(), 1, "Expected 1 Replace event: {:?}", replace_events);
+        assert_eq!(
+            replace_events.len(),
+            1,
+            "Expected 1 Replace event: {:?}",
+            replace_events
+        );
         assert_eq!(replace_events[0], (3, "uý".to_string()));
         assert_eq!(get_display(&events), "uý");
     }
@@ -1498,15 +1555,23 @@ mod tests {
         // "bs" → no vowel, 's' is appended as text
         let mut e = Engine::new(InputMethod::Telex);
         let events = process_input(&mut e, "bs");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, .. } => Some(backspaces),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, .. } => Some(backspaces),
+                _ => None,
+            })
+            .collect();
         // 's' after consonant 'b': no vowel found, 's' appended to buffer
         // But s is a tone key, and process_tone is called...
         // In process_tone: buffer "b", chars=['b'], no vowel found → buffer.push('s') → "bs"
         // new_inner = "bs", expected = "b"+"s" = "bs" → same → None
-        assert_eq!(replace_events.len(), 0, "Expected no Replace events, got: {:?}", replace_events);
+        assert_eq!(
+            replace_events.len(),
+            0,
+            "Expected no Replace events, got: {:?}",
+            replace_events
+        );
         assert_eq!(get_display(&events), "bs");
     }
 
@@ -1517,15 +1582,23 @@ mod tests {
         // Then space triggers auto-restore back to "was "
         let mut e = Engine::new(InputMethod::Telex);
         let events = process_input(&mut e, "was ");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
         // Expected events for "was ":
         // 'w': pending modifier, no buffer change → Replace {1, ""} (blink)
         // 's': tone on 'a' → Replace {2, "á"}
         // ' ': auto-restore → Replace {2, "was "}
-        assert_eq!(replace_events.len(), 3, "Expected 3 Replace events, got: {:?}", replace_events);
+        assert_eq!(
+            replace_events.len(),
+            3,
+            "Expected 3 Replace events, got: {:?}",
+            replace_events
+        );
         // Event 0: 'w' blinks (gets deleted as pending modifier)
         assert_eq!(replace_events[0].0, 1, "w-pending backspace");
         assert_eq!(replace_events[0].1, "");
@@ -1545,13 +1618,20 @@ mod tests {
         // "hello " → no conversion needed, should_restore("hello") → true, no diacritics → None
         let mut e = Engine::new(InputMethod::Telex);
         let events = process_input(&mut e, "hello ");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, .. } => Some(backspaces),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, .. } => Some(backspaces),
+                _ => None,
+            })
+            .collect();
         // "hello" has no Vietnamese conversion, should_restore returns true
         // has_diacritics = false → returns None in auto-restore path
-        assert_eq!(replace_events.len(), 0, "No Replace events for plain English");
+        assert_eq!(
+            replace_events.len(),
+            0,
+            "No Replace events for plain English"
+        );
         assert_eq!(get_display(&events), "hello ");
     }
 
@@ -1560,13 +1640,20 @@ mod tests {
         let mut e = Engine::new(InputMethod::Telex);
         e.add_macro("ko".into(), "không".into());
         let events = process_input(&mut e, "ko ");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
         // "ko " → macro expansion: raw_buffer="ko", Replace { 3, "không " }
         // backspaces = raw_buffer.len + 1 = 2 + 1 = 3
-        assert_eq!(replace_events.len(), 1, "Expected 1 Replace event for macro");
+        assert_eq!(
+            replace_events.len(),
+            1,
+            "Expected 1 Replace event for macro"
+        );
         assert_eq!(replace_events[0].0, 3, "macro backspace count");
         assert_eq!(replace_events[0].1, "không ");
         assert_eq!(get_display(&events), "không ");
@@ -1577,17 +1664,25 @@ mod tests {
         // "chof " → 'f' is pending after 'o' on "cho", space flushes → "chò "
         let mut e = Engine::new(InputMethod::Telex);
         let events = process_input(&mut e, "chof ");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
         // "chof":
         // 'c' → no event
         // 'h' → no event
         // 'o' → no event
         // 'f' → process_tone on 'o' → Replace { 4, "chò" } (prev_inner="cho", expected="chof")
         // ' ' → flush with space, final_word="chò" == previous_inner="chò" → None
-        assert_eq!(replace_events.len(), 1, "Expected 1 Replace event: {:?}", replace_events);
+        assert_eq!(
+            replace_events.len(),
+            1,
+            "Expected 1 Replace event: {:?}",
+            replace_events
+        );
         assert_eq!(replace_events[0].0, 4, "chof→chò backspace");
         assert_eq!(replace_events[0].1, "chò");
         assert_eq!(get_display(&events), "chò ");
@@ -1601,7 +1696,10 @@ mod tests {
         }
         let event = e.process_escape();
         match event {
-            Some(EngineEvent::UndoTones { backspaces, restored }) => {
+            Some(EngineEvent::UndoTones {
+                backspaces,
+                restored,
+            }) => {
                 assert_eq!(backspaces, 4, "ESC undo should backspace 4 chars (chào)");
                 assert_eq!(restored, "chao");
             }
@@ -1615,20 +1713,36 @@ mod tests {
         // Then flush → "a".
         let mut e = Engine::new(InputMethod::Telex);
         e.process_key('a');
-        e.process_key('s');           // buffer = "á"
+        e.process_key('s'); // buffer = "á"
         let mut events = Vec::new();
         events.push(EngineEvent::Insert(" ".to_string()));
-        if let Some(ev) = e.process_key('\x08') { events.push(ev); } // backspace → buffer ""
-        if let Some(ev) = e.process_key('a') { events.push(ev); }   // buffer "a" (no Replace)
-        if let Some(ev) = e.flush() { events.push(ev); }
+        if let Some(ev) = e.process_key('\x08') {
+            events.push(ev);
+        } // backspace → buffer ""
+        if let Some(ev) = e.process_key('a') {
+            events.push(ev);
+        } // buffer "a" (no Replace)
+        if let Some(ev) = e.flush() {
+            events.push(ev);
+        }
         // After backspace: buffer is empty, then 'a' → no Replace, flush returns Flush("a")
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { .. } => Some(()),
-            _ => None,
-        }).collect();
-        assert_eq!(replace_events.len(), 0, "No Replace events after backspace + 'a'");
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { .. } => Some(()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            replace_events.len(),
+            0,
+            "No Replace events after backspace + 'a'"
+        );
         let display = get_display(&events);
-        assert_eq!(display, " a", "Display should be ' ' (from Insert) + 'a' (from flush)");
+        assert_eq!(
+            display, " a",
+            "Display should be ' ' (from Insert) + 'a' (from flush)"
+        );
     }
 
     #[test]
@@ -1636,10 +1750,13 @@ mod tests {
         let mut e = Engine::new(InputMethod::Telex);
         // "xin chao " (xin=no convert, chao=no convert, space flushes)
         let events = process_input(&mut e, "xin chao ");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
         assert_eq!(replace_events.len(), 0, "No Replace events for 'xin chao '");
         assert_eq!(get_display(&events), "xin chao ");
     }
@@ -1656,11 +1773,19 @@ mod tests {
         //   Apply 's' to 'o' → 'ó'. buffer = "tót"
         // Replace { 4, "tót" }
         let events = process_input(&mut e, "tots");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
-        assert_eq!(replace_events.len(), 1, "Expected 1 Replace: {:?}", replace_events);
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            replace_events.len(),
+            1,
+            "Expected 1 Replace: {:?}",
+            replace_events
+        );
         assert_eq!(replace_events[0].0, 4, "tots→tót backspace");
         assert_eq!(replace_events[0].1, "tót");
         assert_eq!(get_display(&events), "tót");
@@ -1671,11 +1796,19 @@ mod tests {
         let mut e = Engine::new(InputMethod::Telex);
         // "dungj" → "dụng"
         let events = process_input(&mut e, "dungj");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
-        assert_eq!(replace_events.len(), 1, "Expected 1 Replace: {:?}", replace_events);
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            replace_events.len(),
+            1,
+            "Expected 1 Replace: {:?}",
+            replace_events
+        );
         assert_eq!(replace_events[0].0, 5, "dungj→dụng backspace");
         assert_eq!(replace_events[0].1, "dụng");
         assert_eq!(get_display(&events), "dụng");
@@ -1695,7 +1828,11 @@ mod tests {
         assert_eq!(e.buffer(), "á", "Engine buffer should be 'á'");
         // Backspace → pop engine, sync raw_buffer
         e.process_key('\x08');
-        assert_eq!(e.buffer(), "", "Engine buffer should be empty after backspace");
+        assert_eq!(
+            e.buffer(),
+            "",
+            "Engine buffer should be empty after backspace"
+        );
         // Verify raw_buffer is also empty (sync'd via char count matching)
     }
 
@@ -1738,11 +1875,19 @@ mod tests {
     fn vni_backspace_count_tone() {
         let mut e = Engine::new(InputMethod::Vni);
         let events = process_input(&mut e, "a1");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
-        assert_eq!(replace_events.len(), 1, "Expected 1 Replace: {:?}", replace_events);
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            replace_events.len(),
+            1,
+            "Expected 1 Replace: {:?}",
+            replace_events
+        );
         assert_eq!(replace_events[0].0, 2, "a1→á backspace");
         assert_eq!(replace_events[0].1, "á");
         assert_eq!(get_display(&events), "á");
@@ -1752,10 +1897,13 @@ mod tests {
     fn vni_backspace_count_vowel_mod() {
         let mut e = Engine::new(InputMethod::Vni);
         let events = process_input(&mut e, "a6");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
         assert_eq!(replace_events.len(), 1);
         assert_eq!(replace_events[0].0, 2, "a6→â backspace");
         assert_eq!(replace_events[0].1, "â");
@@ -1766,12 +1914,20 @@ mod tests {
     fn vni_backspace_count_mod_then_tone() {
         let mut e = Engine::new(InputMethod::Vni);
         let events = process_input(&mut e, "a61");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
         // "a6" → Replace {2, "â"}, then "1" → Replace {2, "ấ"}
-        assert_eq!(replace_events.len(), 2, "Expected 2 Replace: {:?}", replace_events);
+        assert_eq!(
+            replace_events.len(),
+            2,
+            "Expected 2 Replace: {:?}",
+            replace_events
+        );
         assert_eq!(replace_events[0].0, 2);
         assert_eq!(replace_events[0].1, "â");
         assert_eq!(replace_events[1].0, 2);
@@ -1784,10 +1940,13 @@ mod tests {
         // "b1" → 'b' is not vowel, '1' appends as digit → no Replace
         let mut e = Engine::new(InputMethod::Vni);
         let events = process_input(&mut e, "b1");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { .. } => Some(()),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { .. } => Some(()),
+                _ => None,
+            })
+            .collect();
         assert_eq!(replace_events.len(), 0, "No Replace for consonant+digit");
         assert_eq!(get_display(&events), "b1");
     }
@@ -1797,11 +1956,19 @@ mod tests {
         let mut e = Engine::new(InputMethod::Vni);
         // "chao2" → '2' is tone (huyền) on 'o' → "chaò"
         let events = process_input(&mut e, "chao2");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
-        assert_eq!(replace_events.len(), 1, "Expected 1 Replace: {:?}", replace_events);
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            replace_events.len(),
+            1,
+            "Expected 1 Replace: {:?}",
+            replace_events
+        );
         // previous_inner = "chao" (4 chars), expected = "chao"+"2" = "chao2" (5 chars)
         // backspaces = 4 + 1 = 5
         assert_eq!(replace_events[0].0, 5, "chao2→chaò backspace");
@@ -1818,12 +1985,20 @@ mod tests {
         // Type "as" → á, then "f" → f overrides sắc with huyền → "à"
         let mut e = Engine::new(InputMethod::Telex);
         let events = process_input(&mut e, "asf");
-        let replace_events: Vec<_> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
-            _ => None,
-        }).collect();
+        let replace_events: Vec<_> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, insert } => Some((*backspaces, insert.clone())),
+                _ => None,
+            })
+            .collect();
         // "as" → Replace {2, "á"}, "f" → Replace {2, "à"}
-        assert_eq!(replace_events.len(), 2, "Expected 2 Replace: {:?}", replace_events);
+        assert_eq!(
+            replace_events.len(),
+            2,
+            "Expected 2 Replace: {:?}",
+            replace_events
+        );
         assert_eq!(replace_events[0].0, 2);
         assert_eq!(replace_events[0].1, "á");
         assert_eq!(replace_events[1].0, 2);
@@ -1970,11 +2145,19 @@ mod tests {
         // ' ' = flush
         // b + a + n + j = "bạn" (j=nặng on 'a')
         let events = process_input(&mut e, "xin chaof banj");
-        let replace_events: Vec<usize> = events.iter().filter_map(|ev| match ev {
-            EngineEvent::Replace { backspaces, .. } => Some(*backspaces),
-            _ => None,
-        }).collect();
-        assert_eq!(replace_events.len(), 2, "Expected 2 Replace events: {:?}", replace_events);
+        let replace_events: Vec<usize> = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Replace { backspaces, .. } => Some(*backspaces),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            replace_events.len(),
+            2,
+            "Expected 2 Replace events: {:?}",
+            replace_events
+        );
         assert_eq!(replace_events[0], 5, "chaof→chào should be 5");
         assert_eq!(replace_events[1], 4, "banj→bạn should be 4");
         assert_eq!(get_display(&events), "xin chào bạn");
@@ -2101,5 +2284,71 @@ mod tests {
     fn core_test_dang9() {
         let mut e = Engine::new(InputMethod::Vni);
         assert_eq!(get_display(&process_input(&mut e, "dang9")), "đang");
+    }
+
+    #[test]
+    fn test_spelling_auto_restore() {
+        let mut e = Engine::new(InputMethod::Telex);
+
+        // "fasts" -> "fást" -> restored to "fasts" on space
+        assert_eq!(get_display(&process_input(&mut e, "fasts ")), "fasts ");
+
+        // "statuss" -> "statús" -> restored to "statuss" on space
+        let mut e2 = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e2, "statuss ")), "statuss ");
+    }
+
+    #[test]
+    fn test_user_phrases_telex() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(
+            get_display(&process_input(&mut e, "vox nguyeenx ddawng khoa")),
+            "võ nguyễn đăng khoa"
+        );
+
+        let mut e2 = Engine::new(InputMethod::Telex);
+        assert_eq!(
+            get_display(&process_input(&mut e2, "nguyeenx thij traam anh")),
+            "nguyễn thị trâm anh"
+        );
+
+        let mut e3 = Engine::new(InputMethod::Telex);
+        assert_eq!(
+            get_display(&process_input(&mut e3, "vox hoongf mi")),
+            "võ hồng mi"
+        );
+
+        let mut e4 = Engine::new(InputMethod::Telex);
+        assert_eq!(
+            get_display(&process_input(&mut e4, "trinhj traanf phuongw tuaans")),
+            "trịnh trần phương tuấn"
+        );
+    }
+
+    #[test]
+    fn test_user_phrases_vni() {
+        let mut e = Engine::new(InputMethod::Vni);
+        assert_eq!(
+            get_display(&process_input(&mut e, "vo4 nguyen64 da8ng9 khoa")),
+            "võ nguyễn đăng khoa"
+        );
+
+        let mut e2 = Engine::new(InputMethod::Vni);
+        assert_eq!(
+            get_display(&process_input(&mut e2, "nguyen64 thi5 tram6 anh")),
+            "nguyễn thị trâm anh"
+        );
+
+        let mut e3 = Engine::new(InputMethod::Vni);
+        assert_eq!(
+            get_display(&process_input(&mut e3, "vo4 hong62 mi")),
+            "võ hồng mi"
+        );
+
+        let mut e4 = Engine::new(InputMethod::Vni);
+        assert_eq!(
+            get_display(&process_input(&mut e4, "trinh5 tran62 phuong7 tuan61")),
+            "trịnh trần phương tuấn"
+        );
     }
 }

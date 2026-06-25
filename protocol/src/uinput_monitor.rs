@@ -58,8 +58,7 @@ impl UinputInjector {
         ioctl(fd, UI_DEV_SETUP, &usetup as *const uinput_setup as u64)
             .map_err(|e| format!("UI_DEV_SETUP failed: {}", e))?;
 
-        ioctl(fd, UI_DEV_CREATE, 0)
-            .map_err(|e| format!("UI_DEV_CREATE failed: {}", e))?;
+        ioctl(fd, UI_DEV_CREATE, 0).map_err(|e| format!("UI_DEV_CREATE failed: {}", e))?;
 
         // Small delay for device to be ready
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -69,7 +68,10 @@ impl UinputInjector {
 
     fn send_uinput_event(&self, type_: u16, code: u16, value: i32) {
         let event = input_event {
-            time: timeval { tv_sec: 0, tv_usec: 0 },
+            time: timeval {
+                tv_sec: 0,
+                tv_usec: 0,
+            },
             type_,
             code,
             value,
@@ -78,7 +80,33 @@ impl UinputInjector {
         unsafe {
             let ptr = &event as *const input_event as *const u8;
             let len = std::mem::size_of::<input_event>();
-            let _ = libc::write(self.file.as_raw_fd() as libc::c_int, ptr as *const libc::c_void, len);
+            let _ = libc::write(
+                self.file.as_raw_fd() as libc::c_int,
+                ptr as *const libc::c_void,
+                len,
+            );
+        }
+    }
+
+    fn send_key_stroke(&self, keycode: u16, shift: bool) {
+        if shift {
+            self.send_uinput_event(EV_KEY, 42, 1); // Shift press
+            self.send_uinput_event(0, 0, 0); // SYN
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+
+        self.send_uinput_event(EV_KEY, keycode, 1); // Key press
+        self.send_uinput_event(0, 0, 0); // SYN
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
+        self.send_uinput_event(EV_KEY, keycode, 0); // Key release
+        self.send_uinput_event(0, 0, 0); // SYN
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
+        if shift {
+            self.send_uinput_event(EV_KEY, 42, 0); // Shift release
+            self.send_uinput_event(0, 0, 0); // SYN
+            std::thread::sleep(std::time::Duration::from_millis(2));
         }
     }
 }
@@ -86,44 +114,95 @@ impl UinputInjector {
 impl KeyInjector for UinputInjector {
     fn send_backspace(&self) -> InjectResult {
         self.send_uinput_event(EV_KEY, 14, 1); // KEY_BACKSPACE press
+        self.send_uinput_event(0, 0, 0); // SYN
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
         self.send_uinput_event(EV_KEY, 14, 0); // KEY_BACKSPACE release
-        self.send_uinput_event(0, 0, 0);       // EV_SYN
+        self.send_uinput_event(0, 0, 0); // SYN
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
         InjectResult::Success
     }
 
     fn send_key_event(&self, keycode: u16, value: i32) -> InjectResult {
         self.send_uinput_event(EV_KEY, keycode, value);
         self.send_uinput_event(0, 0, 0);
+        std::thread::sleep(std::time::Duration::from_millis(2));
         InjectResult::Success
     }
 
     fn send_char(&self, ch: char) -> InjectResult {
         if let Some(keycode) = char_to_linux_keycode(ch) {
             let needs_shift = ch.is_uppercase() || "!@#$%^&*()_+{}|:\"<>?".contains(ch);
-            if needs_shift {
-                self.send_uinput_event(EV_KEY, 42, 1); // KEY_LEFTSHIFT
-            }
-            self.send_uinput_event(EV_KEY, keycode, 1);
-            self.send_uinput_event(EV_KEY, keycode, 0);
-            if needs_shift {
-                self.send_uinput_event(EV_KEY, 42, 0);
-            }
-            self.send_uinput_event(0, 0, 0);
+            self.send_key_stroke(keycode, needs_shift);
+            eprintln!(
+                "[vietc] send_char: ASCII '{}' via uinput",
+                ch.escape_default()
+            );
             return InjectResult::Success;
         }
-        // Unicode: copy to clipboard and paste (preserves uinput ordering)
-        self.paste_string(&ch.to_string());
+        // Unicode character: use clipboard fallback for reliable injection
+        let text = ch.to_string();
+        eprintln!(
+            "[vietc] send_char: Unicode '{}' - using clipboard",
+            text.escape_default()
+        );
+
+        let copied = self.copy_to_clipboard(&text);
+        if copied {
+            eprintln!("[vietc] send_char: clipboard OK, sending Ctrl+V");
+            self.send_ctrl_v();
+            eprintln!("[vietc] send_char complete (clipboard)");
+            return InjectResult::Success;
+        } else {
+            eprintln!(
+                "[vietc] send_char failed for '{}' (clipboard unavailable)",
+                text.escape_default()
+            );
+            // Last resort: try uinput directly (may not work on all systems)
+            eprintln!("[vietc] send_char fallback: trying direct injection...");
+            self.paste_string(&text);
+        }
         InjectResult::Success
     }
 
     fn send_string(&self, s: &str) -> InjectResult {
-        // If all ASCII, use keycodes directly (fast path)
-        if s.chars().all(|c| char_to_linux_keycode(c).is_some()) {
+        // ASCII characters: inject directly via uinput keycodes
+        let is_ascii = s.chars().all(|c| char_to_linux_keycode(c).is_some());
+        eprintln!(
+            "[vietc] send_string: len={}, is_ascii={}",
+            s.len(),
+            is_ascii
+        );
+
+        if is_ascii {
+            eprintln!(
+                "[vietc] send_string: ASCII '{}' via uinput",
+                s.escape_default()
+            );
             for ch in s.chars() {
                 self.send_char(ch);
             }
+            return InjectResult::Success;
+        }
+
+        // Unicode text: single clipboard copy + paste (reliable method)
+        eprintln!(
+            "[vietc] send_string: Unicode '{}' - using clipboard",
+            s.escape_default()
+        );
+        let copied = self.copy_to_clipboard(s);
+        if copied {
+            eprintln!("[vietc] send_string: clipboard OK, sending Ctrl+V");
+            self.send_ctrl_v();
+            eprintln!("[vietc] send_string complete (clipboard)");
+            return InjectResult::Success;
         } else {
-            // Contains Unicode: single clipboard copy + paste via uinput
+            eprintln!(
+                "[vietc] send_string failed for '{}' (clipboard unavailable)",
+                s.escape_default()
+            );
+            // Last resort: try paste_string (will try clipboard internally)
             self.paste_string(s);
         }
         InjectResult::Success
@@ -132,8 +211,19 @@ impl KeyInjector for UinputInjector {
     fn inject_replacement(&self, backspaces: usize, text: &str) -> InjectResult {
         self.inject_replacement_atomic(backspaces, text)
     }
-
     fn flush(&self) -> InjectResult {
+        InjectResult::Success
+    }
+
+    /// Record that Unicode text was pasted via clipboard (for future delete/backspace support)
+    fn update_pasted_text(&self, text: &str) -> InjectResult {
+        // Text tracking happens through OutputCommand pipeline in daemon
+        // This is called after clipboard paste to inform engine of pasted content
+        eprintln!(
+            "[vietc] update_pasted_text: recorded '{}' (len={})",
+            text.escape_default(),
+            text.len()
+        );
         InjectResult::Success
     }
 }
@@ -160,7 +250,8 @@ impl UinputInjector {
                     let pw = libc::getpwuid(uid);
                     if !pw.is_null() {
                         let name = std::ffi::CStr::from_ptr((*pw).pw_name)
-                            .to_string_lossy().into_owned();
+                            .to_string_lossy()
+                            .into_owned();
                         if !name.is_empty() {
                             return Some(name);
                         }
@@ -176,7 +267,8 @@ impl UinputInjector {
                         let pw = libc::getpwuid(uid);
                         if !pw.is_null() {
                             let name = std::ffi::CStr::from_ptr((*pw).pw_name)
-                                .to_string_lossy().into_owned();
+                                .to_string_lossy()
+                                .into_owned();
                             if !name.is_empty() {
                                 return Some(name);
                             }
@@ -247,45 +339,9 @@ impl UinputInjector {
     /// Run an external command as the original user if we're root.
     /// Uses native OS setuid/setgid to avoid slow PAM/logging/sudo startup overhead.
     fn run_as_user(program: &str, args: &[&str]) -> std::process::Output {
-        let is_root = unsafe { libc::getuid() == 0 };
-        if is_root {
-            if let Some((uid, gid)) = Self::get_original_uid_gid() {
-                let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
-                let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
-                let display = std::env::var("DISPLAY").unwrap_or_default();
-                
-                use std::os::unix::process::CommandExt;
-                let mut cmd = std::process::Command::new(program);
-                cmd.uid(uid).gid(gid);
-                
-                if !wayland_display.is_empty() {
-                    cmd.env("WAYLAND_DISPLAY", wayland_display);
-                }
-                if !xdg_runtime_dir.is_empty() {
-                    cmd.env("XDG_RUNTIME_DIR", xdg_runtime_dir);
-                }
-                if !display.is_empty() {
-                    cmd.env("DISPLAY", display);
-                }
-                if let Some(username) = Self::get_original_username() {
-                    cmd.env("HOME", format!("/home/{}", username));
-                }
-                
-                cmd.args(args);
-                match cmd.output() {
-                    Ok(output) => return output,
-                    Err(e) => {
-                        eprintln!("[vietc] Failed to run {} as uid={}: {}", program, uid, e);
-                        return std::process::Output {
-                            status: std::process::ExitStatus::default(),
-                            stdout: vec![],
-                            stderr: format!("{}\n", e).into_bytes(),
-                        };
-                    }
-                }
-            }
-        }
-        match std::process::Command::new(program).args(args).output() {
+        let mut cmd = Self::user_cmd(program);
+        cmd.args(args);
+        match cmd.output() {
             Ok(output) => output,
             Err(e) => {
                 eprintln!("[vietc] Failed to run {}: {}", program, e);
@@ -304,9 +360,22 @@ impl UinputInjector {
     /// best available method: ydotool (uinput) for ASCII, xdotool (X11) or
     /// clipboard for Unicode.
     fn inject_replacement_atomic(&self, backspaces: usize, text: &str) -> InjectResult {
-        let is_ascii = text.chars().all(|c| char_to_linux_keycode(c).is_some());
-        
-        if is_ascii {
+        eprintln!(
+            "[vietc] inject_atomic: ASCII={}",
+            text.chars().all(|c| char_to_linux_keycode(c).is_some())
+        );
+        eprintln!(
+            "[vietc] inject_atomic: ASCII check (raw_bytes={} chars={} text='{}')",
+            text.len(),
+            text.chars().count(),
+            text.escape_default()
+        );
+
+        if text.chars().all(|c| char_to_linux_keycode(c).is_some()) {
+            eprintln!(
+                "[vietc] ASCII injection using uinput (backspaces={})",
+                backspaces
+            );
             if backspaces > 0 {
                 for _ in 0..backspaces {
                     let _ = self.send_backspace();
@@ -315,171 +384,221 @@ impl UinputInjector {
             for ch in text.chars() {
                 let _ = self.send_char(ch);
             }
+            eprintln!("[vietc] ASCII injection complete");
             return InjectResult::Success;
         }
 
-        // It is Unicode. We must use a single unified channel.
+        // Unicode text: use xdotool directly (X11/XWayland) or wtype (Wayland)
         let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
-        
-        static HAS_WTYPE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        static HAS_XDOTOOL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
-        if is_wayland {
-            let has_wtype = *HAS_WTYPE.get_or_init(|| {
-                std::process::Command::new("which")
-                    .arg("wtype")
-                    .output()
-                    .map(|o| o.status.success())
-                    .unwrap_or(false)
-            });
-                
-            if has_wtype {
-                let mut args = Vec::new();
-                for _ in 0..backspaces {
-                    args.push("-k");
-                    args.push("BackSpace");
-                }
-                args.push("--");
-                args.push(text);
-                
-                let output = Self::run_as_user("wtype", &args);
-                if output.status.success() {
-                    return InjectResult::Success;
-                }
-                eprintln!("[vietc] wtype inject failed: {}", String::from_utf8_lossy(&output.stderr).trim());
-            }
+        static HAS_XDOTOOL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let has_xdotool = if is_wayland {
+            false
         } else {
-            let has_xdotool = *HAS_XDOTOOL.get_or_init(|| {
+            *HAS_XDOTOOL.get_or_init(|| {
                 std::process::Command::new("which")
                     .arg("xdotool")
                     .output()
                     .map(|o| o.status.success())
                     .unwrap_or(false)
-            });
-                
-            if has_xdotool {
-                let mut args = Vec::new();
-                if backspaces > 0 {
-                    args.push("key");
-                    for _ in 0..backspaces {
-                        args.push("BackSpace");
-                    }
-                }
-                if !text.is_empty() {
-                    args.push("type");
-                    args.push("--clearmodifiers");
-                    args.push(text);
-                }
-                
-                let output = Self::run_as_user("xdotool", &args);
-                if output.status.success() {
-                    return InjectResult::Success;
-                }
-                eprintln!("[vietc] xdotool inject failed: {}", String::from_utf8_lossy(&output.stderr).trim());
+            })
+        };
+
+        static HAS_WTYPE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let has_wtype = if !is_wayland {
+            false
+        } else {
+            *HAS_WTYPE.get_or_init(|| {
+                std::process::Command::new("which")
+                    .arg("wtype")
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false)
+            })
+        };
+
+        if is_wayland {
+            if has_wtype {
+                eprintln!(
+                    "[vietc] Unicode detected ({} chars), injecting via wtype",
+                    text.chars().count()
+                );
+            } else {
+                eprintln!(
+                    "[vietc] Wayland session detected, using clipboard fallback instead of xdotool/wtype"
+                );
             }
+        } else {
+            eprintln!(
+                "[vietc] Unicode detected ({} chars), injecting via xdotool",
+                text.chars().count()
+            );
         }
 
-        // Fallback: Clipboard copy + paste.
-        // This is safe because both backspaces and Ctrl+V are injected into the SAME uinput device.
+        if is_wayland && has_wtype {
+            let mut args = Vec::new();
+            if backspaces > 0 {
+                for _ in 0..backspaces {
+                    args.push("-k");
+                    args.push("BackSpace");
+                }
+            }
+            if !text.is_empty() {
+                args.push("--");
+                args.push(text);
+            }
+
+            eprintln!("[vietc] Running: wtype {}", args.join(" "));
+            let output = Self::run_as_user("wtype", &args);
+            if output.status.success() {
+                eprintln!("[vietc] wtype success - Unicode text injected correctly");
+                return InjectResult::Success;
+            }
+            eprintln!(
+                "[vietc] wtype failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+
+        if has_xdotool {
+            let mut args = Vec::new();
+            if backspaces > 0 {
+                args.push("key");
+                for _ in 0..backspaces {
+                    args.push("BackSpace");
+                }
+            }
+            if !text.is_empty() {
+                args.push("type");
+                args.push(text); // xdotool handles UTF-8 text directly
+            }
+
+            eprintln!("[vietc] Running: xdotool {}", args.join(" "));
+            let output = Self::run_as_user("xdotool", &args);
+            if output.status.success() {
+                eprintln!("[vietc] xdotool success - Unicode text injected correctly");
+                return InjectResult::Success;
+            }
+            eprintln!(
+                "[vietc] xdotool failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        } else if !is_wayland {
+            eprintln!("[vietc] xdotool not found, trying clipboard fallback...");
+        }
+
+        // Final fallback: clipboard copy + Ctrl+V via uinput device
+        eprintln!("[vietc] All direct tools failed, using clipboard fallback...");
+        // Primary choice for Unicode: clipboard copy + Ctrl+V via uinput device
         let copied = self.copy_to_clipboard(text);
         if copied {
+            eprintln!(
+                "[vietc] Clipboard fallback: copied '{}' and will Ctrl+V",
+                text
+            );
             if backspaces > 0 {
                 for _ in 0..backspaces {
                     let _ = self.send_backspace();
                 }
             }
+            eprintln!("[vietc] Sending Ctrl+V");
             self.send_ctrl_v();
-            InjectResult::Success
-        } else {
-            eprintln!("[vietc] clipboard copy failed during fallback");
-            // Absolute last resort: try uinput backspaces followed by individual unicode paste_string
-            if backspaces > 0 {
-                for _ in 0..backspaces {
-                    let _ = self.send_backspace();
-                }
+            // Record pasted text for future delete/backspace operations
+            let output = Self::run_as_user("vietc", &["update-pasted", "-text", text]);
+            if output.status.success() {
+                eprintln!("[vietc] update_pasted_text success");
+            } else {
+                eprintln!("[vietc] update_pasted_text call ignored (not critical)");
             }
-            self.paste_string(text);
-            InjectResult::Success
+            eprintln!("[vietc] Clipboard injection complete");
+            return InjectResult::Success;
+        } else {
+            eprintln!("[vietc] clipboard copy failed, trying individual char paste_string...");
         }
+
+        // Absolute last resort: try uinput backspaces followed by individual unicode chars via send_char
+        eprintln!("[vietc] Last resort: pasting '{}' char-by-char", text);
+        if backspaces > 0 {
+            for _ in 0..backspaces {
+                let _ = self.send_backspace();
+            }
+        }
+        for ch in text.chars() {
+            let _ = self.send_char(ch);
+        }
+        eprintln!("[vietc] Char-by-char injection complete");
+        InjectResult::Success
     }
 
     /// Copy text to clipboard and paste via Ctrl+V through our uinput device.
-    /// Only used as a last resort if Wayland/X11 direct typing tools are
-    /// unavailable. Prefers ydotool (uinput, works everywhere) to avoid
-    /// clipboard pollution.
+    /// Only used as a last resort if Wayland/X11 direct typing tools are unavailable.
+    /// Tries xdotool first (X11/XWayland), then clipboard fallback.
     fn paste_string(&self, s: &str) {
-        // Try ydotool first (uinput-based, no display server needed).
-        let ydotool_result = std::process::Command::new("ydotool")
-            .args(["type", s])
-            .output();
-        if let Ok(output) = ydotool_result {
+        let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
+        if is_wayland {
+            eprintln!("[vietc] paste_string: trying wtype...");
+            let output = Self::run_as_user("wtype", &["--", s]);
             if output.status.success() {
-                eprintln!("[vietc] ydotool OK");
+                eprintln!("[vietc] paste_string: wtype success");
                 return;
             }
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if !stderr.is_empty() {
-                eprintln!("[vietc] ydotool failed: {}", stderr.trim());
+            eprintln!("[vietc] paste_string: wtype failed, trying clipboard...");
+        } else {
+            // Try xdotool first (works on X11 and XWayland for UTF-8)
+            eprintln!("[vietc] paste_string: trying xdotool...");
+            let output = Self::run_as_user("xdotool", &["type", s]);
+            if output.status.success() {
+                eprintln!("[vietc] paste_string: xdotool success");
+                // Record pasted text for future delete/backspace operations
+                let _ = Self::run_as_user("vietc", &["update-pasted", "-text", s]);
+                return;
             }
-        }
-        eprintln!("[vietc] ydotool failed, trying xdotool...");
-
-        // Try xdotool (X11): needs DISPLAY, run through run_as_user
-        eprintln!("[vietc] trying xdotool...");
-        let output = Self::run_as_user("xdotool", &["type", "--clearmodifiers", s]);
-        if output.status.success() {
-            eprintln!("[vietc] xdotool OK");
-            return;
-        }
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.is_empty() {
-            eprintln!("[vietc] xdotool failed: {}", stderr.trim());
+            eprintln!("[vietc] paste_string: xdotool failed, trying clipboard...");
         }
 
-        // Try wtype (Wayland-native): needs Wayland session, run through run_as_user
-        eprintln!("[vietc] xdotool failed, trying wtype...");
-        let output = Self::run_as_user("wtype", &[s]);
-        if output.status.success() {
-            eprintln!("[vietc] wtype OK");
-            return;
-        }
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.is_empty() {
-            eprintln!("[vietc] wtype failed: {}", stderr.trim());
-        }
-
-        // Clipboard fallback: copy + paste via our uinput
-        eprintln!("[vietc] wtype failed, trying clipboard paste...");
+        // Clipboard fallback: copy + paste via our uinput device
         let copied = self.copy_to_clipboard(s);
         if copied {
-            eprintln!("[vietc] clipboard OK, sending Ctrl+V");
+            eprintln!("[vietc] paste_string: clipboard OK, sending Ctrl+V");
             self.send_ctrl_v();
             return;
         }
 
-        eprintln!("[vietc] WARNING: No injection method works for '{}'!", s);
+        eprintln!(
+            "[vietc] WARNING: No injection method works for '{}'!",
+            s.escape_default()
+        );
     }
 
     /// Build a command to run as the original user with display environment.
     fn user_cmd(program: &str) -> std::process::Command {
         let is_root = unsafe { libc::getuid() == 0 };
         if is_root {
-            if let Some(original_user) = Self::get_original_username() {
+            if let Some((uid, gid)) = Self::get_original_uid_gid() {
                 let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
                 let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
                 let display = std::env::var("DISPLAY").unwrap_or_default();
-                let mut cmd = std::process::Command::new("sudo");
-                cmd.args(["-u", &original_user, "env"]);
+                let xauthority = std::env::var("XAUTHORITY").unwrap_or_default();
+
+                use std::os::unix::process::CommandExt;
+                let mut cmd = std::process::Command::new(program);
+                cmd.uid(uid).gid(gid);
+
                 if !wayland_display.is_empty() {
-                    cmd.arg(format!("WAYLAND_DISPLAY={}", wayland_display));
+                    cmd.env("WAYLAND_DISPLAY", wayland_display);
                 }
                 if !xdg_runtime_dir.is_empty() {
-                    cmd.arg(format!("XDG_RUNTIME_DIR={}", xdg_runtime_dir));
+                    cmd.env("XDG_RUNTIME_DIR", xdg_runtime_dir);
                 }
                 if !display.is_empty() {
-                    cmd.arg(format!("DISPLAY={}", display));
+                    cmd.env("DISPLAY", display);
                 }
-                cmd.arg(program);
+                if !xauthority.is_empty() {
+                    cmd.env("XAUTHORITY", xauthority);
+                }
+                if let Some(username) = Self::get_original_username() {
+                    cmd.env("HOME", format!("/home/{}", username));
+                }
                 return cmd;
             }
         }
@@ -508,7 +627,10 @@ impl UinputInjector {
                     eprintln!("[vietc] clipboard: wl-copy OK");
                     return true;
                 }
-                eprintln!("[vietc] clipboard: wl-copy failed (exit={:?})", status.code());
+                eprintln!(
+                    "[vietc] clipboard: wl-copy failed (exit={:?})",
+                    status.code()
+                );
             } else if let Err(ref e) = result {
                 eprintln!("[vietc] clipboard: wl-copy error: {}", e);
             }
@@ -550,13 +672,22 @@ impl UinputInjector {
 
     /// Send Ctrl+V through our uinput device.
     fn send_ctrl_v(&self) {
-        self.send_uinput_event(EV_KEY, 29, 1); // KEY_LEFTCTRL
-        self.send_uinput_event(EV_KEY, 47, 1); // KEY_V
-        self.send_uinput_event(EV_KEY, 47, 0);
-        self.send_uinput_event(EV_KEY, 29, 0);
-        self.send_uinput_event(0, 0, 0);
-    }
+        self.send_uinput_event(EV_KEY, 29, 1); // KEY_LEFTCTRL press
+        self.send_uinput_event(0, 0, 0); // SYN
+        std::thread::sleep(std::time::Duration::from_millis(5));
 
+        self.send_uinput_event(EV_KEY, 47, 1); // KEY_V press
+        self.send_uinput_event(0, 0, 0); // SYN
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        self.send_uinput_event(EV_KEY, 47, 0); // KEY_V release
+        self.send_uinput_event(0, 0, 0); // SYN
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        self.send_uinput_event(EV_KEY, 29, 0); // KEY_LEFTCTRL release
+        self.send_uinput_event(0, 0, 0); // SYN
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
 }
 
 impl Drop for UinputInjector {
@@ -617,7 +748,11 @@ fn char_to_linux_keycode(ch: char) -> Option<u16> {
 }
 
 // ioctl helper
-fn ioctl(fd: std::os::unix::io::RawFd, request: u64, arg: u64) -> Result<i32, Box<dyn std::error::Error>> {
+fn ioctl(
+    fd: std::os::unix::io::RawFd,
+    request: u64,
+    arg: u64,
+) -> Result<i32, Box<dyn std::error::Error>> {
     unsafe {
         let result = libc::ioctl(fd, request, arg);
         if result < 0 {

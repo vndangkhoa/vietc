@@ -1,21 +1,29 @@
+use crate::english::EnglishDict;
 use crate::telex::TelexEngine;
 use crate::vni::VniEngine;
-use crate::english::EnglishDict;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum InputMethod {
     Telex,
     Vni,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum EngineEvent {
-    Replace { backspaces: usize, insert: String },
+    Replace {
+        backspaces: usize,
+        insert: String,
+    },
     Insert(String),
     Flush(String),
     AutoRestore(String),
     /// ESC undo: strip all tone marks from current word
-    UndoTones { backspaces: usize, restored: String },
+    UndoTones {
+        backspaces: usize,
+        restored: String,
+    },
+    /// Text was pasted via clipboard - update buffer directly without telex parsing
+    Paste(String),
 }
 
 pub struct Engine {
@@ -26,6 +34,8 @@ pub struct Engine {
     enabled: bool,
     macros: std::collections::HashMap<String, String>,
     raw_buffer: String,
+    /// Flag to bypass telex/vni parsing when Unicode text has been pasted via clipboard
+    paste_mode: bool,
 }
 
 impl Engine {
@@ -38,6 +48,7 @@ impl Engine {
             enabled: true,
             macros: std::collections::HashMap::new(),
             raw_buffer: String::new(),
+            paste_mode: false,
         }
     }
 
@@ -57,6 +68,36 @@ impl Engine {
         self.reset();
     }
 
+    /// Enter "paste mode" - bypass telex/vni parsing for Unicode pasted text
+    pub fn enter_paste_mode(&mut self) {
+        self.paste_mode = true;
+    }
+
+    /// Exit paste mode (for Paste event handling)
+    pub fn exit_paste_mode(&mut self) {
+        self.paste_mode = false;
+    }
+
+    /// Paste raw text into buffer without telex/vni processing
+    pub fn paste(&mut self, text: &str) -> EngineEvent {
+        // Clear buffer if entering paste mode and exit paste mode after
+        if self.paste_mode {
+            self.raw_buffer.clear();
+        } else {
+            self.enter_paste_mode();
+        }
+
+        let event = EngineEvent::Paste(text.to_string());
+        self.raw_buffer.push_str(text);
+        event
+    }
+
+    /// Update buffer with pasted text for subsequent edit operations (delete/backspace)
+    pub fn update_with_pasted_text(&mut self, text: &str) {
+        self.raw_buffer.clear();
+        self.raw_buffer.push_str(text);
+    }
+
     pub fn reset(&mut self) {
         self.telex.reset();
         self.vni.reset();
@@ -64,6 +105,18 @@ impl Engine {
     }
 
     pub fn flush(&mut self) -> Option<EngineEvent> {
+        // If in paste mode, bypass telex/vni parsing and return raw text as-is
+        if self.paste_mode && !self.raw_buffer.is_empty() {
+            // Only set paste_mode if buffer contains non-ASCII Unicode chars (pasted content)
+            let has_unicode = self.raw_buffer.chars().any(|c| !c.is_ascii());
+            if has_unicode {
+                let word = self.raw_buffer.clone();
+                self.raw_buffer.clear();
+                self.paste_mode = false; // Exit paste mode after flush
+                return Some(EngineEvent::Flush(word));
+            }
+        }
+
         let event = match self.input_method {
             InputMethod::Telex => self.telex.flush(),
             InputMethod::Vni => self.vni.flush(),
@@ -151,8 +204,15 @@ impl Engine {
             ch.to_lowercase().next().unwrap_or(ch)
         };
 
-        if lowercase_ch == ' ' || lowercase_ch == '\t' || lowercase_ch == '.' || lowercase_ch == ',' || lowercase_ch == '!' || lowercase_ch == '?'
-            || lowercase_ch == ';' || lowercase_ch == ':' || lowercase_ch == '\n'
+        if lowercase_ch == ' '
+            || lowercase_ch == '\t'
+            || lowercase_ch == '.'
+            || lowercase_ch == ','
+            || lowercase_ch == '!'
+            || lowercase_ch == '?'
+            || lowercase_ch == ';'
+            || lowercase_ch == ':'
+            || lowercase_ch == '\n'
         {
             if self.raw_buffer.is_empty() {
                 return None;
@@ -171,15 +231,18 @@ impl Engine {
 
             // Try auto-restore before flushing
             let clean_raw = self.raw_buffer.to_lowercase();
-            if self.english.should_restore(&clean_raw) {
-                let inner_buf = self.buffer().to_string();
-                let clean_inner = strip_diacritics(&inner_buf).to_lowercase();
-                let has_diacritics = clean_inner != inner_buf.to_lowercase();
-                
+            let inner_buf = self.buffer().to_string();
+            let clean_inner = strip_diacritics(&inner_buf).to_lowercase();
+            let has_diacritics = clean_inner != inner_buf.to_lowercase();
+
+            let should_restore = self.english.should_restore(&clean_raw)
+                || (has_diacritics && !crate::spelling::is_valid_vietnamese_syllable(&inner_buf));
+
+            if should_restore {
                 let original_raw = self.raw_buffer.clone();
                 let inner_len = inner_buf.chars().count();
                 self.reset();
-                
+
                 if has_diacritics {
                     return Some(EngineEvent::Replace {
                         backspaces: inner_len + 1,
@@ -193,7 +256,7 @@ impl Engine {
             // Flush buffer with trailing character
             let previous_inner = self.buffer().to_string();
             let previous_inner_len = previous_inner.chars().count();
-            
+
             let previous_inner_cased = match_casing(&self.raw_buffer, &previous_inner);
             let flush_event = self.flush();
             let mut final_word = previous_inner_cased.clone();
@@ -214,26 +277,48 @@ impl Engine {
             return result;
         }
 
-        // Regular character processing
         let previous_inner = self.buffer().to_string();
         self.raw_buffer.push(ch);
 
-        match self.input_method {
-            InputMethod::Telex => { self.telex.process_key(lowercase_ch); }
-            InputMethod::Vni => { self.vni.process_key(lowercase_ch); }
-        }
-
-        let new_inner = self.buffer().to_string();
         let expected_screen = format!("{}{}", previous_inner, lowercase_ch);
 
-        if new_inner != expected_screen {
-            let cased_inner = match_casing(&self.raw_buffer, &new_inner);
-            Some(EngineEvent::Replace {
-                backspaces: previous_inner.chars().count() + 1,
-                insert: cased_inner,
-            })
+        if self.paste_mode {
+            if ch.is_ascii() {
+                match self.input_method {
+                    InputMethod::Telex => {
+                        self.telex.process_key(lowercase_ch);
+                    }
+                    InputMethod::Vni => {
+                        self.vni.process_key(lowercase_ch);
+                    }
+                }
+                None
+            } else {
+                Some(EngineEvent::Replace {
+                    backspaces: previous_inner.chars().count() + 1,
+                    insert: ch.to_string(),
+                })
+            }
         } else {
-            None
+            match self.input_method {
+                InputMethod::Telex => {
+                    self.telex.process_key(lowercase_ch);
+                }
+                InputMethod::Vni => {
+                    self.vni.process_key(lowercase_ch);
+                }
+            }
+
+            let new_inner = self.buffer().to_string();
+            if new_inner != expected_screen {
+                let cased_inner = match_casing(&self.raw_buffer, &new_inner);
+                Some(EngineEvent::Replace {
+                    backspaces: previous_inner.chars().count() + 1,
+                    insert: cased_inner,
+                })
+            } else {
+                None
+            }
         }
     }
 
@@ -250,25 +335,33 @@ fn strip_diacritics(s: &str) -> String {
     s.chars()
         .map(|c| match c {
             // a variants
-            'à' | 'á' | 'ả' | 'ã' | 'ạ' | 'ă' | 'ằ' | 'ắ' | 'ẳ' | 'ẵ' | 'ặ'
-            | 'â' | 'ầ' | 'ấ' | 'ẩ' | 'ẫ' | 'ậ' => 'a',
+            'à' | 'á' | 'ả' | 'ã' | 'ạ' | 'ă' | 'ằ' | 'ắ' | 'ẳ' | 'ẵ' | 'ặ' | 'â' | 'ầ' | 'ấ'
+            | 'ẩ' | 'ẫ' | 'ậ' => 'a',
             // A variants
-            'À' | 'Á' | 'Ả' | 'Ã' | 'Ạ' | 'Ă' | 'Ằ' | 'Ắ' | 'Ẳ' | 'Ẵ' | 'Ặ'
-            | 'Â' | 'Ầ' | 'Ấ' | 'Ẩ' | 'Ẫ' | 'Ậ' => 'A',
+            'À' | 'Á' | 'Ả' | 'Ã' | 'Ạ' | 'Ă' | 'Ằ' | 'Ắ' | 'Ẳ' | 'Ẵ' | 'Ặ' | 'Â' | 'Ầ' | 'Ấ'
+            | 'Ẩ' | 'Ẫ' | 'Ậ' => 'A',
             // e variants
-            'è' | 'é' | 'ẻ' | 'ẽ' | 'ẹ' | 'ê' | 'ề' | 'ế' | 'ể' | 'ễ' | 'ệ' => 'e',
-            'È' | 'É' | 'Ẻ' | 'Ẽ' | 'Ẹ' | 'Ê' | 'Ề' | 'Ế' | 'Ể' | 'Ễ' | 'Ệ' => 'E',
+            'è' | 'é' | 'ẻ' | 'ẽ' | 'ẹ' | 'ê' | 'ề' | 'ế' | 'ể' | 'ễ' | 'ệ' => {
+                'e'
+            }
+            'È' | 'É' | 'Ẻ' | 'Ẽ' | 'Ẹ' | 'Ê' | 'Ề' | 'Ế' | 'Ể' | 'Ễ' | 'Ệ' => {
+                'E'
+            }
             // i variants
             'ì' | 'í' | 'ỉ' | 'ĩ' | 'ị' => 'i',
             'Ì' | 'Í' | 'Ỉ' | 'Ĩ' | 'Ị' => 'I',
             // o variants
-            'ò' | 'ó' | 'ỏ' | 'õ' | 'ọ' | 'ô' | 'ồ' | 'ố' | 'ổ' | 'ỗ' | 'ộ'
-            | 'ơ' | 'ờ' | 'ớ' | 'ở' | 'ỡ' | 'ợ' => 'o',
-            'Ò' | 'Ó' | 'Ỏ' | 'Õ' | 'Ọ' | 'Ô' | 'Ồ' | 'Ố' | 'Ổ' | 'Ỗ' | 'Ộ'
-            | 'Ơ' | 'Ờ' | 'Ớ' | 'Ở' | 'Ỡ' | 'Ợ' => 'O',
+            'ò' | 'ó' | 'ỏ' | 'õ' | 'ọ' | 'ô' | 'ồ' | 'ố' | 'ổ' | 'ỗ' | 'ộ' | 'ơ' | 'ờ' | 'ớ'
+            | 'ở' | 'ỡ' | 'ợ' => 'o',
+            'Ò' | 'Ó' | 'Ỏ' | 'Õ' | 'Ọ' | 'Ô' | 'Ồ' | 'Ố' | 'Ổ' | 'Ỗ' | 'Ộ' | 'Ơ' | 'Ờ' | 'Ớ'
+            | 'Ở' | 'Ỡ' | 'Ợ' => 'O',
             // u variants
-            'ù' | 'ú' | 'ủ' | 'ũ' | 'ụ' | 'ư' | 'ừ' | 'ứ' | 'ử' | 'ữ' | 'ự' => 'u',
-            'Ù' | 'Ú' | 'Ủ' | 'Ũ' | 'Ụ' | 'Ư' | 'Ừ' | 'Ứ' | 'Ử' | 'Ữ' | 'Ự' => 'U',
+            'ù' | 'ú' | 'ủ' | 'ũ' | 'ụ' | 'ư' | 'ừ' | 'ứ' | 'ử' | 'ữ' | 'ự' => {
+                'u'
+            }
+            'Ù' | 'Ú' | 'Ủ' | 'Ũ' | 'Ụ' | 'Ư' | 'Ừ' | 'Ứ' | 'Ử' | 'Ữ' | 'Ự' => {
+                'U'
+            }
             // y variants
             'ỳ' | 'ý' | 'ỷ' | 'ỹ' | 'ỵ' => 'y',
             'Ỳ' | 'Ý' | 'Ỷ' | 'Ỹ' | 'Ỵ' => 'Y',
@@ -331,7 +424,10 @@ mod tests {
         }
         let event = engine.process_escape();
         match event {
-            Some(EngineEvent::UndoTones { backspaces, restored }) => {
+            Some(EngineEvent::UndoTones {
+                backspaces,
+                restored,
+            }) => {
                 assert_eq!(backspaces, 4); // "chào" is 4 chars
                 assert_eq!(restored, "chao");
             }
@@ -346,17 +442,21 @@ mod tests {
         engine.add_macro("ok".into(), "được".into());
 
         // Type "ko" + space
-        let events: Vec<_> = "ko ".chars()
+        let events: Vec<_> = "ko "
+            .chars()
             .filter_map(|ch| engine.process_key(ch))
             .collect();
 
         // Should contain the macro expansion
-        let output: String = events.iter().filter_map(|e| match e {
-            EngineEvent::Flush(s) => Some(s.as_str()),
-            EngineEvent::Insert(s) => Some(s.as_str()),
-            EngineEvent::Replace { insert, .. } => Some(insert.as_str()),
-            _ => None,
-        }).collect();
+        let output: String = events
+            .iter()
+            .filter_map(|e| match e {
+                EngineEvent::Flush(s) => Some(s.as_str()),
+                EngineEvent::Insert(s) => Some(s.as_str()),
+                EngineEvent::Replace { insert, .. } => Some(insert.as_str()),
+                _ => None,
+            })
+            .collect();
 
         assert!(output.contains("không"));
     }

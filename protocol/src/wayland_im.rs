@@ -68,10 +68,7 @@ impl Keysym {
     }
 
     pub fn is_modifier(self) -> bool {
-        matches!(
-            self.0,
-            0xffe1..=0xffee
-        )
+        matches!(self.0, 0xffe1..=0xffee)
     }
 }
 
@@ -219,8 +216,16 @@ impl WaylandIMContext {
         // Shift+digit produces symbol
         if mods.shift && base.is_ascii_digit() {
             let shifted = match base {
-                '1' => '!', '2' => '@', '3' => '#', '4' => '$', '5' => '%',
-                '6' => '^', '7' => '&', '8' => '*', '9' => '(', '0' => ')',
+                '1' => '!',
+                '2' => '@',
+                '3' => '#',
+                '4' => '$',
+                '5' => '%',
+                '6' => '^',
+                '7' => '&',
+                '8' => '*',
+                '9' => '(',
+                '0' => ')',
                 _ => return Some(base),
             };
             return Some(shifted);

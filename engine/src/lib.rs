@@ -1,7 +1,8 @@
 mod engine;
+mod english;
+mod spelling;
 mod telex;
 mod vni;
-mod english;
 
 #[cfg(test)]
 mod tests;

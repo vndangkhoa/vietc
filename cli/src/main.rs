@@ -72,11 +72,17 @@ fn main() {
                         }
                         output.push_str(insert);
                     }
-                    EngineEvent::UndoTones { backspaces, restored } => {
+                    EngineEvent::UndoTones {
+                        backspaces,
+                        restored,
+                    } => {
                         for _ in 0..*backspaces {
                             output.push('\x08');
                         }
                         output.push_str(restored);
+                    }
+                    EngineEvent::Paste(text) => {
+                        output.push_str(text);
                     }
                 }
             }

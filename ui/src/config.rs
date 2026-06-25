@@ -69,13 +69,27 @@ pub struct Config {
     pub debug: bool,
 }
 
-fn default_input_method() -> String { "telex".into() }
-fn default_toggle_key() -> String { "space".into() }
-fn default_start_enabled() -> bool { true }
-fn default_grab() -> bool { true }
-fn default_true() -> bool { true }
-fn default_false() -> bool { false }
-fn default_restore_keys() -> Vec<String> { vec!["space".into(), "escape".into()] }
+fn default_input_method() -> String {
+    "telex".into()
+}
+fn default_toggle_key() -> String {
+    "space".into()
+}
+fn default_start_enabled() -> bool {
+    true
+}
+fn default_grab() -> bool {
+    true
+}
+fn default_true() -> bool {
+    true
+}
+fn default_false() -> bool {
+    false
+}
+fn default_restore_keys() -> Vec<String> {
+    vec!["space".into(), "escape".into()]
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -91,7 +105,6 @@ impl Default for Config {
         }
     }
 }
-
 
 impl Config {
     pub fn load() -> Self {
@@ -142,7 +155,10 @@ fn config_paths() -> Vec<PathBuf> {
 
 pub fn is_autostart_installed() -> bool {
     if let Some(config_dir) = dirs::config_dir() {
-        config_dir.join("autostart").join("vietc-tray.desktop").exists()
+        config_dir
+            .join("autostart")
+            .join("vietc-tray.desktop")
+            .exists()
     } else {
         false
     }
@@ -164,14 +180,12 @@ pub fn install_autostart() {
         let desktop_file = autostart_dir.join("vietc-tray.desktop");
         let _ = fs::create_dir_all(&autostart_dir);
 
-        let exec_path = std::env::var("APPIMAGE")
-            .ok()
-            .unwrap_or_else(|| {
-                std::env::current_exe()
-                    .unwrap_or_else(|_| PathBuf::from("vietc-tray"))
-                    .to_string_lossy()
-                    .into_owned()
-            });
+        let exec_path = std::env::var("APPIMAGE").ok().unwrap_or_else(|| {
+            std::env::current_exe()
+                .unwrap_or_else(|_| PathBuf::from("vietc-tray"))
+                .to_string_lossy()
+                .into_owned()
+        });
 
         let content = format!(
             "[Desktop Entry]\n\
