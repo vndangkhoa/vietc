@@ -1,5 +1,6 @@
 mod bamboo;
 mod engine;
+mod english;
 mod input_method;
 pub mod spelling;
 
