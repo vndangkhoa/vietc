@@ -11,7 +11,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 APPDIR="$SCRIPT_DIR/AppDir"
-VERSION="${1:-0.1.0}"
+VERSION="${1:-0.1.1}"
 
 echo "=== Building Viet+ AppImage v${VERSION} ==="
 

@@ -1117,7 +1117,7 @@ fn create_injector(
 
 fn is_vn_control_key(method: &str, ch: char) -> bool {
     match method {
-        "telex" => matches!(ch, 'f' | 's' | 'r' | 'x' | 'j' | 'w' | 'a' | 'e' | 'o' | 'd' | 'u' | 'F' | 'S' | 'R' | 'X' | 'J' | 'W' | 'A' | 'E' | 'O' | 'D' | 'U'),
+        "telex" => matches!(ch.to_ascii_lowercase(), 'f' | 's' | 'r' | 'x' | 'j' | 'w'),
         "vni" => matches!(ch, '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0'),
         _ => false,
     }
