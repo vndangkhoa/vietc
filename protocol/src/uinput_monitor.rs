@@ -361,17 +361,12 @@ impl UinputInjector {
             return InjectResult::Success;
         }
 
-        // Unicode: clipboard paste. Save user clipboard first, restore after.
-        let saved = self.read_clipboard();
+        // Unicode: clipboard paste. Backspaces FIRST, then paste.
         if backspaces > 0 {
             for _ in 0..backspaces { let _ = self.send_backspace(); }
         }
         if self.copy_to_clipboard(text) {
             self.send_ctrl_v_x11();
-        }
-        // Restore user's clipboard
-        if let Some(prev) = saved {
-            self.copy_to_clipboard(&prev);
         }
 
         InjectResult::Success
@@ -453,19 +448,6 @@ impl UinputInjector {
     }
 
     /// Copy text to clipboard using wl-copy (Wayland) or xclip (X11).
-    fn read_clipboard(&self) -> Option<String> {
-        // Read clipboard via xclip to restore after injection
-        let output = std::process::Command::new("xclip")
-            .args(["-selection", "clipboard", "-o"])
-            .output()
-            .ok()?;
-        if output.status.success() {
-            String::from_utf8(output.stdout).ok()
-        } else {
-            None
-        }
-    }
-
     fn copy_to_clipboard(&self, s: &str) -> bool {
         // Try wl-copy (Wayland) via user_cmd
         {
