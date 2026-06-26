@@ -744,17 +744,23 @@ fn run_with_x11(
         }
 
         // Wait for events with 100ms timeout, then re-grab if needed
-        if !capture.wait_for_event(100) {
-            // No events — check if grab is still held
+        let got_data = capture.wait_for_event(100);
+        let evt = capture.next_event();
+        if evt.is_none() {
+            if got_data {
+                eprintln!("[vietc] DEBUG: select said data but no event in queue");
+            }
             if !capture.is_grabbed() {
                 eprintln!("[vietc] Keyboard grab lost — re-grabbing");
                 capture.grab_keyboard();
             }
             continue;
         }
+        let event = evt.unwrap();
+        eprintln!("[vietc] GOT KEY EVENT: keycode={} pressed={} ch={:?} state={}", event.keycode, event.pressed, event.ch, event.state);
 
-        // Drain all available events
-        while let Some(event) = capture.next_event() {
+        // Process this event
+        {
             if event.pressed {
                 // Skip autorepeat
                 if !pressed_keys.insert(event.keycode) {
