@@ -364,6 +364,11 @@ impl EnglishDict {
         self.words.contains(word)
     }
 
+    pub fn is_vietnamese_override(&self, word: &str) -> bool {
+        self.vietnamese_overrides.contains(word)
+    }
+
+    #[allow(dead_code)]
     pub fn should_restore(&self, word: &str) -> bool {
         if self.vietnamese_overrides.contains(word) {
             return false;

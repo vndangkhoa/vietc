@@ -127,6 +127,7 @@ impl Daemon {
         };
         let mut engine = Engine::new(method);
         engine.set_enabled(config.start_enabled);
+        engine.set_auto_restore(config.auto_restore.enabled);
         engine_enabled.store(config.start_enabled, Ordering::SeqCst);
 
         for (shortcut, expansion) in &config.macros {
@@ -197,6 +198,8 @@ impl Daemon {
                     _ => InputMethod::Telex,
                 };
                 self.engine.set_method(method);
+                self.engine
+                    .set_auto_restore(new_config.auto_restore.enabled);
 
                 self.engine.clear_macros();
                 for (shortcut, expansion) in &new_config.macros {
@@ -287,7 +290,7 @@ impl Daemon {
             if !self.screen_output.is_empty() {
                 let backspaces = self.screen_output.chars().count();
                 commands.push(OutputCommand::Backspace(backspaces));
-                commands.push(OutputCommand::Type(self.screen_output.clone()));
+                commands.push(OutputCommand::Type(self.word_to_commit()));
             }
             // Type the flush character itself
             commands.push(OutputCommand::Type(ch.to_string()));
@@ -317,7 +320,7 @@ impl Daemon {
             if !self.screen_output.is_empty() {
                 let backspaces = self.screen_output.chars().count();
                 commands.push(OutputCommand::Backspace(backspaces));
-                commands.push(OutputCommand::Type(self.screen_output.clone()));
+                commands.push(OutputCommand::Type(self.word_to_commit()));
             }
             self.keystroke_history.clear();
             self.screen_output.clear();
@@ -377,6 +380,19 @@ impl Daemon {
         self.screen_output = new_output;
 
         commands
+    }
+
+    /// Decide what to type when committing the current word: the Vietnamese
+    /// composition normally, or — when smart auto-restore is enabled and the
+    /// word is English / not valid Vietnamese — the raw keystrokes typed.
+    fn word_to_commit(&self) -> String {
+        if self.config.auto_restore.enabled {
+            let raw: String = self.keystroke_history.iter().collect();
+            if Engine::should_restore_word(&self.screen_output, &raw) {
+                return raw;
+            }
+        }
+        self.screen_output.clone()
     }
 
     /// Reset the replay state (on flush, focus loss, modifier key, etc.)
