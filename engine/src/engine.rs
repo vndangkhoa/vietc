@@ -213,6 +213,11 @@ impl Engine {
 
             let raw = self.raw_buffer.clone();
             self.reset();
+            // The composed word is already correctly on screen — re-typing it
+            // here would trigger a redundant backspace + clipboard-paste cycle
+            // that races against the separately-forwarded flush char, eating
+            // spaces and merging words. Just finalize and let the flush char
+            // through untouched.
             if prev_len > 0 {
                 // Auto-restore: if the committed word is English / not valid
                 // Vietnamese, revert to the raw keystrokes the user typed.

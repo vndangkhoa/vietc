@@ -455,4 +455,52 @@ mod tests {
         e.set_method(InputMethod::Vni);
         assert_eq!(get_display(&process_input(&mut e, "a1")), "á");
     }
+
+    // ================================================================
+    // Spacing / flush behavior (regression)
+    // ================================================================
+
+    // A space after a finished word must NOT re-emit the word as a Replace
+    // (backspace + retype). Re-typing the already-on-screen word races with
+    // the separately-forwarded space in the daemon, eating spaces and merging
+    // words (e.g. "mất sự" -> "mấtsự"). The flush should produce no engine
+    // event so the space simply passes through.
+    #[test]
+    fn flush_after_word_emits_no_replace() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // Compose "chào".
+        for ch in "chaof".chars() {
+            e.process_key(ch);
+        }
+        // Space finalizes the word — engine must return None.
+        assert_eq!(e.process_key(' '), None);
+    }
+
+    // Punctuation flush chars behave the same as space.
+    #[test]
+    fn flush_punctuation_emits_no_replace() {
+        let mut e = Engine::new(InputMethod::Telex);
+        for ch in "chaof".chars() {
+            e.process_key(ch);
+        }
+        assert_eq!(e.process_key('.'), None);
+    }
+
+    // Full multi-word sentence keeps every space and never concatenates words.
+    #[test]
+    fn multi_word_keeps_spacing() {
+        let mut e = Engine::new(InputMethod::Telex);
+        // "toio is" with telex: "tooi" -> "tôi"; "ddi" -> "đi"
+        let events = process_input(&mut e, "tooi ddi hocj ");
+        assert_eq!(get_display(&events), "tôi đi học ");
+    }
+
+    // A macro flush still expands (Replace) and keeps the trailing space.
+    #[test]
+    fn macro_flush_still_replaces() {
+        let mut e = Engine::new(InputMethod::Telex);
+        e.add_macro("vn".into(), "Việt Nam".into());
+        let events = process_input(&mut e, "vn ");
+        assert_eq!(get_display(&events), "Việt Nam ");
+    }
 }
