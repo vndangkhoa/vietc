@@ -208,8 +208,10 @@ fi
 if [ -z "$NEED_ROOT" ]; then
     # X11: no root needed
     pkill -x vietc 2>/dev/null; sleep 0.3
+    mkdir -p "$HOME/.config/vietc"
     "$HERE/usr/bin/vietc" >"$HOME/.config/vietc/vietc-daemon.log" 2>&1 &
     DAEMON_PID=$!
+    echo "[vietc] Daemon started (PID=$DAEMON_PID), log: $HOME/.config/vietc/vietc-daemon.log"
 else
     # Fix Wayland env for root: sudo resets XDG_RUNTIME_DIR, breaking wtype/wl-copy.
     if [ "$(id -u)" = "0" ] && [ -z "$XDG_RUNTIME_DIR" ] && [ -n "$SUDO_USER" ]; then
@@ -246,8 +248,10 @@ else
 fi
 
 if [ -z "$DAEMON_PID" ] && ! pgrep -x vietc >/dev/null; then
-    "$HERE/usr/bin/vietc" >/dev/null &
+    mkdir -p "$HOME/.config/vietc"
+    "$HERE/usr/bin/vietc" >"$HOME/.config/vietc/vietc-daemon.log" 2>&1 &
     DAEMON_PID=$!
+    echo "[vietc] Daemon fallback started (PID=$DAEMON_PID), log: $HOME/.config/vietc/vietc-daemon.log"
 fi
 
 # Keep the AppImage alive with a tray or settings UI.
