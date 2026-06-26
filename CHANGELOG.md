@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.1.1 (2026-06-26)
+
+### Telex fixes
+- **Fix `r` consumed as tone key** — Telex tone keys (`f`,`s`,`r`,`x`,`j`) now only activate when the composition has a vowel. Without a vowel (e.g., `tr` in `trời`), they fall through as normal letters instead of being silently consumed.
+- **Fix normal letters consumed** — `is_vn_control_key` was consuming `a`,`e`,`o`,`d`,`u` in Telex mode (the base letters for double-letter marks). These are normal typing keys and must be forwarded when no mark triggers.
+- **Tone key context check** — Tone keys check `has_vowel` before applying. Prevents spurious consumption on consonant-only compositions like `ng` + tone.
+
+### Injection reliability
+- **15ms delay** between clipboard paste and trailing uinput ASCII characters — fixes space arriving before Vietnamese text finishes pasting.
+- **Persistent X11 connection** for Ctrl+V — opened once via `std::sync::Once` and reused for all paste operations. Eliminates per-call `dlopen`/`dlclose` overhead.
+
+### AppImage improvements
+- **`--quit` flag** — stops daemon, uinputd, xrecord, and tray processes.
+- **`--restart` flag** — stops all then re-launches.
+- **`--update` flag** — downloads latest AppImage from GitHub releases via curl/wget.
+- **GUI quit dialog** — shows zenity info box with quit instructions when launched without tray.
+
+### Engine tests
+- **4 new Telex tests** — `Tuaans→Tuấn`, `nguyeenx→nguyễn`, `gios→gió`, and `test_telex_r_as_normal_char` covering `tr`, `traf`, `tar`, `tramr`.
+- Total: **67 engine tests** (Telex, VNI, tone placement, marks, macros, casing).
+
+### DEB packaging
+- DEB package `vietc_0.1.1-1_amd64.deb` (961K) published on both GitHub and Forgejo releases.
+
+---
+
 ## v0.1.0 (2026-06-26)
 
 Initial release and major overhaul.
