@@ -1,4 +1,4 @@
-use std::ffi::{c_char, c_int, c_void};
+use std::ffi::{c_char, c_int, c_long, c_void};
 
 type Display = c_void;
 type Window = u64;
@@ -36,6 +36,8 @@ struct X11Lib {
     x_lookup_string: unsafe extern "C" fn(*mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int,
     x_utf8_lookup_string: Option<unsafe extern "C" fn(*mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int>,
     x_flush: unsafe extern "C" fn(*mut Display) -> c_int,
+    x_select_input: unsafe extern "C" fn(*mut Display, Window, c_long) -> c_int,
+    x_sync: unsafe extern "C" fn(*mut Display, c_int) -> c_int,
 }
 
 impl X11Lib {
@@ -77,6 +79,8 @@ impl X11Lib {
                 Some(std::mem::transmute(x_utf8_lookup_string))
             };
             let x_flush = sym!("XFlush");
+            let x_select_input = sym!("XSelectInput");
+            let x_sync = sym!("XSync");
 
             Ok(Self {
                 handle,
@@ -90,6 +94,8 @@ impl X11Lib {
                 x_lookup_string,
                 x_utf8_lookup_string,
                 x_flush,
+                x_select_input,
+                x_sync,
             })
         }
     }
@@ -173,6 +179,12 @@ impl X11Capture {
             }
 
             let root = (lib.x_default_root_window)(display);
+            // Select for KeyPress and KeyRelease events on the root window
+            // so the X server delivers them to our connection
+            let key_press_mask: c_long = 1;  // KeyPressMask
+            let key_release_mask: c_long = 2;  // KeyReleaseMask
+            (lib.x_select_input)(display, root, key_press_mask | key_release_mask);
+            (lib.x_sync)(display, 0);
             eprintln!("[vietc] X11Capture: initialized successfully");
             Some(Self {
                 lib,
@@ -196,6 +208,8 @@ impl X11Capture {
             ) as i32;
             if status == 0 {
                 self.grabbed = true;
+                // Flush to ensure the grab is processed by the X server
+                (self.lib.x_flush)(self.display);
                 eprintln!("[vietc] X11Capture: grabbed keyboard successfully");
                 true
             } else {
