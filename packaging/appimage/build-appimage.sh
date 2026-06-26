@@ -263,8 +263,10 @@ trap cleanup_daemon EXIT INT TERM
 if [ -f "$HERE/usr/bin/vietc-tray" ]; then
     "$HERE/usr/bin/vietc-tray" "$@"
 else
-    echo "[vietc] Daemon running in foreground. Press Ctrl+C to stop."
-    wait "$DAEMON_PID"
+    # No tray — daemon is already running in background, exit AppImage
+    echo "[vietc] Daemon started (PID $DAEMON_PID). No tray icon (vietc-tray not built)."
+    echo "[vietc] The daemon will keep running in the background."
+    echo "[vietc] To stop it: pkill -x vietc"
 fi
 EOF
 chmod +x "$APPDIR/AppRun"
