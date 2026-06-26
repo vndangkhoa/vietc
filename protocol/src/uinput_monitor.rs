@@ -350,59 +350,34 @@ impl UinputInjector {
     /// clipboard for Unicode.
     fn inject_replacement_atomic(&self, backspaces: usize, text: &str) -> InjectResult {
         // If all ASCII, send keycodes directly — fast and reliable
-        if text.chars().all(|c| char_to_linux_keycode(c).is_some()) {
+        if text.chars().all(|c| char_to_linux_keycode(c).is_some() || c == '\n') {
             if backspaces > 0 {
                 for _ in 0..backspaces {
                     let _ = self.send_backspace();
                 }
             }
             for ch in text.chars() {
-                if ch == '\n' {
-                    self.send_enter();
-                } else {
-                    let _ = self.send_char(ch);
-                }
+                if ch == '\n' { self.send_enter(); }
+                else { let _ = self.send_char(ch); }
             }
             return InjectResult::Success;
         }
 
-        // Unicode text: split into Vietnamese portion (clipboard paste) and
-        // trailing ASCII whitespace/punctuation (uinput). Clipboard paste
-        // often trims trailing whitespace, so we send it separately.
-        let mut split = text.len();
-        for (i, c) in text.char_indices().rev() {
-            if c.is_ascii() && (c.is_whitespace() || matches!(c, '.' | ',' | '!' | '?' | ';' | ':')) {
-                split = i;
-            } else {
-                break;
-            }
-        }
-        let (vn_text, ascii_tail) = text.split_at(split);
-
-        // Backspaces via uinput
+        // Unicode text: paste entire text via clipboard (includes spaces).
+        // Don't split — splitting causes space to arrive after next keystrokes.
+        // Send backspaces first, then clipboard paste everything at once.
         if backspaces > 0 {
             for _ in 0..backspaces {
                 let _ = self.send_backspace();
             }
         }
 
-        // Clipboard paste for Vietnamese text
-        if !vn_text.is_empty() {
-            if self.copy_to_clipboard(vn_text) {
-                self.send_ctrl_v_x11();
-            }
-        }
-
-        // Trailing ASCII via uinput (spaces, punctuation).
-        // Small delay lets the clipboard paste finish before trailing chars arrive.
-        if !ascii_tail.is_empty() {
-            std::thread::sleep(std::time::Duration::from_millis(15));
-            for ch in ascii_tail.chars() {
-                if ch == '\n' {
-                    self.send_enter();
-                } else if let Some(kc) = char_to_linux_keycode(ch) {
-                    self.send_key_stroke(kc, false);
-                }
+        if self.copy_to_clipboard(text) {
+            self.send_ctrl_v_x11();
+        } else {
+            // Fallback: send base ASCII chars via uinput
+            for ch in text.chars() {
+                let _ = self.send_char(ch);
             }
         }
 
