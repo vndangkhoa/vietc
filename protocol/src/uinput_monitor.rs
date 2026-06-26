@@ -380,10 +380,14 @@ impl UinputInjector {
             }
         }
 
-        // Trailing ASCII via uinput (spaces, punctuation)
-        for ch in ascii_tail.chars() {
-            if let Some(kc) = char_to_linux_keycode(ch) {
-                self.send_key_stroke(kc, false);
+        // Trailing ASCII via uinput (spaces, punctuation).
+        // Small delay lets the clipboard paste finish before trailing chars arrive.
+        if !ascii_tail.is_empty() {
+            std::thread::sleep(std::time::Duration::from_millis(15));
+            for ch in ascii_tail.chars() {
+                if let Some(kc) = char_to_linux_keycode(ch) {
+                    self.send_key_stroke(kc, false);
+                }
             }
         }
 

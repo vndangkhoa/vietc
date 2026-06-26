@@ -197,6 +197,30 @@ cat > "$APPDIR/AppRun" << 'EOF'
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "${0}")")"
 
+# Handle --update flag: download latest AppImage from GitHub
+if [ "$1" = "--update" ]; then
+    echo "Viet+ Self-Updater"
+    RELEASE_URL="https://github.com/vndangkhoa/vietc/releases/latest/download/Viet+-x86_64.AppImage"
+    TEMP="/tmp/Viet+-update.AppImage"
+    echo "Downloading latest release..."
+    if command -v curl >/dev/null 2>&1; then
+        curl -L -o "$TEMP" "$RELEASE_URL" 2>/dev/null
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$TEMP" "$RELEASE_URL" 2>/dev/null
+    else
+        echo "ERROR: curl or wget required for updates" >&2
+        exit 1
+    fi
+    if [ -s "$TEMP" ]; then
+        chmod +x "$TEMP"
+        mv "$TEMP" "$(readlink -f "${0}")"
+        echo "Updated! Restart the AppImage."
+    else
+        echo "ERROR: Download failed" >&2
+    fi
+    exit 0
+fi
+
 # Export our bin dir on PATH so child processes can find sibling binaries
 export PATH="$HERE/usr/bin:$PATH"
 

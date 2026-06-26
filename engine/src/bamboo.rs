@@ -528,4 +528,36 @@ mod tests {
         assert_eq!(process(InputMethod::Telex, "chafo"), "chào");
         assert_eq!(process(InputMethod::Vni, "chao2"), "chào");
     }
+
+#[test]
+fn test_telex_tuaan() {
+    let mut e = crate::bamboo::BambooEngine::new(crate::input_method::InputMethod::Telex);
+    let mut out = String::new();
+    for ch in "Tuaans".chars() {
+        if let Some(o) = e.process_key(ch) { out = o; }
+    }
+    assert_eq!(out, "Tuấn", "Expected Tuấn, got {}", out);
+}
+
+#[test]
+fn test_telex_nguyeenx() {
+    let mut e = crate::bamboo::BambooEngine::new(crate::input_method::InputMethod::Telex);
+    let mut out = String::new();
+    for ch in "nguyeenx".chars() {
+        if let Some(o) = e.process_key(ch) { out = o; }
+    }
+    assert_eq!(out, "nguyễn", "Expected nguyễn, got {}", out);
+}
+
+#[test]
+fn test_telex_gios() {
+    let mut e = crate::bamboo::BambooEngine::new(crate::input_method::InputMethod::Telex);
+    let mut out = String::new();
+    for ch in "gios".chars() {
+        if let Some(o) = e.process_key(ch) { out = o; }
+    }
+    assert_eq!(out, "gió", "Expected gió, got {}", out);
+}
+
+
 }
