@@ -13,7 +13,7 @@
 
 <p align="center">
   <b>Vietnamese Input Method for Linux</b><br>
-  <sub>Zero underline &bull; Native Wayland/X11 &bull; Built in Rust</sub>
+  <sub>Zero underline &bull; Native X11 &bull; Backspace-Replay sync &bull; Built in Rust</sub>
 </p>
 
 ## About Viet+
@@ -23,45 +23,7 @@ Viet+ is a modern Vietnamese input method for Linux that eliminates the **underl
 - **No pre-edit buffer** — keystrokes are instantly converted to Unicode
 - **No underline** — clean, distraction-free typing
 - **No text duplication** — just pure Vietnamese
-- **Smart modifier overriding** — most recently typed shape modifier key takes precedence
-- **Tone preservation** — tones are preserved perfectly when overriding shape modifiers
-- **Both Telex and VNI** — support for both Vietnamese input methods
-
-The engine handles complex linguistic rules including:
-- Shape modifier overriding (â↔ă, ô↔ơ, ơ→ô, ă→â)
-- Smart cluster handling (uô+w→ươ, ươ+o→uô)
-- VNI digit modifiers (6/7/8) following the same override logic
-- Flexible end-of-word placement for tones and modifiers
-- Complex consonant handling (ngh, ngh, đ)
-
-The injection layer ensures Vietnamese characters appear correctly by running injection tools (xdotool, wtype, wl-copy, xclip) as the original user, not root, to access the display. This works on both X11 (pkexec) and Wayland (sudo) without requiring password dialogs.
-
-Viet+ is designed for high performance with native setuid/setgid user context switching to avoid slow sudo/PAM overhead, zero telemetry, and full FOSS licensing.
-
-## Why Viet+?
-
-Most Vietnamese input methods on Linux suffer from **underline hell** — pre-edit buffers that duplicate text, show ugly underlines, and break your flow. Viet+ takes a different approach:
-
-> **Direct Input** — keystrokes are instantly converted to Unicode. No pre-edit buffer. No underline. No text duplication. Just pure Vietnamese.
-
----
-
-<p align="center">
-  <a href="#features">Features</a> &bull;
-  <a href="#quick-start">Quick Start</a> &bull;
-  <a href="#input-methods">Input Methods</a> &bull;
-  <a href="#configuration">Configuration</a> &bull;
-  <a href="#installation">Installation</a> &bull;
-  <a href="#building">Building</a>
-</p>
-
----
-
-## Why Viet+?
-
-Most Vietnamese input methods on Linux suffer from **underline hell** — pre-edit buffers that duplicate text, show ugly underlines, and break your flow. Viet+ takes a different approach:
-
-> **Direct Input** — keystrokes are instantly converted to Unicode. No pre-edit buffer. No underline. No text duplication. Just pure Vietnamese.
+- **Backspace-Replay sync** — engine state never desyncs from what's on screen
 
 ---
 
@@ -70,19 +32,27 @@ Most Vietnamese input methods on Linux suffer from **underline hell** — pre-ed
 | Feature | Description |
 |---------|-------------|
 | **Direct Input Engine** | No pre-edit buffer, no underline, no text duplication |
+| **Backspace-Replay** | Replays entire keystroke history through a fresh engine on every keypress — eliminates state desync |
 | **Telex & VNI** | Both input methods fully supported |
-| **Flexible Diacritic Placement** | Type modifiers/tone marks at end of syllable (e.g., `tranaf` → `trần`) |
+| **Flexible Diacritic Placement** | Type modifiers/tone marks at end of syllable (e.g., `tranaf` -> `trần`) |
 | **Auto-Restore English** | Hit space/ESC to undo accidental Vietnamese conversion |
 | **ESC Undo** | Strip all tones from the current word instantly |
 | **Smart App Memory** | Remembers Vietnamese/English per application |
-| **Macro Expansion** | Custom shortcuts (e.g., `ko` → `không`) |
-| **Unified Injection** | Unified channel backspace and typing injection to prevent ordering race conditions |
-| **Focus Buffer Auto-Reset** | Automatically clears the engine's compose buffer on focus change between apps |
-| **Logging & Rotation** | Persistent logging at `~/.config/vietc/vietc.log` with automatic 10MB rotation |
-| **Hot Reload** | Config changes apply without restart |
-| **Casing Preservation** | Syllable substitutions preserve your exact typing casing (e.g. `Saa` → `Sả`, `SAA` → `SẢ`) |
-| **High-Performance Injection** | Direct native setuid/setgid user context switching to run injection tools instantly with no slow sudo/PAM overhead |
+| **Macro Expansion** | Custom shortcuts (e.g., `ko` -> `không`) |
+| **Focus Reset** | Automatically clears engine state on focus change between apps |
+| **Casing Preservation** | Syllable substitutions preserve your exact casing (e.g. `Saa` -> `Sả`, `SAA` -> `SẢ`) |
+| **CPU Priority** | Pins daemon to P-cores + nice(-10) for low-latency input |
 | **Zero Telemetry** | No keylogging, no network calls, fully FOSS |
+
+---
+
+## Why Viet+?
+
+Most Vietnamese input methods on Linux suffer from **underline hell** — pre-edit buffers that duplicate text, show ugly underlines, and break your flow. Viet+ takes a different approach:
+
+> **Direct Input** — keystrokes are instantly converted to Unicode. No pre-edit buffer. No underline. No text duplication. Just pure Vietnamese.
+
+The **Backspace-Replay** pattern keeps the engine perfectly in sync: instead of tracking state incrementally (which can desync), Viet+ replays the entire keystroke history through a fresh engine on every keypress. The screen output is always recomputed from scratch.
 
 ---
 
@@ -97,8 +67,8 @@ make build-all
 # Test the engine interactively
 cargo run --bin vietc-cli
 
-# Run the daemon (requires root for keyboard grab + uinput)
-sudo make run
+# Run the daemon
+cargo run --bin vietc
 
 # Or download a package from the releases page
 #   AppImage: ./Viet+-0.1.0-x86_64.AppImage
@@ -109,23 +79,22 @@ sudo make run
 
 ## Input Methods
 
-### Telex (Default)
+### Telex
 
 | Key | Result | Example |
 |-----|--------|---------|
-| `aa` | â | `tan` → `tân` |
-| `aw` | ă | `tan` → `tăn` |
-| `ee` | ê | `men` → `mên` |
-| `oo` | ô | `to` → `tô` |
-| `ow` | ơ | `to` → `tơ` |
-| `ew` | ê | `en` → `ên` |
-| `uw` | ư | `tu` → `tư` |
-| `s` | á (sắc) | `as` → `á` |
-| `f` | à (huyền) | `af` → `à` |
-| `r` | ả (hỏi) | `ar` → `ả` |
-| `x` | ã (ngã) | `ax` → `ã` |
-| `j` | ạ (nặng) | `aj` → `ạ` |
-| `dd` | đ | `dd` → `đ` |
+| `aa` | â | `tan` -> `tân` |
+| `aw` | ă | `tan` -> `tăn` |
+| `ee` | ê | `men` -> `mên` |
+| `oo` | ô | `to` -> `tô` |
+| `ow` | ơ | `to` -> `tơ` |
+| `uw` | ư | `tu` -> `tư` |
+| `s` | á (sắc) | `as` -> `á` |
+| `f` | à (huyền) | `af` -> `à` |
+| `r` | ả (hỏi) | `ar` -> `ả` |
+| `x` | ã (ngã) | `ax` -> `ã` |
+| `j` | ạ (nặng) | `aj` -> `ạ` |
+| `dd` | đ | `dd` -> `đ` |
 
 ### VNI
 
@@ -150,13 +119,14 @@ sudo make run
 Config file: `~/.config/vietc/config.toml` or `./vietc.toml`
 
 ```toml
-input_method = "telex"
+input_method = "vni"
 toggle_key = "space"
-start_enabled = true
-debug = false
+start_enabled = false
+grab = true
 
 [auto_restore]
 enabled = true
+trigger_keys = ["space", "escape"]
 
 [app_state]
 enabled = true
@@ -175,57 +145,55 @@ lm = "làm"
 ## Architecture
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌────────────────┐
-│  evdev       │────▶│  Viet+       │────▶│  uinput/X11    │
-│  keyboard    │     │  Engine      │     │  injection     │
-│  monitor     │     │  (Telex/VNI) │     │                │
-└──────────────┘     └──────────────┘     └────────────────┘
-                           │
-                     ┌─────┴─────┐
-                     │  App State │
-                     │  Manager   │
-                     └───────────┘
+┌──────────────────┐     ┌──────────────────┐     ┌────────────────┐
+│  X11 Keyboard    │────▶│  Viet+ Daemon    │────▶│  X11/XTEST     │
+│  Grab (XGrabKb)  │     │                  │     │  Injection     │
+│                  │     │  Backspace-Replay│     │                │
+│  FocusIn/Out     │     │  Engine          │     │  Direct        │
+│  Detection       │     │  (Telex/VNI)     │     │  Clipboard     │
+└──────────────────┘     └──────────────────┘     └────────────────┘
+                                │
+                          ┌─────┴─────┐
+                          │  App State │
+                          │  Manager   │
+                          └───────────┘
 ```
+
+### How Backspace-Replay Works
+
+1. All keystrokes in the current word are stored in `keystroke_history`
+2. On each keypress, a **fresh engine** is created and the entire history is replayed through it
+3. The engine's buffer IS what should be on screen
+4. Viet+ calculates the diff: backspaces to erase old text + new text to type
+5. On flush (space/period/etc.), history is cleared for the next word
+
+This eliminates the state desync bugs that plague incremental engines.
 
 ---
 
 ## Installation
 
-### System Dependencies
-
-| Component | Ubuntu/Debian | Fedora | Arch |
-|-----------|--------------|--------|------|
-| Core daemon | *(none)* | *(none)* | *(none)* |
-| Tray icon | `libdbus-1-dev pkg-config` | `dbus-devel pkgconf` | `dbus pkgconf` |
-
 ### Debian/Ubuntu Package
 
 ```bash
 sudo dpkg -i vietc_0.1.0-1_amd64.deb
-# Or build from source:
-make deb
 ```
 
-The .deb installs the daemon, CLI, tray icon, systemd user service, and config.
+Recommends: `libxtst6`, `xclip` (for clipboard injection)
 
 ### AppImage
 
 ```bash
-make appimage
-# Requires appimagetool
+./Viet+-0.1.0-x86_64.AppImage
 ```
 
-Run with `sudo` for keyboard grab:
-
-```bash
-sudo ./Viet+-0.1.0-x86_64.AppImage
-```
+No special permissions needed on X11 — uses XGrabKeyboard + XTest injection.
 
 ### Manual Install
 
 ```bash
+make build-all
 sudo make install
-sudo make install-ui  # tray icon (optional)
 ```
 
 ---
@@ -233,10 +201,10 @@ sudo make install-ui  # tray icon (optional)
 ## Building
 
 ```bash
-# Build all backends (uinput + X11 + Wayland)
+# Build all backends (X11 + Wayland)
 make build-all
 
-# Run tests (162+ engine tests)
+# Run tests (255+ tests)
 make test
 
 # Run interactive test harness
@@ -249,65 +217,48 @@ make appimage   # AppImage
 
 ---
 
-## Make Targets
-
-| Target | Description |
-|--------|-------------|
-| `make build-all` | Build all backends (uinput + X11 + Wayland) |
-| `make build-ui` | Build tray icon UI |
-| `make test` | Run all tests |
-| `make run` | Run daemon (debug, requires root) |
-| `make deb` | Build .deb package |
-| `make appimage` | Build AppImage package |
-| `make install` | Install binaries to `/usr/local/bin` |
-| `make install-ui` | Install tray icon |
-| `make clean` | Clean build artifacts |
-| `make fmt` | Format code |
-| `make lint` | Run clippy |
-
----
-
 ## Project Structure
 
 ```
-viet+/
-├── engine/          # Core IME engine (Telex + VNI)
+vietc/
+├── engine/              # Core IME engine (Telex + VNI)
 │   ├── src/
-│   │   ├── engine.rs      # Main engine orchestrator
-│   │   ├── telex.rs       # Telex state machine
-│   │   ├── vni.rs         # VNI engine
-│   │   ├── english.rs     # English auto-restore dictionary
-│   │   └── tests.rs       # 162+ unit tests
+│   │   ├── engine.rs    # Main engine + replay_keystrokes()
+│   │   ├── telex.rs     # Telex state machine
+│   │   ├── vni.rs       # VNI engine
+│   │   ├── english.rs   # English auto-restore dictionary
+│   │   └── tests/       # 255+ unit tests
 │   └── Cargo.toml
-├── protocol/        # Injection backends
+├── protocol/            # Injection backends
 │   ├── src/
-│   │   ├── inject.rs              # KeyInjector trait
-│   │   ├── uinput_monitor.rs      # Universal uinput+ydotool backend
-│   │   ├── x11_inject.rs          # X11 XTEST fallback
-│   │   └── wayland_im.rs          # Wayland IM context
+│   │   ├── inject.rs         # KeyInjector trait
+│   │   ├── x11_capture.rs    # X11 keyboard capture (XGrabKeyboard)
+│   │   ├── x11_inject.rs     # Direct X11 clipboard + XTest injection
+│   │   └── wayland_im.rs     # Wayland IM protocol
 │   └── Cargo.toml
-├── daemon/          # Background daemon
+├── daemon/              # Background daemon
 │   ├── src/
-│   │   ├── main.rs        # Evdev loop, hot-reload
-│   │   ├── config.rs      # TOML config loader
-│   │   ├── app_state.rs   # Per-app state manager
-│   │   └── display.rs     # Display server detection
+│   │   ├── main.rs      # Event loop, Backspace-Replay integration
+│   │   ├── config.rs    # TOML config loader
+│   │   ├── app_state.rs # Per-app state manager
+│   │   └── display.rs   # Display server detection
 │   └── Cargo.toml
-├── cli/             # Interactive test harness
-├── ui/              # Tray icon application
-│   ├── src/
-│   │   ├── main.rs        # Tray app entry point
-│   │   ├── tray.rs        # System tray icon implementation
-│   │   └── config.rs      # UI config reader
-│   └── Cargo.toml
-├── packaging/       # Distribution packages
-│   ├── appimage/    # AppImage build scripts
-│   └── deb/         # .deb package build scripts
-├── vietc.toml       # Default configuration
-├── vietc.service    # Systemd user service
-├── Makefile         # Build targets
+├── cli/                 # Interactive test harness
+├── ui/                  # Tray icon application
+├── packaging/           # Distribution packages
+│   ├── appimage/        # AppImage build scripts
+│   └── deb/             # .deb package build scripts
+├── vietc.toml           # Default configuration
+├── vietc.service        # Systemd user service
+├── Makefile             # Build targets
 └── README.md
 ```
+
+---
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ---
 
