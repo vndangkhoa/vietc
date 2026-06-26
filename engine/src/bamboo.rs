@@ -288,6 +288,7 @@ impl BambooEngine {
     }
 
     fn find_tone_position(&self, range: std::ops::Range<usize>) -> usize {
+        let start = range.start;
         let mut vowels: Vec<usize> = Vec::new();
 
         for i in range {
@@ -299,6 +300,18 @@ impl BambooEngine {
 
         if vowels.is_empty() {
             return self.composition.len().saturating_sub(1);
+        }
+
+        // Exclude onset glides: in "qu…" the u and in "gi…" the i belong to the
+        // initial consonant, not the vowel nucleus — so they must never carry the
+        // tone (e.g. "quả" not "qủa", "giờ" not "gìơ"). Only strip the glide when
+        // another vowel follows it; bare "gì"/"qu" keep the letter as the nucleus.
+        if vowels.len() >= 2 && vowels[0] == start + 1 {
+            let onset = self.composition[start].base_char.to_ascii_lowercase();
+            let glide = self.composition[start + 1].base_char.to_ascii_lowercase();
+            if (onset == 'q' && glide == 'u') || (onset == 'g' && glide == 'i') {
+                vowels.remove(0);
+            }
         }
 
         if vowels.len() == 1 {
@@ -322,7 +335,7 @@ impl BambooEngine {
         let tone_on_second = matches!((cv1, cv2),
             ('o', 'a') | ('o', 'e') | ('u', 'y') |
             ('i', 'ê') | ('y', 'ê') | ('u', 'ô') | ('ư', 'ơ') |
-            ('i', 'o') | ('u', 'â')
+            ('i', 'o') | ('u', 'â') | ('u', 'ê') | ('u', 'ơ')
         );
 
         if tone_on_second {
