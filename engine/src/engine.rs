@@ -167,15 +167,16 @@ impl Engine {
                 self.reset();
                 return Some(EngineEvent::Replace {
                     backspaces: prev_len,
-                    insert: format!("{}{}", expansion, ch),
+                    insert: expansion,
                 });
             }
 
             self.reset();
             if prev_len > 0 {
+                // Don't include flush char in insert — daemon forwards it separately
                 return Some(EngineEvent::Replace {
                     backspaces: prev_len,
-                    insert: format!("{}{}", previous, ch),
+                    insert: previous,
                 });
             }
             return None;

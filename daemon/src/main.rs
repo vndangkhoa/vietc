@@ -902,6 +902,12 @@ fn run_with_evdev(
                             if !commands.is_empty() {
                                 consumed_keys.insert(keycode);
                                 execute_commands(&*injector, &commands, false);
+                                // Flush chars: forward raw key after injection
+                                // (engine no longer includes flush char in insert)
+                                if is_flush_char(ch) {
+                                    injector.send_key_event(keycode, 1);
+                                    injector.send_key_event(keycode, 0);
+                                }
                                 // Skip upcoming auto-repeat pile-up from injection delay
                                 skip_count = 3;
                             } else if is_vn_control_key(&daemon.config.input_method, ch) {
