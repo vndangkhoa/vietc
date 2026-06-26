@@ -171,15 +171,20 @@ struct XKeyEvent {
 }
 
 #[repr(C)]
-union XEventData {
-    key: XKeyEvent,
+struct XEvent {
+    // XEvent is a union — all variants share offset 0
+    // sizeof(XEvent) = 192 on x86_64 (long pad[24])
+    _bytes: [u8; 192],
 }
 
-#[repr(C)]
-struct XEvent {
-    _type: c_int,
-    _pad: [u8; 24],
-    data: XEventData,
+impl XEvent {
+    fn event_type(&self) -> c_int {
+        unsafe { std::ptr::read_unaligned(self._bytes.as_ptr() as *const c_int) }
+    }
+
+    fn key(&self) -> &XKeyEvent {
+        unsafe { &*(self._bytes.as_ptr() as *const XKeyEvent) }
+    }
 }
 
 type KeySym = u64;
@@ -308,7 +313,18 @@ impl X11Capture {
                 tv_usec: ((timeout_ms % 1000) * 1000) as i64,
             };
             let n = select(fd + 1, &mut readfds, std::ptr::null_mut(), std::ptr::null_mut(), &mut timeout);
-            n > 0 && fd_isset(fd, &readfds)
+            if n > 0 && fd_isset(fd, &readfds) {
+                true
+            } else {
+                // Log on first timeout to diagnose
+                static mut LOGGED: bool = false;
+                if !LOGGED {
+                    eprintln!("[vietc] X11 select timeout (fd={}, n={}, timeout={}ms) — no events arriving", fd, n, timeout_ms);
+                    eprintln!("[vietc] Keyboard grab may not be working. Check if another app grabbed the keyboard.");
+                    LOGGED = true;
+                }
+                false
+            }
         }
     }
 
@@ -327,7 +343,7 @@ impl X11Capture {
             (self.lib.x_next_event)(self.display, &mut event);
         }
 
-        let _type = event._type;
+        let _type = event.event_type();
 
         // Handle FocusIn/FocusOut — reset engine state when focus changes
         if _type == FOCUS_OUT {
@@ -343,7 +359,7 @@ impl X11Capture {
             return self.next_event();
         }
 
-        let key_event = unsafe { &event.data.key };
+        let key_event = event.key();
         let ch = self.lookup_key(key_event);
         Some(X11KeyEvent {
             keycode: key_event.keycode,

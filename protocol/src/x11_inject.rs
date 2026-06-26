@@ -201,9 +201,13 @@ struct XSelectionRequestEvent {
 
 #[repr(C)]
 struct XEvent {
-    _type: c_int,
-    _pad: [u8; 24],
-    data: [u64; 6],
+    _bytes: [u8; 192],
+}
+
+impl XEvent {
+    fn event_type(&self) -> c_int {
+        unsafe { std::ptr::read_unaligned(self._bytes.as_ptr() as *const c_int) }
+    }
 }
 
 pub struct X11Injector {
@@ -298,7 +302,7 @@ impl X11Injector {
             while (self.lib.x_pending)(self.display) > 0 {
                 let mut event: XEvent = std::mem::zeroed();
                 (self.lib.x_next_event)(self.display, &mut event);
-                if event._type == SELECTION_REQUEST {
+                if event.event_type() == SELECTION_REQUEST {
                     let req = &*(&event as *const XEvent as *const XSelectionRequestEvent);
                     self.handle_selection_request(req);
                 }
