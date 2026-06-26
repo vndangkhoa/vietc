@@ -38,6 +38,45 @@ struct X11Lib {
     x_flush: unsafe extern "C" fn(*mut Display) -> c_int,
     x_select_input: unsafe extern "C" fn(*mut Display, Window, c_long) -> c_int,
     x_sync: unsafe extern "C" fn(*mut Display, c_int) -> c_int,
+    x_connection_number: unsafe extern "C" fn(*mut Display) -> c_int,
+}
+
+// select() timeout struct
+#[repr(C)]
+struct Timeval {
+    tv_sec: i64,
+    tv_usec: i64,
+}
+
+#[repr(C)]
+struct FdSet {
+    fds_bits: [u64; 16], // 1024 bits
+}
+
+extern "C" {
+    fn select(nfds: c_int, readfds: *mut FdSet, writefds: *mut FdSet, exceptfds: *mut FdSet, timeout: *mut Timeval) -> c_int;
+}
+
+fn fd_zero(set: &mut FdSet) {
+    set.fds_bits = [0u64; 16];
+}
+
+fn fd_set(fd: c_int, set: &mut FdSet) {
+    let idx = fd as usize / 64;
+    let bit = fd as usize % 64;
+    if idx < set.fds_bits.len() {
+        set.fds_bits[idx] |= 1u64 << bit;
+    }
+}
+
+fn fd_isset(fd: c_int, set: &FdSet) -> bool {
+    let idx = fd as usize / 64;
+    let bit = fd as usize % 64;
+    if idx < set.fds_bits.len() {
+        (set.fds_bits[idx] & (1u64 << bit)) != 0
+    } else {
+        false
+    }
 }
 
 impl X11Lib {
@@ -81,6 +120,7 @@ impl X11Lib {
             let x_flush = sym!("XFlush");
             let x_select_input = sym!("XSelectInput");
             let x_sync = sym!("XSync");
+            let x_connection_number = sym!("XConnectionNumber");
 
             Ok(Self {
                 handle,
@@ -96,6 +136,7 @@ impl X11Lib {
                 x_flush,
                 x_select_input,
                 x_sync,
+                x_connection_number,
             })
         }
     }
@@ -233,11 +274,42 @@ impl X11Capture {
         if !self.grabbed {
             return false;
         }
-        unsafe { (self.lib.x_pending)(self.display) > 0 }
+        unsafe {
+            let fd = (self.lib.x_connection_number)(self.display);
+            let mut readfds: FdSet = std::mem::zeroed();
+            fd_zero(&mut readfds);
+            fd_set(fd, &mut readfds);
+            let mut timeout = Timeval { tv_sec: 0, tv_usec: 0 };
+            let n = select(fd + 1, &mut readfds, std::ptr::null_mut(), std::ptr::null_mut(), &mut timeout);
+            n > 0 && fd_isset(fd, &readfds)
+        }
     }
 
     pub fn is_grabbed(&self) -> bool {
         self.grabbed
+    }
+
+    /// Block until an event arrives, with a timeout in milliseconds.
+    /// Returns true if an event is available, false on timeout.
+    pub fn wait_for_event(&mut self, timeout_ms: u64) -> bool {
+        if !self.grabbed {
+            return false;
+        }
+        unsafe {
+            // Flush pending output first
+            (self.lib.x_flush)(self.display);
+
+            let fd = (self.lib.x_connection_number)(self.display);
+            let mut readfds: FdSet = std::mem::zeroed();
+            fd_zero(&mut readfds);
+            fd_set(fd, &mut readfds);
+            let mut timeout = Timeval {
+                tv_sec: (timeout_ms / 1000) as i64,
+                tv_usec: ((timeout_ms % 1000) * 1000) as i64,
+            };
+            let n = select(fd + 1, &mut readfds, std::ptr::null_mut(), std::ptr::null_mut(), &mut timeout);
+            n > 0 && fd_isset(fd, &readfds)
+        }
     }
 
     pub fn next_event(&mut self) -> Option<X11KeyEvent> {

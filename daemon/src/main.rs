@@ -743,6 +743,17 @@ fn run_with_x11(
             capture.focus_lost = false;
         }
 
+        // Wait for events with 100ms timeout, then re-grab if needed
+        if !capture.wait_for_event(100) {
+            // No events — check if grab is still held
+            if !capture.is_grabbed() {
+                eprintln!("[vietc] Keyboard grab lost — re-grabbing");
+                capture.grab_keyboard();
+            }
+            continue;
+        }
+
+        // Drain all available events
         while let Some(event) = capture.next_event() {
             if event.pressed {
                 // Skip autorepeat
@@ -813,14 +824,6 @@ fn run_with_x11(
                 }
             }
         }
-
-        // Re-grab if the grab was silently lost (tray started, WM took focus, etc.)
-        if !capture.is_grabbed() {
-            eprintln!("[vietc] Keyboard grab lost — re-grabbing");
-            capture.grab_keyboard();
-        }
-
-        thread::sleep(Duration::from_millis(10));
     }
 }
 
