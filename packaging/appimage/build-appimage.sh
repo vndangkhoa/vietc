@@ -221,6 +221,28 @@ if [ "$1" = "--update" ]; then
     exit 0
 fi
 
+# Handle --quit flag: stop daemon and uinputd
+if [ "$1" = "--quit" ]; then
+    echo "Stopping Viet+..."
+    pkill -x vietc-tray 2>/dev/null
+    pkill -x vietc 2>/dev/null
+    pkill -x vietc-uinputd 2>/dev/null
+    pkill -x vietc-xrecord 2>/dev/null
+    sleep 0.5
+    echo "Viet+ stopped."
+    exit 0
+fi
+
+# Handle --restart flag
+if [ "$1" = "--restart" ]; then
+    pkill -x vietc-tray 2>/dev/null
+    pkill -x vietc 2>/dev/null
+    pkill -x vietc-uinputd 2>/dev/null
+    pkill -x vietc-xrecord 2>/dev/null
+    sleep 0.5
+    # Fall through to normal start below
+fi
+
 # Export our bin dir on PATH so child processes can find sibling binaries
 export PATH="$HERE/usr/bin:$PATH"
 
@@ -332,9 +354,14 @@ trap cleanup_daemon EXIT INT TERM
 if [ -f "$HERE/usr/bin/vietc-tray" ]; then
     "$HERE/usr/bin/vietc-tray" "$@"
 else
-    echo "[vietc] Tray not available — daemon is running in background."
-    echo "[vietc] Press Ctrl+C or close this terminal to stop."
-    # Keep AppImage alive: wait for daemon to exit
+    echo "[vietc] Daemon running (PID=$DAEMON_PID)."
+    echo "[vietc] To stop: Vietnam+-*.AppImage --quit"
+    # Show a quit dialog if DE is available
+    if command -v zenity >/dev/null 2>&1; then
+        zenity --info --text="Viet+ is running in the background.\n\nTo stop: run this AppImage with --quit" \
+            --title="Viet+ Input Method" --width=350 2>/dev/null &
+    fi
+    # Keep alive until daemon dies or user quits via --quit
     wait $DAEMON_PID 2>/dev/null
 fi
 EOF
