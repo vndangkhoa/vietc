@@ -921,6 +921,7 @@ fn run_with_evdev(
                             if ch.is_ascii_alphabetic() && (shift ^ caps) {
                                 ch = ch.to_ascii_uppercase();
                             }
+                            let buf_before = daemon.engine.buffer().chars().count();
                             let commands = daemon.process_key(ch);
                             if !commands.is_empty() {
                                 consumed_keys.insert(keycode);
@@ -933,8 +934,15 @@ fn run_with_evdev(
                                 }
                                 // Skip upcoming auto-repeat pile-up from injection delay
                                 skip_count = 3;
-                            } else if is_vn_control_key(&daemon.config.input_method, ch) {
-                                // Tone/mark key with no effect — consume silently
+                            } else if is_vn_control_key(&daemon.config.input_method, ch)
+                                && daemon.engine.buffer().chars().count() <= buf_before
+                            {
+                                // Tone/mark key truly absorbed with no effect (no
+                                // literal character appended) — consume silently.
+                                // When the key is instead kept as a literal base
+                                // letter (e.g. leading "x", the "r" in "tr"), the
+                                // buffer grows and we must forward it like any
+                                // other character so it reaches the screen.
                                 consumed_keys.insert(keycode);
                             } else {
                                 injector.send_key_event(keycode, 1);
@@ -1248,5 +1256,101 @@ fn key_to_char(key: evdev::Key) -> Option<char> {
         evdev::Key::KEY_BACKSPACE => Some('\x08'),
         evdev::Key::KEY_ENTER => Some('\n'),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod grab_render_tests {
+    //! Models the grab-mode keystroke loop (the `value == 1` branch of
+    //! `run_with_evdev`) against a real engine, rendering the resulting
+    //! on-screen text. This exercises both the engine composition and the
+    //! daemon's decision of when to forward a raw key vs. consume it.
+    use super::*;
+
+    fn event_to_commands(event: Option<EngineEvent>) -> Vec<OutputCommand> {
+        let mut commands = Vec::new();
+        if let Some(event) = event {
+            match event {
+                EngineEvent::Flush(text) | EngineEvent::Insert(text) | EngineEvent::Paste(text) => {
+                    commands.push(OutputCommand::Type(text));
+                }
+                EngineEvent::AutoRestore(word) => {
+                    commands.push(OutputCommand::Backspace(word.chars().count()));
+                    commands.push(OutputCommand::Type(word));
+                }
+                EngineEvent::Replace { backspaces, insert } => {
+                    commands.push(OutputCommand::Backspace(backspaces));
+                    commands.push(OutputCommand::Type(insert));
+                }
+                EngineEvent::UndoTones { backspaces, restored } => {
+                    commands.push(OutputCommand::Backspace(backspaces));
+                    commands.push(OutputCommand::Type(restored));
+                }
+            }
+        }
+        commands
+    }
+
+    /// Render keystrokes exactly as the grab-mode loop would put them on screen.
+    fn render(method_str: &str, keys: &str) -> String {
+        let method = match method_str {
+            "vni" => InputMethod::Vni,
+            _ => InputMethod::Telex,
+        };
+        let mut engine = Engine::new(method);
+        engine.set_enabled(true);
+        engine.set_auto_restore(true);
+
+        let mut screen: Vec<char> = Vec::new();
+        for ch in keys.chars() {
+            let buf_before = engine.buffer().chars().count();
+            let commands = event_to_commands(engine.process_key(ch));
+            if !commands.is_empty() {
+                for cmd in &commands {
+                    match cmd {
+                        OutputCommand::Backspace(n) => {
+                            for _ in 0..*n {
+                                screen.pop();
+                            }
+                        }
+                        OutputCommand::Type(text) => screen.extend(text.chars()),
+                    }
+                }
+                if is_flush_char(ch) {
+                    screen.push(ch);
+                }
+            } else if is_vn_control_key(method_str, ch)
+                && engine.buffer().chars().count() <= buf_before
+            {
+                // consumed silently
+            } else {
+                screen.push(ch);
+            }
+        }
+        screen.into_iter().collect()
+    }
+
+    #[test]
+    fn leading_control_letters_are_kept() {
+        // "x" tone key as a leading consonant must survive.
+        assert_eq!(render("telex", "xuaw"), "xưa");
+        // "r" inside the "tr" initial cluster must not be eaten as a tone.
+        assert_eq!(render("telex", "trong"), "trong");
+        // "r" as a real word-initial consonant.
+        assert_eq!(render("telex", "ruwngf"), "rừng");
+    }
+
+    #[test]
+    fn spaces_between_words_are_preserved() {
+        assert_eq!(render("telex", "Ngayf xuaw"), "Ngày xưa");
+        assert_eq!(render("telex", "khu ruwngf raamj"), "khu rừng rậm");
+        assert_eq!(render("telex", "con Voi raats"), "con Voi rất");
+    }
+
+    #[test]
+    fn full_sentence_renders_correctly() {
+        let keys = "Ngayf xuaw, trong mootj khu ruwngf raamj cos mootj con Voi raats hung duwx.";
+        let expected = "Ngày xưa, trong một khu rừng rậm có một con Voi rất hung dữ.";
+        assert_eq!(render("telex", keys), expected);
     }
 }

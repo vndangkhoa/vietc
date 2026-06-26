@@ -18,6 +18,12 @@ const KEY_MAX: u32 = 0x1ff;
 
 pub struct UinputInjector {
     file: File,
+    /// The user's real clipboard contents, saved before we overwrite the
+    /// clipboard to inject Unicode text, so we can restore it afterwards.
+    saved_clipboard: std::sync::Mutex<Option<String>>,
+    /// The last text we injected via the clipboard. Used to tell our own
+    /// injected text apart from text the user copied with Ctrl+C.
+    last_injected: std::sync::Mutex<Option<String>>,
 }
 
 unsafe impl Send for UinputInjector {}
@@ -72,7 +78,11 @@ impl UinputInjector {
         // Small delay for device to be ready
         std::thread::sleep(std::time::Duration::from_millis(10));
 
-        Ok(Self { file })
+        Ok(Self {
+            file,
+            saved_clipboard: std::sync::Mutex::new(None),
+            last_injected: std::sync::Mutex::new(None),
+        })
     }
 
     fn send_uinput_event(&self, type_: u16, code: u16, value: i32) {
@@ -180,10 +190,8 @@ impl KeyInjector for UinputInjector {
             "[vietc] send_string: Unicode '{}' - using clipboard",
             s.escape_default()
         );
-        let copied = self.copy_to_clipboard(s);
+        let copied = self.paste_via_clipboard(s, false);
         if copied {
-            eprintln!("[vietc] send_string: clipboard OK, sending Ctrl+V");
-            self.send_ctrl_v();
             eprintln!("[vietc] send_string complete (clipboard)");
             return InjectResult::Success;
         } else {
@@ -365,11 +373,65 @@ impl UinputInjector {
         if backspaces > 0 {
             for _ in 0..backspaces { let _ = self.send_backspace(); }
         }
-        if self.copy_to_clipboard(text) {
-            self.send_ctrl_v_x11();
-        }
+        self.paste_via_clipboard(text, true);
 
         InjectResult::Success
+    }
+
+    /// Read the user's current clipboard contents (wl-paste on Wayland, xclip
+    /// on X11). Returns None if no clipboard tool is available or it is empty.
+    fn read_clipboard(&self) -> Option<String> {
+        let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
+        let (prog, args): (&str, &[&str]) = if is_wayland {
+            ("wl-paste", &["-n"])
+        } else {
+            ("xclip", &["-selection", "clipboard", "-o"])
+        };
+        let mut cmd = Self::user_cmd(prog);
+        cmd.args(args);
+        let output = cmd.output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
+    /// Inject Unicode `text` by placing it on the clipboard and sending Ctrl+V,
+    /// while preserving the user's own clipboard contents. Without this, every
+    /// Vietnamese word the user types would overwrite whatever they had copied
+    /// with Ctrl+C, so a subsequent Ctrl+V would paste the wrong thing.
+    ///
+    /// Returns whether the text was successfully copied to the clipboard.
+    fn paste_via_clipboard(&self, text: &str, use_x11_paste: bool) -> bool {
+        // Snapshot the clipboard. If it differs from what we last injected, the
+        // user changed it themselves (a real Ctrl+C), so remember it to restore.
+        let current = self.read_clipboard();
+        {
+            let last = self.last_injected.lock().unwrap();
+            let is_our_injection = matches!((&current, &*last), (Some(c), Some(l)) if c == l);
+            if !is_our_injection {
+                *self.saved_clipboard.lock().unwrap() = current;
+            }
+        }
+
+        if !self.copy_to_clipboard(text) {
+            return false;
+        }
+        if use_x11_paste {
+            self.send_ctrl_v_x11();
+        } else {
+            self.send_ctrl_v();
+        }
+
+        // Restore the user's clipboard once the paste has been consumed. The
+        // extra delay gives the target application time to read our text from
+        // the clipboard before we overwrite it again.
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        let saved = self.saved_clipboard.lock().unwrap().clone();
+        let restored = saved.unwrap_or_default();
+        let _ = self.copy_to_clipboard(&restored);
+        *self.last_injected.lock().unwrap() = Some(restored);
+        true
     }
 
     /// Copy text to clipboard and paste via Ctrl+V through our uinput device.

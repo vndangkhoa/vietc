@@ -47,6 +47,12 @@ struct input_id {
 
 struct UinputDevice {
     fd: i32,
+    /// The user's real clipboard contents, saved before we overwrite the
+    /// clipboard to paste Unicode text, so we can restore it afterwards.
+    saved_clipboard: std::sync::Mutex<Option<String>>,
+    /// The last text we injected via the clipboard, used to distinguish our
+    /// own paste content from text the user copied with Ctrl+C.
+    last_injected: std::sync::Mutex<Option<String>>,
 }
 
 impl UinputDevice {
@@ -83,7 +89,11 @@ impl UinputDevice {
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         eprintln!("[vietc-uinputd] Device '{}' created", name);
-        Ok(Self { fd })
+        Ok(Self {
+            fd,
+            saved_clipboard: std::sync::Mutex::new(None),
+            last_injected: std::sync::Mutex::new(None),
+        })
     }
 
     fn send_event(&self, type_: u16, code: u16, value: i32) {
@@ -153,6 +163,19 @@ impl UinputDevice {
     }
 
     fn paste_unicode(&self, text: &str) {
+        // Save the user's clipboard before we clobber it, unless what is on the
+        // clipboard is our own previously-injected text. This keeps Ctrl+C /
+        // Ctrl+V working: every Vietnamese word is pasted via the clipboard, so
+        // without restoring it the user's copied content would be lost.
+        let current = read_clipboard();
+        {
+            let last = self.last_injected.lock().unwrap();
+            let is_our_injection = matches!((&current, &*last), (Some(c), Some(l)) if c == l);
+            if !is_our_injection {
+                *self.saved_clipboard.lock().unwrap() = current;
+            }
+        }
+
         copy_to_clipboard(text);
         self.send_key(29, 1);
         std::thread::sleep(std::time::Duration::from_millis(2));
@@ -160,6 +183,13 @@ impl UinputDevice {
         self.send_key(47, 0);
         self.send_key(29, 0);
         std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // Restore the user's clipboard after the paste has been consumed.
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        let saved = self.saved_clipboard.lock().unwrap().clone();
+        let restored = saved.unwrap_or_default();
+        copy_to_clipboard(&restored);
+        *self.last_injected.lock().unwrap() = Some(restored);
     }
 }
 
@@ -169,6 +199,22 @@ impl Drop for UinputDevice {
         let _ = unsafe { libc::close(self.fd) };
         eprintln!("[vietc-uinputd] Device destroyed");
     }
+}
+
+fn read_clipboard() -> Option<String> {
+    let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
+    let output = if is_wayland {
+        Command::new("wl-paste").arg("-n").output()
+    } else {
+        Command::new("xclip")
+            .args(["-selection", "clipboard", "-o"])
+            .output()
+    };
+    let output = output.ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn copy_to_clipboard(text: &str) {
