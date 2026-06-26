@@ -831,11 +831,6 @@ fn run_with_evdev(
         }
 
         for event in events {
-            // Skip auto-repeat events that piled up during injection
-            if skip_count > 0 {
-                skip_count -= 1;
-                continue;
-            }
             if let evdev::InputEventKind::Key(key) = event.kind() {
                 let value = event.value();
                 let keycode = key.0;
@@ -908,7 +903,7 @@ fn run_with_evdev(
                                 consumed_keys.insert(keycode);
                                 execute_commands(&*injector, &commands, false);
                                 // Skip upcoming auto-repeat pile-up from injection delay
-                                skip_count = 10;
+                                skip_count = 3;
                             } else if is_vn_control_key(&daemon.config.input_method, ch) {
                                 // Tone/mark key with no effect — consume silently
                                 consumed_keys.insert(keycode);
@@ -919,8 +914,9 @@ fn run_with_evdev(
                             injector.send_key_event(keycode, 1);
                         }
                     } else if value == 2 {
-                        // Auto-repeat: skip if consumed, else forward
-                        if consumed_keys.contains(&keycode) {
+                        // Auto-repeat: skip if consumed or during injection drain
+                        if consumed_keys.contains(&keycode) || skip_count > 0 {
+                            if skip_count > 0 { skip_count -= 1; }
                             continue;
                         }
                         injector.send_key_event(keycode, 2);
