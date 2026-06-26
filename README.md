@@ -13,66 +13,218 @@
 
 <p align="center">
   <b>Vietnamese Input Method for Linux</b><br>
-  <sub>Zero underline &bull; Native X11 &bull; Backspace-Replay sync &bull; Built in Rust</sub>
+  <sub>Zero underline &bull; No pre-edit buffer &bull; Backspace-Replay sync &bull; Built in Rust</sub>
 </p>
 
-## About Viet+
+---
 
-Viet+ is a modern Vietnamese input method for Linux that eliminates the **underline hell** common in other Vietnamese IMEs. Unlike traditional solutions that use pre-edit buffers with ugly underlines and duplicate text, Viet+ implements a **Direct Input** approach:
+## What is Viet+?
 
-- **No pre-edit buffer** — keystrokes are instantly converted to Unicode
-- **No underline** — clean, distraction-free typing
-- **No text duplication** — just pure Vietnamese
-- **Backspace-Replay sync** — engine state never desyncs from what's on screen
+Viet+ is a Vietnamese input method for Linux that takes a fundamentally different approach from every other IME: **Direct Input**.
+
+Most Vietnamese IMEs use a **pre-edit buffer** — you type into a temporary buffer with an ugly underline, and the text only becomes real Vietnamese when you commit it. This causes:
+
+- Duplicate text (buffer + committed)
+- Underline distraction
+- Broken copy/paste
+- Desync between engine state and what's on screen
+
+Viet+ eliminates all of this. Keystrokes are **instantly converted to Unicode** — what you type is what you see. No buffer. No underline. No duplication.
 
 ---
 
-## Features
+## How It Works
 
-| Feature | Description |
-|---------|-------------|
-| **Direct Input Engine** | No pre-edit buffer, no underline, no text duplication |
-| **Backspace-Replay** | Replays entire keystroke history through a fresh engine on every keypress — eliminates state desync |
-| **Telex & VNI** | Both input methods fully supported |
-| **Flexible Diacritic Placement** | Type modifiers/tone marks at end of syllable (e.g., `tranaf` -> `trần`) |
-| **Auto-Restore English** | Hit space/ESC to undo accidental Vietnamese conversion |
-| **ESC Undo** | Strip all tones from the current word instantly |
-| **Smart App Memory** | Remembers Vietnamese/English per application |
-| **Macro Expansion** | Custom shortcuts (e.g., `ko` -> `không`) |
-| **Focus Reset** | Automatically clears engine state on focus change between apps |
-| **Casing Preservation** | Syllable substitutions preserve your exact casing (e.g. `Saa` -> `Sả`, `SAA` -> `SẢ`) |
-| **CPU Priority** | Pins daemon to P-cores + nice(-10) for low-latency input |
-| **Zero Telemetry** | No keylogging, no network calls, fully FOSS |
+### Data Flow: Keypress to Screen
+
+```
+Physical Keyboard
+       │
+       ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Stage 1: KEY CAPTURE                                        │
+│                                                              │
+│  X11: XGrabKeyboard intercepts all key events                │
+│  evdev: /dev/input/event* reads kernel events                │
+│                                                              │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐   │
+│  │ X11Capture  │  │ evdev grab   │  │ FocusIn/FocusOut │   │
+│  │ (libX11.so) │  │ (libevdev)   │  │ detection        │   │
+│  └─────────────┘  └──────────────┘  └──────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Stage 2: KEY ROUTING                                        │
+│                                                              │
+│  Modifier keys (Ctrl/Alt/Super) → forward directly           │
+│  Ctrl+Space → toggle Vietnamese ON/OFF                       │
+│  Backspace → replay_backspace()                              │
+│  Characters → replay_and_inject(ch)                          │
+└──────────────────────────────────────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Stage 3: BACKSPACE-REPLAY                                   │
+│                                                              │
+│  keystroke_history = ['c', 'h', 'a', 'o', 's']             │
+│                       │                                      │
+│                       ▼                                      │
+│  ┌──────────────────────────────────────────────┐           │
+│  │  Create FRESH engine                         │           │
+│  │  Replay ALL keystrokes through it            │           │
+│  │  engine.buffer() = "cháo"  ← correct output │           │
+│  └──────────────────────────────────────────────┘           │
+│                       │                                      │
+│                       ▼                                      │
+│  screen_output = "cháo"                                     │
+│  diff = backspaces(0) + type("cháo")                        │
+│  (or no change if screen already shows "cháo")              │
+└──────────────────────────────────────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Stage 4: OUTPUT COMMANDS                                    │
+│                                                              │
+│  EngineEvent::Replace { backspaces: 4, insert: "cháo" }     │
+│       │                                                      │
+│       ▼                                                      │
+│  OutputCommand::Backspace(4)                                 │
+│  OutputCommand::Type("cháo")                                 │
+└──────────────────────────────────────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Stage 5: KEY INJECTION                                      │
+│                                                              │
+│  X11 path:                                                   │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │  1. Ungrab keyboard (XUngrabKeyboard)               │    │
+│  │  2. Send backspaces via XTestFakeKeyEvent           │    │
+│  │  3. Set clipboard via XChangeProperty               │    │
+│  │  4. Handle SelectionRequest events                  │    │
+│  │  5. Send Ctrl+V via XTestFakeKeyEvent               │    │
+│  │  6. Regrab keyboard (XGrabKeyboard)                 │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                              │
+│  uinput path (Wayland):                                      │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │  1. Send backspaces via /dev/uinput (EV_KEY 14)     │    │
+│  │  2. For ASCII: send keycodes via uinput              │    │
+│  │  3. For Unicode: wl-copy + Ctrl+V via uinput         │    │
+│  └─────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────┘
+       │
+       ▼
+   Application receives keystrokes
+   and renders Vietnamese text on screen
+```
+
+### The Backspace-Replay Pattern
+
+This is Viet+'s core innovation. Traditional IMEs track state incrementally — each keystroke updates an internal buffer. But this buffer can **desync** from what's actually on screen (due to focus changes, external pastes, etc.).
+
+Viet+ solves this by **never tracking incremental state**:
+
+```
+Traditional IME:
+  keystroke → update buffer → emit event → hope it matches screen
+  
+Viet+ (Backspace-Replay):
+  keystroke → add to history → replay ALL history in fresh engine → compute diff
+```
+
+On every keystroke:
+
+1. The keystroke is appended to `keystroke_history`
+2. A **brand new** `Engine` is created
+3. The **entire** history is replayed through it
+4. The engine's buffer is the **correct** screen output
+5. Viet+ computes the diff: how many backspaces to erase old text, what new text to type
+
+This means:
+- **Zero state desync** — always recomputed from scratch
+- **Self-healing** — if anything goes wrong, the next keystroke fixes it
+- **Simple** — no complex state tracking or synchronization
 
 ---
 
-## Why Viet+?
+## Architecture
 
-Most Vietnamese input methods on Linux suffer from **underline hell** — pre-edit buffers that duplicate text, show ugly underlines, and break your flow. Viet+ takes a different approach:
+```
+vietc/
+├── engine/                  # Core Vietnamese composition engine
+│   ├── engine.rs            # Orchestrator + replay_keystrokes()
+│   ├── telex.rs             # Telex state machine (688 lines)
+│   ├── vni.rs               # VNI state machine (593 lines)
+│   ├── english.rs           # English auto-restore dictionary
+│   └── spelling.rs          # Vietnamese syllable validation
+│
+├── protocol/                # Keyboard capture & injection
+│   ├── inject.rs            # KeyInjector trait
+│   ├── x11_capture.rs       # XGrabKeyboard + XNextEvent loop
+│   ├── x11_inject.rs        # XTest injection + direct clipboard
+│   └── wayland_im.rs        # Wayland IM protocol
+│
+├── daemon/                  # Main daemon process
+│   ├── main.rs              # Event loops, Backspace-Replay, CPU pinning
+│   ├── config.rs            # TOML config loader + hot reload
+│   ├── app_state.rs         # Per-app Vietnamese/English memory
+│   └── display.rs           # X11/Wayland/compositor detection
+│
+├── ui/                      # System tray icon
+│   └── main.rs              # Tray + daemon launcher
+│
+├── cli/                     # Interactive test harness
+├── packaging/               # AppImage + deb build scripts
+└── vietc.toml               # Default configuration
+```
 
-> **Direct Input** — keystrokes are instantly converted to Unicode. No pre-edit buffer. No underline. No text duplication. Just pure Vietnamese.
+### Component Interaction
 
-The **Backspace-Replay** pattern keeps the engine perfectly in sync: instead of tracking state incrementally (which can desync), Viet+ replays the entire keystroke history through a fresh engine on every keypress. The screen output is always recomputed from scratch.
-
----
-
-## Quick Start
-
-```bash
-# Clone and build
-git clone https://git.khoavo.myds.me/vndangkhoa/vietc.git
-cd vietc
-make build-all
-
-# Test the engine interactively
-cargo run --bin vietc-cli
-
-# Run the daemon
-cargo run --bin vietc
-
-# Or download a package from the releases page
-#   AppImage: ./Viet+-0.1.0-x86_64.AppImage
-#   Debian:   sudo dpkg -i vietc_0.1.0-1_amd64.deb
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      vietc-tray                             │
+│  (System tray icon, daemon launcher, password prompt)       │
+└───────────────────────┬─────────────────────────────────────┘
+                        │ starts
+                        ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      vietc (daemon)                          │
+│                                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │ Config       │  │ App State    │  │ Display          │  │
+│  │ (hot reload) │  │ (per-app)    │  │ (X11/Wayland)    │  │
+│  └──────┬───────┘  └──────┬───────┘  └────────┬─────────┘  │
+│         │                 │                    │             │
+│         └─────────────────┼────────────────────┘             │
+│                           │                                  │
+│                    ┌──────▼──────┐                           │
+│                    │ Event Loop  │                           │
+│                    │             │                           │
+│                    │ X11: grab   │                           │
+│                    │ keyboard    │                           │
+│                    │             │                           │
+│                    │ Process     │                           │
+│                    │ keystroke   │                           │
+│                    │             │                           │
+│                    │ Replay all  │                           │
+│                    │ history     │                           │
+│                    │             │                           │
+│                    │ Inject      │                           │
+│                    │ diff        │                           │
+│                    └─────────────┘                           │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │                   vietc-engine                         │ │
+│  │  TelexEngine / VniEngine / EnglishDict / Spelling     │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │               vietc-protocol                           │ │
+│  │  X11Capture / X11Injector / UinputInjector / Wayland  │ │
+│  └────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -83,18 +235,18 @@ cargo run --bin vietc
 
 | Key | Result | Example |
 |-----|--------|---------|
-| `aa` | â | `tan` -> `tân` |
-| `aw` | ă | `tan` -> `tăn` |
-| `ee` | ê | `men` -> `mên` |
-| `oo` | ô | `to` -> `tô` |
-| `ow` | ơ | `to` -> `tơ` |
-| `uw` | ư | `tu` -> `tư` |
-| `s` | á (sắc) | `as` -> `á` |
-| `f` | à (huyền) | `af` -> `à` |
-| `r` | ả (hỏi) | `ar` -> `ả` |
-| `x` | ã (ngã) | `ax` -> `ã` |
-| `j` | ạ (nặng) | `aj` -> `ạ` |
-| `dd` | đ | `dd` -> `đ` |
+| `aa` | â | `tan` → `tân` |
+| `aw` | ă | `tan` → `tăn` |
+| `ee` | ê | `men` → `mên` |
+| `oo` | ô | `to` → `tô` |
+| `ow` | ơ | `to` → `tơ` |
+| `uw` | ư | `tu` → `tư` |
+| `s` | á (sắc) | `as` → `á` |
+| `f` | à (huyền) | `af` → `à` |
+| `r` | ả (hỏi) | `ar` → `ả` |
+| `x` | ã (ngã) | `ax` → `ã` |
+| `j` | ạ (nặng) | `aj` → `ạ` |
+| `dd` | đ | `dd` → `đ` |
 
 ### VNI
 
@@ -114,15 +266,63 @@ cargo run --bin vietc
 
 ---
 
+## Features
+
+| Feature | How It Works |
+|---------|-------------|
+| **Direct Input** | No pre-edit buffer. Keystrokes instantly become Unicode via XTest/uinput injection |
+| **Backspace-Replay** | Replays entire keystroke history in a fresh engine on every keypress — zero state desync |
+| **Flexible Placement** | Type tone/modifier at end of syllable (`tranaf` → `trần`) — engine scans backward to find the vowel |
+| **Smart Clusters** | `uo` → `ươ`, `ươ` + `o` → `uô`, shape modifier overriding (â↔ă, ô↔ơ) |
+| **Auto-Restore** | ~250 English words recognized — typing `hello` won't become Vietnamese. Triggered on space/ESC |
+| **ESC Undo** | Strip all tones from current word instantly |
+| **Macro Expansion** | `ko` → `không`, `dc` → `được`, custom shortcuts |
+| **Casing Preservation** | `SATS` → `SÁT`, `Saa` → `Sả` — matches your typing pattern |
+| **App Memory** | Per-app Vietnamese/English state, saved to `overrides.toml` |
+| **Hot Reload** | Config changes apply without restart (polls mtime every 1.5s) |
+| **Focus Reset** | FocusIn/FocusOut clears engine state — no stale injection on window switch |
+| **CPU Priority** | Pins daemon to P-cores (0-3) + nice(-10) for low-latency input |
+
+---
+
+## Installation
+
+### AppImage (recommended)
+
+```bash
+./Viet+-0.1.0-x86_64.AppImage
+```
+
+Includes daemon + tray + CLI + xclip. No special permissions needed on X11.
+
+### Debian/Ubuntu
+
+```bash
+sudo dpkg -i vietc_0.1.0-1_amd64.deb
+```
+
+Recommends: `libxtst6`, `xclip`
+
+### Manual
+
+```bash
+git clone https://git.khoavo.myds.me/vndangkhoa/vietc.git
+cd vietc
+make build-all
+sudo make install
+```
+
+---
+
 ## Configuration
 
 Config file: `~/.config/vietc/config.toml` or `./vietc.toml`
 
 ```toml
-input_method = "vni"
-toggle_key = "space"
-start_enabled = false
-grab = true
+input_method = "vni"       # "vni" or "telex"
+toggle_key = "space"       # Ctrl+Space to toggle
+start_enabled = false      # English by default
+grab = true                # grab keyboard (AppImage)
 
 [auto_restore]
 enabled = true
@@ -142,129 +342,20 @@ lm = "làm"
 
 ---
 
-## Architecture
-
-```
-┌──────────────────┐     ┌──────────────────┐     ┌────────────────┐
-│  X11 Keyboard    │────▶│  Viet+ Daemon    │────▶│  X11/XTEST     │
-│  Grab (XGrabKb)  │     │                  │     │  Injection     │
-│                  │     │  Backspace-Replay│     │                │
-│  FocusIn/Out     │     │  Engine          │     │  Direct        │
-│  Detection       │     │  (Telex/VNI)     │     │  Clipboard     │
-└──────────────────┘     └──────────────────┘     └────────────────┘
-                                │
-                          ┌─────┴─────┐
-                          │  App State │
-                          │  Manager   │
-                          └───────────┘
-```
-
-### How Backspace-Replay Works
-
-1. All keystrokes in the current word are stored in `keystroke_history`
-2. On each keypress, a **fresh engine** is created and the entire history is replayed through it
-3. The engine's buffer IS what should be on screen
-4. Viet+ calculates the diff: backspaces to erase old text + new text to type
-5. On flush (space/period/etc.), history is cleared for the next word
-
-This eliminates the state desync bugs that plague incremental engines.
-
----
-
-## Installation
-
-### Debian/Ubuntu Package
-
-```bash
-sudo dpkg -i vietc_0.1.0-1_amd64.deb
-```
-
-Recommends: `libxtst6`, `xclip` (for clipboard injection)
-
-### AppImage
-
-```bash
-./Viet+-0.1.0-x86_64.AppImage
-```
-
-No special permissions needed on X11 — uses XGrabKeyboard + XTest injection.
-
-### Manual Install
-
-```bash
-make build-all
-sudo make install
-```
-
----
-
 ## Building
 
 ```bash
-# Build all backends (X11 + Wayland)
-make build-all
-
-# Run tests (255+ tests)
-make test
-
-# Run interactive test harness
-cargo run --bin vietc-cli
-
-# Build packages
-make deb        # .deb package
-make appimage   # AppImage
+make build-all     # Build with X11 + Wayland
+make test          # Run 255+ tests
+make deb           # Build .deb package
+make appimage      # Build AppImage
 ```
-
----
-
-## Project Structure
-
-```
-vietc/
-├── engine/              # Core IME engine (Telex + VNI)
-│   ├── src/
-│   │   ├── engine.rs    # Main engine + replay_keystrokes()
-│   │   ├── telex.rs     # Telex state machine
-│   │   ├── vni.rs       # VNI engine
-│   │   ├── english.rs   # English auto-restore dictionary
-│   │   └── tests/       # 255+ unit tests
-│   └── Cargo.toml
-├── protocol/            # Injection backends
-│   ├── src/
-│   │   ├── inject.rs         # KeyInjector trait
-│   │   ├── x11_capture.rs    # X11 keyboard capture (XGrabKeyboard)
-│   │   ├── x11_inject.rs     # Direct X11 clipboard + XTest injection
-│   │   └── wayland_im.rs     # Wayland IM protocol
-│   └── Cargo.toml
-├── daemon/              # Background daemon
-│   ├── src/
-│   │   ├── main.rs      # Event loop, Backspace-Replay integration
-│   │   ├── config.rs    # TOML config loader
-│   │   ├── app_state.rs # Per-app state manager
-│   │   └── display.rs   # Display server detection
-│   └── Cargo.toml
-├── cli/                 # Interactive test harness
-├── ui/                  # Tray icon application
-├── packaging/           # Distribution packages
-│   ├── appimage/        # AppImage build scripts
-│   └── deb/             # .deb package build scripts
-├── vietc.toml           # Default configuration
-├── vietc.service        # Systemd user service
-├── Makefile             # Build targets
-└── README.md
-```
-
----
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ---
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
