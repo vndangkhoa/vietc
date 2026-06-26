@@ -1,4 +1,6 @@
-use std::ffi::{c_char, c_int, c_long, c_void};
+use std::ffi::{c_char, c_int, c_void};
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 
 type Display = c_void;
 type Window = u64;
@@ -7,13 +9,11 @@ type Time = u64;
 // X11 event types
 const KEY_PRESS: c_int = 2;
 const KEY_RELEASE: c_int = 3;
-const FOCUS_IN: c_int = 9;
-const FOCUS_OUT: c_int = 10;
 
 // X11 modifier masks
 const CONTROL_MASK: c_int = 4;
-const MOD1_MASK: c_int = 8;  // Alt
-const MOD4_MASK: c_int = 64; // Super/Win
+const MOD1_MASK: c_int = 8;
+const MOD4_MASK: c_int = 64;
 
 // Grab modes
 const GRAB_MODE_ASYNC: c_int = 1;
@@ -31,17 +31,41 @@ struct X11Lib {
     x_default_root_window: unsafe extern "C" fn(*mut Display) -> Window,
     x_grab_keyboard: unsafe extern "C" fn(*mut Display, Window, c_int, c_int, c_int, Time) -> c_int,
     x_ungrab_keyboard: unsafe extern "C" fn(*mut Display, Time) -> c_int,
-    x_pending: unsafe extern "C" fn(*mut Display) -> c_int,
-    x_next_event: unsafe extern "C" fn(*mut Display, *mut XEvent),
     x_lookup_string: unsafe extern "C" fn(*mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int,
     x_utf8_lookup_string: Option<unsafe extern "C" fn(*mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int>,
     x_flush: unsafe extern "C" fn(*mut Display) -> c_int,
-    x_select_input: unsafe extern "C" fn(*mut Display, Window, c_long) -> c_int,
-    x_sync: unsafe extern "C" fn(*mut Display, c_int) -> c_int,
     x_connection_number: unsafe extern "C" fn(*mut Display) -> c_int,
+    // XRecord
+    x_record_query_version: unsafe extern "C" fn(*mut Display, *mut c_int, *mut c_int) -> i32,
+    x_record_alloc_range: unsafe extern "C" fn() -> *mut XRecordRange,
+    x_record_create_context: unsafe extern "C" fn(*mut Display, c_int, *mut c_int, c_int, *mut *mut XRecordRange, c_int) -> u64,
+    x_record_enable_context_async: unsafe extern "C" fn(*mut Display, u64, Option<XRecordCallback>, *mut c_void) -> i32,
+    x_record_process_replies: unsafe extern "C" fn(*mut Display),
+    x_record_disable_context: unsafe extern "C" fn(*mut Display, u64) -> i32,
+    x_record_free_context: unsafe extern "C" fn(*mut Display, u64) -> i32,
+    x_free: unsafe extern "C" fn(*mut c_void) -> c_int,
 }
 
-// select() timeout struct
+// XRecordRange - must match C layout exactly
+#[repr(C)]
+struct XRecordRange {
+    device_events_first: u8,
+    device_events_last: u8,
+    _pad: [u8; 254],
+}
+
+type XRecordCallback = unsafe extern "C" fn(*mut c_void, *mut XRecordInterceptData);
+
+#[repr(C)]
+struct XRecordInterceptData {
+    id: u64,
+    server_time: u64,
+    client_swapped: c_int,
+    _pad: c_int,
+    data_len: c_int,
+    data: *mut u8,
+}
+
 #[repr(C)]
 struct Timeval {
     tv_sec: i64,
@@ -50,7 +74,7 @@ struct Timeval {
 
 #[repr(C)]
 struct FdSet {
-    fds_bits: [u64; 16], // 1024 bits
+    fds_bits: [u64; 16],
 }
 
 extern "C" {
@@ -61,7 +85,7 @@ fn fd_zero(set: &mut FdSet) {
     set.fds_bits = [0u64; 16];
 }
 
-fn fd_set(fd: c_int, set: &mut FdSet) {
+fn fd_set_bit(fd: c_int, set: &mut FdSet) {
     let idx = fd as usize / 64;
     let bit = fd as usize % 64;
     if idx < set.fds_bits.len() {
@@ -103,13 +127,24 @@ impl X11Lib {
                 };
             }
 
+            // libXtst.so.6 for XRecord
+            let xtst_paths = [
+                b"libXtst.so.6\0".as_ptr() as *const c_char,
+                b"libXtst.so\0".as_ptr() as *const c_char,
+            ];
+            let mut xtst_handle = std::ptr::null_mut();
+            for path in xtst_paths {
+                xtst_handle = dlopen(path, 1);
+                if !xtst_handle.is_null() {
+                    break;
+                }
+            }
+
             let x_open_display = sym!("XOpenDisplay");
             let x_close_display = sym!("XCloseDisplay");
             let x_default_root_window = sym!("XDefaultRootWindow");
             let x_grab_keyboard = sym!("XGrabKeyboard");
             let x_ungrab_keyboard = sym!("XUngrabKeyboard");
-            let x_pending = sym!("XPending");
-            let x_next_event = sym!("XNextEvent");
             let x_lookup_string = sym!("XLookupString");
             let x_utf8_lookup_string = dlsym(handle, b"Xutf8LookupString\0".as_ptr() as *const c_char);
             let x_utf8_lookup_string = if x_utf8_lookup_string.is_null() {
@@ -118,9 +153,26 @@ impl X11Lib {
                 Some(std::mem::transmute(x_utf8_lookup_string))
             };
             let x_flush = sym!("XFlush");
-            let x_select_input = sym!("XSelectInput");
-            let x_sync = sym!("XSync");
             let x_connection_number = sym!("XConnectionNumber");
+
+            if xtst_handle.is_null() {
+                return Err("Failed to load libXtst.so.6 — install libxtst6".into());
+            }
+
+            macro_rules! xtst_sym {
+                ($name:expr) => {
+                    std::mem::transmute(dlsym(xtst_handle, concat!($name, "\0").as_ptr() as *const c_char))
+                };
+            }
+
+            let x_record_query_version = xtst_sym!("XRecordQueryVersion");
+            let x_record_alloc_range = xtst_sym!("XRecordAllocRange");
+            let x_record_create_context = xtst_sym!("XRecordCreateContext");
+            let x_record_enable_context_async = xtst_sym!("XRecordEnableContextAsync");
+            let x_record_process_replies = xtst_sym!("XRecordProcessReplies");
+            let x_record_disable_context = xtst_sym!("XRecordDisableContext");
+            let x_record_free_context = xtst_sym!("XRecordFreeContext");
+            let x_free = sym!("XFree");
 
             Ok(Self {
                 handle,
@@ -129,14 +181,18 @@ impl X11Lib {
                 x_default_root_window,
                 x_grab_keyboard,
                 x_ungrab_keyboard,
-                x_pending,
-                x_next_event,
                 x_lookup_string,
                 x_utf8_lookup_string,
                 x_flush,
-                x_select_input,
-                x_sync,
                 x_connection_number,
+                x_record_query_version,
+                x_record_alloc_range,
+                x_record_create_context,
+                x_record_enable_context_async,
+                x_record_process_replies,
+                x_record_disable_context,
+                x_record_free_context,
+                x_free,
             })
         }
     }
@@ -170,23 +226,6 @@ struct XKeyEvent {
     _same_screen: c_int,
 }
 
-#[repr(C)]
-struct XEvent {
-    // XEvent is a union — all variants share offset 0
-    // sizeof(XEvent) = 192 on x86_64 (long pad[24])
-    _bytes: [u8; 192],
-}
-
-impl XEvent {
-    fn event_type(&self) -> c_int {
-        unsafe { std::ptr::read_unaligned(self._bytes.as_ptr() as *const c_int) }
-    }
-
-    fn key(&self) -> &XKeyEvent {
-        unsafe { &*(self._bytes.as_ptr() as *const XKeyEvent) }
-    }
-}
-
 type KeySym = u64;
 
 pub struct X11KeyEvent {
@@ -196,12 +235,58 @@ pub struct X11KeyEvent {
     pub state: c_int,
 }
 
+// Shared event queue between XRecord callback and capture reader
+struct EventQueue {
+    queue: VecDeque<X11KeyEvent>,
+}
+
+static mut EVENT_QUEUE: Option<Arc<Mutex<EventQueue>>> = None;
+
+unsafe extern "C" fn record_callback(_closure: *mut c_void, data: *mut XRecordInterceptData) {
+    if (*data).id == 0 {
+        return; // This is our own XRecord data from the init, skip
+    }
+    if (*data).data_len < 2 {
+        return;
+    }
+    let data_bytes = (*data).data;
+    let event_type: c_int = *data_bytes as c_int;
+    let keycode: u8 = *data_bytes.add(1);
+
+    if event_type != KEY_PRESS && event_type != KEY_RELEASE {
+        return;
+    }
+
+    // For XRecord events, we get the raw keycode and event type.
+    // We need to construct a fake XKeyEvent to pass to XLookupString for the character.
+    // The state (modifier bits) is at offset 28-31 in the XRecord data for keyboard events.
+    let state: c_int = if (*data).data_len >= 4 {
+        *(data_bytes.add(2) as *const u16) as c_int
+    } else {
+        0
+    };
+
+    let event = X11KeyEvent {
+        keycode: keycode as u32,
+        ch: None, // Will be resolved later via XLookupString or keysym mapping
+        pressed: event_type == KEY_PRESS,
+        state,
+    };
+
+    if let Some(ref q) = EVENT_QUEUE {
+        if let Ok(mut queue) = q.lock() {
+            queue.queue.push_back(event);
+        }
+    }
+}
+
 pub struct X11Capture {
     lib: X11Lib,
     display: *mut Display,
     root: Window,
     grabbed: bool,
-    /// Set to true when FocusOut is received — caller should reset engine state
+    record_context: u64,
+    record_display: *mut Display,
     pub focus_lost: bool,
 }
 
@@ -212,7 +297,7 @@ impl X11Capture {
         let lib = match X11Lib::new() {
             Ok(lib) => lib,
             Err(e) => {
-                eprintln!("[vietc] X11Capture: failed to load X11: {}", e);
+                eprintln!("[vietc] X11Capture: failed to load: {}", e);
                 return None;
             }
         };
@@ -220,23 +305,71 @@ impl X11Capture {
         unsafe {
             let display = (lib.x_open_display)(std::ptr::null());
             if display.is_null() {
-                eprintln!("[vietc] X11Capture: cannot open display. Is DISPLAY set?");
+                eprintln!("[vietc] X11Capture: cannot open display");
                 return None;
             }
 
             let root = (lib.x_default_root_window)(display);
-            // Select for KeyPress and KeyRelease events on the root window
-            // so the X server delivers them to our connection
-            let key_press_mask: c_long = 1;  // KeyPressMask
-            let key_release_mask: c_long = 2;  // KeyReleaseMask
-            (lib.x_select_input)(display, root, key_press_mask | key_release_mask);
-            (lib.x_sync)(display, 0);
-            eprintln!("[vietc] X11Capture: initialized successfully");
+
+            // Check XRecord version
+            let mut major = 0i32;
+            let mut minor = 0i32;
+            if (lib.x_record_query_version)(display, &mut major, &mut minor) == 0 {
+                eprintln!("[vietc] X11Capture: XRecord extension not available");
+                (lib.x_close_display)(display);
+                return None;
+            }
+            eprintln!("[vietc] X11Capture: XRecord version {}.{}", major, minor);
+
+            // Allocate range for keyboard events
+            let range = (lib.x_record_alloc_range)();
+            if range.is_null() {
+                eprintln!("[vietc] X11Capture: XRecordAllocRange failed");
+                (lib.x_close_display)(display);
+                return None;
+            }
+            // Set range: KeyPress (2) through KeyRelease (3)
+            (*range).device_events_first = KEY_PRESS as u8;
+            (*range).device_events_last = KEY_RELEASE as u8;
+
+            // Create XRecord context
+            let mut spec: c_int = 1; // XRecordAllClients = 1
+            let range_ptr = range as *mut *mut XRecordRange;
+            let ctx = (lib.x_record_create_context)(
+                display,
+                0,              // own_client
+                &mut spec,      // clients
+                1,              // nclients
+                range_ptr,      // ranges
+                1,              // nranges
+            );
+            (lib.x_free)(range as *mut c_void);
+
+            if ctx == 0 {
+                eprintln!("[vietc] X11Capture: XRecordCreateContext failed");
+                (lib.x_close_display)(display);
+                return None;
+            }
+
+            // Initialize event queue
+            EVENT_QUEUE = Some(Arc::new(Mutex::new(EventQueue {
+                queue: VecDeque::new(),
+            })));
+
+            // Enable XRecord with async callback
+            let closure: *mut c_void = std::ptr::null_mut();
+            (lib.x_record_enable_context_async)(display, ctx, Some(record_callback), closure);
+            (lib.x_flush)(display);
+
+            eprintln!("[vietc] X11Capture: XRecord context enabled — capturing keyboard events");
+
             Some(Self {
                 lib,
                 display,
                 root,
                 grabbed: false,
+                record_context: ctx,
+                record_display: display,
                 focus_lost: false,
             })
         }
@@ -247,19 +380,18 @@ impl X11Capture {
             let status = (self.lib.x_grab_keyboard)(
                 self.display,
                 self.root,
-                0, // owner_events = False
+                0, // owner_events = False — block events from reaching apps
                 GRAB_MODE_ASYNC,
                 GRAB_MODE_ASYNC,
-                0, // CurrentTime
+                0,
             ) as i32;
             if status == 0 {
                 self.grabbed = true;
-                // Flush to ensure the grab is processed by the X server
                 (self.lib.x_flush)(self.display);
-                eprintln!("[vietc] X11Capture: grabbed keyboard successfully");
+                eprintln!("[vietc] X11Capture: keyboard grabbed (blocking apps)");
                 true
             } else {
-                eprintln!("[vietc] X11Capture: grab failed with status {}", status);
+                eprintln!("[vietc] X11Capture: grab failed status={}", status);
                 false
             }
         }
@@ -275,98 +407,47 @@ impl X11Capture {
         }
     }
 
-    pub fn has_pending_events(&self) -> bool {
-        if !self.grabbed {
-            return false;
-        }
-        unsafe {
-            let fd = (self.lib.x_connection_number)(self.display);
-            let mut readfds: FdSet = std::mem::zeroed();
-            fd_zero(&mut readfds);
-            fd_set(fd, &mut readfds);
-            let mut timeout = Timeval { tv_sec: 0, tv_usec: 0 };
-            let n = select(fd + 1, &mut readfds, std::ptr::null_mut(), std::ptr::null_mut(), &mut timeout);
-            n > 0 && fd_isset(fd, &readfds)
-        }
-    }
-
     pub fn is_grabbed(&self) -> bool {
         self.grabbed
     }
 
-    /// Block until an event arrives, with a timeout in milliseconds.
-    /// Returns true if an event is available, false on timeout.
+    /// Wait for XRecord data to arrive on the X11 connection fd, with timeout.
     pub fn wait_for_event(&mut self, timeout_ms: u64) -> bool {
-        if !self.grabbed {
-            return false;
-        }
         unsafe {
-            // Flush pending output first
             (self.lib.x_flush)(self.display);
 
             let fd = (self.lib.x_connection_number)(self.display);
             let mut readfds: FdSet = std::mem::zeroed();
             fd_zero(&mut readfds);
-            fd_set(fd, &mut readfds);
+            fd_set_bit(fd, &mut readfds);
             let mut timeout = Timeval {
                 tv_sec: (timeout_ms / 1000) as i64,
                 tv_usec: ((timeout_ms % 1000) * 1000) as i64,
             };
             let n = select(fd + 1, &mut readfds, std::ptr::null_mut(), std::ptr::null_mut(), &mut timeout);
             if n > 0 && fd_isset(fd, &readfds) {
+                // Process XRecord replies — this fires the callback
+                (self.lib.x_record_process_replies)(self.display);
                 true
             } else {
-                // Log on first timeout to diagnose
-                static mut LOGGED: bool = false;
-                if !LOGGED {
-                    eprintln!("[vietc] X11 select timeout (fd={}, n={}, timeout={}ms) — no events arriving", fd, n, timeout_ms);
-                    eprintln!("[vietc] Keyboard grab may not be working. Check if another app grabbed the keyboard.");
-                    LOGGED = true;
-                }
                 false
             }
         }
     }
 
     pub fn next_event(&mut self) -> Option<X11KeyEvent> {
-        if !self.grabbed {
-            return None;
-        }
-
-        // Non-blocking: only read if events are pending
-        if !self.has_pending_events() {
-            return None;
-        }
-
-        let mut event: XEvent = unsafe { std::mem::zeroed() };
         unsafe {
-            (self.lib.x_next_event)(self.display, &mut event);
+            if let Some(ref q) = EVENT_QUEUE {
+                if let Ok(mut queue) = q.lock() {
+                    if let Some(mut event) = queue.queue.pop_front() {
+                        // Resolve the character from the keycode + modifier state
+                        event.ch = self.lookup_keycode(event.keycode, event.state);
+                        return Some(event);
+                    }
+                }
+            }
         }
-
-        let _type = event.event_type();
-
-        // Handle FocusIn/FocusOut — reset engine state when focus changes
-        if _type == FOCUS_OUT {
-            self.focus_lost = true;
-            return self.next_event();
-        }
-        if _type == FOCUS_IN {
-            self.focus_lost = false;
-            return self.next_event();
-        }
-
-        if _type != KEY_PRESS && _type != KEY_RELEASE {
-            return self.next_event();
-        }
-
-        let key_event = event.key();
-        let ch = self.lookup_key(key_event);
-        Some(X11KeyEvent {
-            keycode: key_event.keycode,
-            ch,
-            pressed: _type == KEY_PRESS,
-            state: key_event.state,
-        })
+        None
     }
 
     pub fn is_modifier_pressed(&self, state: c_int) -> bool {
@@ -377,7 +458,6 @@ impl X11Capture {
     where
         F: FnOnce() -> T,
     {
-        // Grab should already be held; just execute
         f()
     }
 
@@ -391,13 +471,19 @@ impl X11Capture {
         result
     }
 
-    fn lookup_key(&self, event: &XKeyEvent) -> Option<char> {
+    pub fn lookup_keycode(&self, keycode: u32, state: c_int) -> Option<char> {
+        // Construct a fake XKeyEvent for XLookupString
+        let mut xke: XKeyEvent = unsafe { std::mem::zeroed() };
+        xke._type = KEY_PRESS;
+        xke.keycode = keycode;
+        xke.state = state;
+
         let mut buf = [0u8; 32];
         let mut keysym: KeySym = 0;
         let len = unsafe {
             if let Some(xutf8) = self.lib.x_utf8_lookup_string {
                 xutf8(
-                    event as *const XKeyEvent as *mut XKeyEvent,
+                    &mut xke as *mut XKeyEvent,
                     buf.as_mut_ptr() as *mut c_char,
                     buf.len() as c_int,
                     &mut keysym as *mut KeySym,
@@ -405,7 +491,7 @@ impl X11Capture {
                 )
             } else {
                 (self.lib.x_lookup_string)(
-                    event as *const XKeyEvent as *mut XKeyEvent,
+                    &mut xke as *mut XKeyEvent,
                     buf.as_mut_ptr() as *mut c_char,
                     buf.len() as c_int,
                     &mut keysym as *mut KeySym,
@@ -425,10 +511,12 @@ impl X11Capture {
 
 impl Drop for X11Capture {
     fn drop(&mut self) {
-        if self.grabbed {
-            self.ungrab_keyboard();
-        }
         unsafe {
+            if self.grabbed {
+                self.ungrab_keyboard();
+            }
+            (self.lib.x_record_disable_context)(self.record_display, self.record_context);
+            (self.lib.x_record_free_context)(self.record_display, self.record_context);
             (self.lib.x_close_display)(self.display);
         }
     }
