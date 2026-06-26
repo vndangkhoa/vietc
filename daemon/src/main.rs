@@ -772,6 +772,9 @@ fn run_with_evdev(
 
     let mut consumed_keys: HashSet<u16> = HashSet::new();
     let mut last_active_window = String::new();
+    // Skip counter: after Unicode injection, skip N upcoming events
+    // (they're auto-repeat pile-up from the injection delay)
+    let mut skip_count = 0u32;
 
     // Safety: if grab is active and no events arrive for 30 seconds,
     // release the grab so the user isn't locked out.
@@ -828,6 +831,11 @@ fn run_with_evdev(
         }
 
         for event in events {
+            // Skip auto-repeat events that piled up during injection
+            if skip_count > 0 {
+                skip_count -= 1;
+                continue;
+            }
             if let evdev::InputEventKind::Key(key) = event.kind() {
                 let value = event.value();
                 let keycode = key.0;
@@ -899,6 +907,8 @@ fn run_with_evdev(
                             if !commands.is_empty() {
                                 consumed_keys.insert(keycode);
                                 execute_commands(&*injector, &commands, false);
+                                // Skip upcoming auto-repeat pile-up from injection delay
+                                skip_count = 10;
                             } else if is_vn_control_key(&daemon.config.input_method, ch) {
                                 // Tone/mark key with no effect — consume silently
                                 consumed_keys.insert(keycode);
