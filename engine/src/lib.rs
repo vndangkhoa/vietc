@@ -1,12 +1,11 @@
+mod bamboo;
 mod engine;
-mod english;
-mod spelling;
-mod telex;
-mod vni;
+mod input_method;
+pub mod spelling;
 
 #[cfg(test)]
 mod tests;
 
 pub use engine::Engine;
 pub use engine::EngineEvent;
-pub use engine::InputMethod;
+pub use input_method::InputMethod;

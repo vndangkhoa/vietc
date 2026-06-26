@@ -1,0 +1,12 @@
+[package]
+name = "vietc-uinputd"
+version = "0.1.0"
+edition = "2021"
+description = "Viet+ privileged uinput backspace injection daemon"
+
+[[bin]]
+name = "vietc-uinputd"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"

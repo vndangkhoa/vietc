@@ -40,6 +40,7 @@ if [ -d "deb-build/usr/bin" ]; then
 else
     cp target/release/vietc "$APPDIR/usr/bin/"
     cp target/release/vietc-cli "$APPDIR/usr/bin/"
+    cp target/release/vietc-uinputd "$APPDIR/usr/bin/"
     [ -f ui/target/release/vietc-tray ] && cp ui/target/release/vietc-tray "$APPDIR/usr/bin/"
 fi
 
@@ -55,12 +56,13 @@ fi
 # Compile and bundle vietc-xrecord (C helper for XRecord keyboard capture)
 echo "  Compiling vietc-xrecord..."
 if command -v gcc &>/dev/null; then
-    gcc -O2 -o "$APPDIR/usr/bin/vietc-xrecord" "$SCRIPT_DIR/vietc-xrecord.c" -lX11 -lXtst -ldl 2>&1
+    gcc -O2 -o "$APPDIR/usr/bin/vietc-xrecord" "$SCRIPT_DIR/vietc-xrecord.c" -lX11 -lXtst
+    echo "  vietc-xrecord bundled"
+elif command -v cc &>/dev/null; then
+    cc -O2 -o "$APPDIR/usr/bin/vietc-xrecord" "$SCRIPT_DIR/vietc-xrecord.c" -lX11 -lXtst
     echo "  vietc-xrecord bundled"
 else
-    echo "  gcc not found, trying cc..."
-    cc -O2 -o "$APPDIR/usr/bin/vietc-xrecord" "$SCRIPT_DIR/vietc-xrecord.c" -lX11 -lXtst -ldl 2>&1
-    echo "  vietc-xrecord bundled"
+    echo "  WARNING: No C compiler found, vietc-xrecord not bundled — X11 capture will fail"
 fi
 
 # Desktop integration
@@ -208,6 +210,15 @@ ENV_PREFIX="env"
 [ -n "$WAYLAND_DISPLAY" ]   && ENV_PREFIX="$ENV_PREFIX WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
 [ -n "$XDG_RUNTIME_DIR" ]   && ENV_PREFIX="$ENV_PREFIX XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
 
+# Ensure system library paths are available for dlopen (libX11, libXtst, etc.)
+# AppImage runtime may override LD_LIBRARY_PATH; append system paths as fallback
+SYSLIB_PATHS="/usr/lib/x86_64-linux-gnu:/usr/lib64:/usr/lib:/lib/x86_64-linux-gnu:/lib64:/lib"
+if [ -n "$LD_LIBRARY_PATH" ]; then
+    export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$SYSLIB_PATHS"
+else
+    export LD_LIBRARY_PATH="$SYSLIB_PATHS"
+fi
+
 # Start daemon (kill old non-root one first if we have root)
 # On X11 we can run without root (XGrabKeyboard + XTest injection needs no special permissions).
 # On Wayland, evdev requires root (input group) or uinput.
@@ -217,9 +228,24 @@ if [ -n "$WAYLAND_DISPLAY" ]; then
 fi
 
 if [ -z "$NEED_ROOT" ]; then
-    # X11: no root needed
+    # X11: no root needed for capture, but uinputd needs root for injection
+    pkill -x vietc-uinputd 2>/dev/null
     pkill -x vietc 2>/dev/null; sleep 0.3
-    mkdir -p "$HOME/.config/vietc"
+    mkdir -p "$HOME/.config/vietc" "$HOME/.vietc"
+
+    # Try to start the uinputd daemon (preferred injection path)
+    if command -v pkexec >/dev/null 2>&1; then
+        pkexec "$HERE/usr/bin/vietc-uinputd" >/dev/null 2>&1 &
+        UINPUTD_PID=$!
+        sleep 0.3
+    elif command -v sudo >/dev/null 2>&1; then
+        if sudo -n true 2>/dev/null; then
+            sudo "$HERE/usr/bin/vietc-uinputd" >/dev/null 2>&1 &
+            UINPUTD_PID=$!
+            sleep 0.3
+        fi
+    fi
+
     "$HERE/usr/bin/vietc" >"$HOME/.config/vietc/vietc-daemon.log" 2>&1 &
     DAEMON_PID=$!
     echo "[vietc] Daemon started (PID=$DAEMON_PID), log: $HOME/.config/vietc/vietc-daemon.log"
@@ -272,16 +298,20 @@ cleanup_daemon() {
         kill "$DAEMON_PID" 2>/dev/null
         wait "$DAEMON_PID" 2>/dev/null
     fi
+    if [ -n "$UINPUTD_PID" ]; then
+        kill "$UINPUTD_PID" 2>/dev/null
+        wait "$UINPUTD_PID" 2>/dev/null
+    fi
 }
 trap cleanup_daemon EXIT INT TERM
 
 if [ -f "$HERE/usr/bin/vietc-tray" ]; then
     "$HERE/usr/bin/vietc-tray" "$@"
 else
-    echo "[vietc] ERROR: vietc-tray not found. The AppImage cannot start without it."
-    echo "[vietc] Stopping."
-    kill "$DAEMON_PID" 2>/dev/null
-    exit 1
+    echo "[vietc] Tray not available — daemon is running in background."
+    echo "[vietc] Press Ctrl+C or close this terminal to stop."
+    # Keep AppImage alive: wait for daemon to exit
+    wait $DAEMON_PID 2>/dev/null
 fi
 EOF
 chmod +x "$APPDIR/AppRun"

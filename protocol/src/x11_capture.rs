@@ -64,7 +64,7 @@ struct LookupLib {
     display: *mut Display,
     x_close_display: unsafe extern "C" fn(*mut Display) -> c_int,
     x_lookup_string: unsafe extern "C" fn(*mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int,
-    x_utf8_lookup_string: Option<unsafe extern "C" fn(*mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int>,
+    x_utf8_lookup_string: Option<unsafe extern "C" fn(*mut c_void, *mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int>,
 }
 
 unsafe impl Send for LookupLib {}
@@ -129,6 +129,7 @@ impl LookupLib {
             let mut keysym: KeySym = 0;
             let len = if let Some(xutf8) = self.x_utf8_lookup_string {
                 xutf8(
+                    std::ptr::null_mut(),
                     &mut xke as *mut XKeyEvent,
                     buf.as_mut_ptr() as *mut c_char,
                     buf.len() as c_int,
@@ -225,8 +226,6 @@ impl X11Capture {
     /// Wait for events from the C helper pipe with timeout.
     pub fn wait_for_event(&mut self, timeout_ms: u64) -> bool {
         // If SKIP_RECORD_EVENTS is true, aggressively drain all pending events
-        // before clearing the flag. This prevents feedback loops where injected
-        // events arrive after drain_pipe returns but before the flag is cleared.
         if SKIP_RECORD_EVENTS.load(Ordering::Relaxed) {
             let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
             loop {
@@ -234,17 +233,15 @@ impl X11Capture {
                 if std::time::Instant::now() >= deadline {
                     break;
                 }
-                // Poll with short timeout to check for more data
                 let mut pfd = PollFd {
                     fd: self.pipe_fd,
                     events: POLLIN,
                     revents: 0,
                 };
                 unsafe {
-                    poll(&mut pfd, 1, 5); // 5ms poll
+                    poll(&mut pfd, 1, 5);
                 }
                 if pfd.revents & POLLIN == 0 {
-                    // No more data, check one more time after a tiny sleep
                     std::thread::sleep(std::time::Duration::from_micros(500));
                     self.drain_pipe();
                     break;
@@ -252,14 +249,12 @@ impl X11Capture {
             }
         }
 
-        // Normal wait for events
         self.drain_pipe();
 
         if !self.event_queue.is_empty() {
             return true;
         }
 
-        // Poll the pipe fd
         let mut pfd = PollFd {
             fd: self.pipe_fd,
             events: POLLIN,
@@ -273,11 +268,8 @@ impl X11Capture {
             self.drain_pipe();
         }
 
-        // Check if child is still alive
         if let Ok(None) = self.child.try_wait() {
-            // Still running
         } else {
-            eprintln!("[vietc] vietc-xrecord process died, restarting...");
             self.restart_xrecord();
         }
 
@@ -295,10 +287,7 @@ impl X11Capture {
                         filled += n;
                         while filled >= 8 {
                             let ev: PipeEvent = unsafe { std::mem::transmute(buf) };
-
-                            // Skip injected events when flag is set (prevents feedback loops)
                             if SKIP_RECORD_EVENTS.load(Ordering::Relaxed) {
-                                // Still handle focus events even during skip
                                 if ev.keycode == 0 && ev.state == 2 {
                                     self.focus_lost = true;
                                 }
@@ -315,7 +304,6 @@ impl X11Capture {
                                 };
                                 self.event_queue.push_back(event);
                             }
-
                             filled -= 8;
                             if filled > 0 {
                                 buf.copy_within(8..8 + filled, 0);

@@ -406,7 +406,7 @@ impl X11Injector {
 
         // Handle SelectionRequest events that come from the paste target
         // Process events with a short spin loop (up to ~50ms)
-        for _ in 0..10 {
+        for _ in 0..4 {
             // Brief sleep to let X11 events propagate
             std::thread::sleep(std::time::Duration::from_millis(5));
             self.handle_pending_events();

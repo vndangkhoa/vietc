@@ -494,29 +494,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    #[cfg(feature = "x11")]
-    if display != display::DisplayServer::Wayland {
-        if let Some(capture) = X11Capture::new() {
-            // XRecord captures events globally — no grab needed for capture.
-            // XGrabKeyboard on the same display as XRecord breaks event delivery.
-            log_info("[vietc] X11 XRecord capture active — using X11 capture/injection");
-            return run_with_x11(
-                capture,
-                &mut daemon,
-                shared_active_window,
-                config_changed,
-                status_changed,
-                engine_enabled,
-            );
-        } else {
-            log_info("[vietc] X11 not available, falling back to evdev");
-        }
-    }
-
+    // Try evdev first (more reliable than X11 XRecord)
     match open_keyboard_device() {
         Ok((device, path)) => {
             log_info(&format!("[vietc] Keyboard device: {}", path));
-            run_with_evdev(
+            return run_with_evdev(
                 device,
                 &mut daemon,
                 shared_active_window,
@@ -524,21 +506,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 status_changed,
                 engine_enabled,
                 display,
-            )?;
+            );
         }
         Err(e) => {
-            log_info(&format!("[vietc] No keyboard device: {}", e));
-            log_info("[vietc] Running in stdin test mode");
-            run_stdin_mode(
-                &mut daemon,
-                shared_active_window,
-                config_changed,
-                status_changed,
-                engine_enabled,
-                display,
-            )?;
+            log_info(&format!("[vietc] evdev not available: {}", e));
         }
     }
+
+    #[cfg(feature = "x11")]
+    if display != display::DisplayServer::Wayland {
+        if let Some(capture) = X11Capture::new() {
+            log_info("[vietc] X11 XRecord capture active — using X11 capture/injection");
+            return run_with_x11(
+                capture,
+                &mut daemon,
+                shared_active_window.clone(),
+                config_changed.clone(),
+                status_changed.clone(),
+                engine_enabled.clone(),
+            );
+        } else {
+            log_info("[vietc] X11 not available, falling back");
+        }
+    }
+
+    log_info("[vietc] Running in stdin test mode");
+    run_stdin_mode(
+        &mut daemon,
+        shared_active_window,
+        config_changed,
+        status_changed,
+        engine_enabled,
+        display,
+    )?;
 
     Ok(())
 }
@@ -898,7 +898,10 @@ fn run_with_evdev(
                             let commands = daemon.process_key(ch);
                             if !commands.is_empty() {
                                 consumed_keys.insert(keycode);
-                                execute_commands(&*injector, &commands, true);
+                                execute_commands(&*injector, &commands, false);
+                            } else if is_vn_control_key(&daemon.config.input_method, ch) {
+                                // Tone/mark key with no effect — consume silently
+                                consumed_keys.insert(keycode);
                             } else {
                                 injector.send_key_event(keycode, 1);
                             }
@@ -1074,17 +1077,15 @@ fn execute_commands(
 fn create_injector(
     display: display::DisplayServer,
 ) -> Result<Box<dyn vietc_protocol::KeyInjector>, Box<dyn std::error::Error>> {
-    // Try Wayland input method first (if compiled with wayland feature)
-    #[cfg(feature = "wayland")]
-    {
-        let _ctx = vietc_protocol::wayland_im::WaylandIMContext::new();
-        log_info("[vietc] Wayland input method context initialized");
+    // Try uinputd socket first
+    if vietc_protocol::uinput_client::UinputClient::is_available() {
+        log_info("[vietc] Using uinputd socket injection");
+        return Ok(Box::new(vietc_protocol::uinput_client::UinputClient));
     }
 
-    // Use uinput as primary injector — it handles ASCII via direct keycodes
-    // and Unicode via ydotool type (uinput-based, no display server needed).
-    // Using a single injection channel avoids ordering issues between XTest
-    // (ASCII) and ydotool (Unicode) interleaving.
+    // Use uinput as primary — correct Linux keycodes for ASCII + backspace.
+    // For Unicode (Vietnamese diacritics), falls back to xclip via subprocess
+    // or direct X11 clipboard via X11Injector.
     match vietc_protocol::uinput_monitor::UinputInjector::new("vietc") {
         Ok(injector) => {
             log_info("[vietc] Using uinput injection (primary)");
@@ -1095,13 +1096,13 @@ fn create_injector(
         }
     }
 
-    // Fall back to X11 XTEST (last resort — doesn't handle Unicode well)
+    // Fall back to X11 injection (only if uinput fails)
     #[cfg(feature = "x11")]
     {
         if display != display::DisplayServer::Wayland {
             match vietc_protocol::x11_inject::X11Injector::new() {
                 Ok(injector) => {
-                    log_info("[vietc] Using X11 injection (XTEST fallback)");
+                    log_info("[vietc] Using X11 injection (fallback)");
                     return Ok(Box::new(injector));
                 }
                 Err(e) => {
@@ -1112,6 +1113,14 @@ fn create_injector(
     }
 
     Err("No injection backend available".into())
+}
+
+fn is_vn_control_key(method: &str, ch: char) -> bool {
+    match method {
+        "telex" => matches!(ch, 'f' | 's' | 'r' | 'x' | 'j' | 'w' | 'a' | 'e' | 'o' | 'd' | 'u' | 'F' | 'S' | 'R' | 'X' | 'J' | 'W' | 'A' | 'E' | 'O' | 'D' | 'U'),
+        "vni" => matches!(ch, '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0'),
+        _ => false,
+    }
 }
 
 fn is_modifier_pressed(key_state: &evdev::AttributeSet<evdev::Key>) -> bool {

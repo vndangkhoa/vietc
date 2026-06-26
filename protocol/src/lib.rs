@@ -1,6 +1,7 @@
 pub mod inject;
 pub mod monitor;
 pub mod uinput_monitor;
+pub mod uinput_client;
 pub mod wayland_im;
 
 #[cfg(feature = "x11")]
