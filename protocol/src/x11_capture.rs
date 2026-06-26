@@ -35,6 +35,7 @@ struct X11Lib {
     x_utf8_lookup_string: Option<unsafe extern "C" fn(*mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int>,
     x_flush: unsafe extern "C" fn(*mut Display) -> c_int,
     x_connection_number: unsafe extern "C" fn(*mut Display) -> c_int,
+    x_pending: unsafe extern "C" fn(*mut Display) -> c_int,
     // XRecord
     x_record_query_version: unsafe extern "C" fn(*mut Display, *mut c_int, *mut c_int) -> i32,
     x_record_alloc_range: unsafe extern "C" fn() -> *mut XRecordRange,
@@ -153,6 +154,7 @@ impl X11Lib {
             };
             let x_flush = sym!("XFlush");
             let x_connection_number = sym!("XConnectionNumber");
+            let x_pending = sym!("XPending");
 
             if xtst_handle.is_null() {
                 return Err("Failed to load libXtst.so.6 — install libxtst6".into());
@@ -184,6 +186,7 @@ impl X11Lib {
                 x_utf8_lookup_string,
                 x_flush,
                 x_connection_number,
+                x_pending,
                 x_record_query_version,
                 x_record_alloc_range,
                 x_record_create_context,
@@ -416,11 +419,21 @@ impl X11Capture {
         self.grabbed
     }
 
-    /// Wait for XRecord data to arrive on the X11 connection fd, with timeout.
+    /// Wait for XRecord data to arrive, with timeout.
+    /// Uses XPending() first (checks Xlib internal buffer), then select() on fd.
     pub fn wait_for_event(&mut self, timeout_ms: u64) -> bool {
         unsafe {
             (self.lib.x_flush)(self.display);
 
+            // First check: XPending reads from Xlib's internal buffer.
+            // XRecord data may already be buffered there by a previous read.
+            let pending = (self.lib.x_pending)(self.display);
+            if pending > 0 {
+                (self.lib.x_record_process_replies)(self.display);
+                return true;
+            }
+
+            // Second check: select() on the X11 socket fd
             let fd = (self.lib.x_connection_number)(self.display);
             let mut readfds: FdSet = std::mem::zeroed();
             fd_zero(&mut readfds);
@@ -431,7 +444,8 @@ impl X11Capture {
             };
             let n = select(fd + 1, &mut readfds, std::ptr::null_mut(), std::ptr::null_mut(), &mut timeout);
             if n > 0 && fd_isset(fd, &readfds) {
-                // Process XRecord replies — this fires the callback
+                // Flush to move data from socket into Xlib buffer
+                (self.lib.x_flush)(self.display);
                 (self.lib.x_record_process_replies)(self.display);
                 true
             } else {
@@ -470,10 +484,14 @@ impl X11Capture {
     where
         F: FnOnce() -> T,
     {
-        self.ungrab_keyboard();
-        let result = f();
-        self.grab_keyboard();
-        result
+        if self.grabbed {
+            self.ungrab_keyboard();
+            let result = f();
+            self.grab_keyboard();
+            result
+        } else {
+            f()
+        }
     }
 
     pub fn lookup_keycode(&self, keycode: u32, state: c_int) -> Option<char> {

@@ -577,19 +577,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "x11")]
     if display != display::DisplayServer::Wayland {
         if let Some(mut capture) = X11Capture::new() {
-            if capture.grab_keyboard() {
-                log_info("[vietc] X11 keyboard grabbed — using X11 capture/injection");
-                return run_with_x11(
-                    capture,
-                    &mut daemon,
-                    shared_active_window,
-                    config_changed,
-                    status_changed,
-                    engine_enabled,
-                );
-            } else {
-                log_info("[vietc] X11 grab failed, falling back to evdev");
-            }
+            // XRecord captures events globally — no grab needed for capture.
+            // XGrabKeyboard on the same display as XRecord breaks event delivery.
+            log_info("[vietc] X11 XRecord capture active — using X11 capture/injection");
+            return run_with_x11(
+                capture,
+                &mut daemon,
+                shared_active_window,
+                config_changed,
+                status_changed,
+                engine_enabled,
+            );
         } else {
             log_info("[vietc] X11 not available, falling back to evdev");
         }
@@ -710,6 +708,8 @@ fn run_with_x11(
     // press+release immediately, breaking held-key combos (Ctrl+C, Alt+Tab…).
     let mut pressed_keys: HashSet<u32> = HashSet::new();
 
+    eprintln!("[vietc] X11 event loop starting");
+
     loop {
         if status_changed.load(Ordering::SeqCst) {
             daemon.sync_status_file();
@@ -747,8 +747,13 @@ fn run_with_x11(
         let got_data = capture.wait_for_event(100);
         let evt = capture.next_event();
         if evt.is_none() {
+            static mut LOOP_COUNT: u64 = 0;
+            unsafe { LOOP_COUNT += 1; }
             if got_data {
-                eprintln!("[vietc] DEBUG: select said data but no event in queue");
+                eprintln!("[vietc] DEBUG: select said data but no event in queue (loop={})", unsafe { LOOP_COUNT });
+            }
+            if unsafe { LOOP_COUNT } <= 3 || unsafe { LOOP_COUNT } % 50 == 0 {
+                eprintln!("[vietc] DEBUG: no event, grabbed={}, got_data={}", capture.is_grabbed(), got_data);
             }
             if !capture.is_grabbed() {
                 eprintln!("[vietc] Keyboard grab lost — re-grabbing");
