@@ -52,6 +52,17 @@ else
     echo "  xclip not found on system, skipping"
 fi
 
+# Compile and bundle vietc-xrecord (C helper for XRecord keyboard capture)
+echo "  Compiling vietc-xrecord..."
+if command -v gcc &>/dev/null; then
+    gcc -O2 -o "$APPDIR/usr/bin/vietc-xrecord" "$SCRIPT_DIR/vietc-xrecord.c" -lX11 -lXtst -ldl 2>&1
+    echo "  vietc-xrecord bundled"
+else
+    echo "  gcc not found, trying cc..."
+    cc -O2 -o "$APPDIR/usr/bin/vietc-xrecord" "$SCRIPT_DIR/vietc-xrecord.c" -lX11 -lXtst -ldl 2>&1
+    echo "  vietc-xrecord bundled"
+fi
+
 # Desktop integration
 echo "[3/5] Installing desktop integration..."
 if [ -f "deb-build/vietc.desktop" ]; then

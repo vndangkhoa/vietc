@@ -42,6 +42,7 @@ use config::Config;
 
 #[cfg(feature = "x11")]
 use vietc_protocol::x11_capture::X11Capture;
+use vietc_protocol::x11_capture::SKIP_RECORD_EVENTS;
 #[cfg(feature = "x11")]
 use vietc_protocol::x11_inject::X11Injector;
 
@@ -173,10 +174,6 @@ impl Daemon {
             if let Ok(content) = fs::read_to_string(&status_path) {
                 let expect_enabled = content.trim() == "vn";
                 if self.engine.is_enabled() != expect_enabled {
-                    log_info(&format!(
-                        "[vietc] Syncing enabled status from file: {}",
-                        expect_enabled
-                    ));
                     self.engine.set_enabled(expect_enabled);
                     self.engine_enabled.store(expect_enabled, Ordering::SeqCst);
                 }
@@ -193,7 +190,6 @@ impl Daemon {
             return false;
         }
 
-        log_info("[vietc] Config changed, reloading...");
         match Config::load_from(&self.config_path) {
             Ok(new_config) => {
                 let method = match new_config.input_method.as_str() {
@@ -216,51 +212,21 @@ impl Daemon {
                 self.grab_enabled = new_config.grab;
                 self.config = new_config;
                 self.config_modified = modified;
-                log_info("[vietc] Config reloaded successfully");
                 true
             }
-            Err(e) => {
-                log_info(&format!("[vietc] Failed to reload config: {}", e));
-                false
-            }
+            Err(_) => false,
         }
     }
 
     fn process_key(&mut self, ch: char) -> Vec<OutputCommand> {
         let mut commands = Vec::new();
 
-        // Log each keystroke with character info
-        log_info(&format!(
-            "[vietc] process_key: U+{:04X} '{}' raw_buffer='{}' enabled={}",
-            ch as u32,
-            ch,
-            self.engine.buffer(),
-            self.engine.is_enabled()
-        ));
-
         if let Some(event) = self.engine.process_key(ch) {
-            log_info(&format!(
-                "[vietc] key='{}' buf='{}' -> {:?}",
-                ch,
-                self.engine.buffer(),
-                event
-            ));
             match event {
                 EngineEvent::Flush(text) => {
-                    log_info(&format!(
-                        "[vietc] Flush text len={}, bytes={} text={}",
-                        text.len(),
-                        text.len() * 3,
-                        text.escape_default()
-                    ));
                     commands.push(OutputCommand::Type(text));
                 }
                 EngineEvent::Insert(text) => {
-                    log_info(&format!(
-                        "[vietc] Insert text len={}, text={}",
-                        text.len(),
-                        text
-                    ));
                     commands.push(OutputCommand::Type(text));
                 }
                 EngineEvent::AutoRestore(word) => {
@@ -269,10 +235,6 @@ impl Daemon {
                     commands.push(OutputCommand::Type(word));
                 }
                 EngineEvent::Replace { backspaces, insert } => {
-                    log_info(&format!(
-                        "[vietc] Replace BS={} text=\"{}\"",
-                        backspaces, insert
-                    ));
                     commands.push(OutputCommand::Backspace(backspaces));
                     commands.push(OutputCommand::Type(insert));
                 }
@@ -280,31 +242,16 @@ impl Daemon {
                     backspaces,
                     restored,
                 } => {
-                    log_info(&format!(
-                        "[vietc] UndoTones BS={} restored=\"{}\"",
-                        backspaces, restored
-                    ));
                     commands.push(OutputCommand::Backspace(backspaces));
                     commands.push(OutputCommand::Type(restored));
                 }
                 EngineEvent::Paste(text) => {
-                    log_info(&format!(
-                        "[vietc] Paste raw text len={}, bytes={} text={}",
-                        text.len(),
-                        text.len() * 3,
-                        text.escape_default()
-                    ));
-                    // Exit paste mode after pasting
                     self.engine.exit_paste_mode();
                     commands.push(OutputCommand::Type(text));
                 }
             }
         } else {
-            log_info(&format!(
-                "[vietc] key='{}' -> (no event, buf='{}')",
-                ch,
-                self.engine.buffer()
-            ));
+            // No event — key was consumed or ignored by engine
         }
 
         commands
@@ -312,25 +259,13 @@ impl Daemon {
 
     fn toggle(&mut self) {
         let new_state = self.app_state.toggle_current_app();
-        log_info(&format!(
-            "[vietc] toggle: engine.enabled={}",
-            self.engine.is_enabled()
-        ));
 
         self.engine.set_enabled(new_state);
         self.write_status();
 
         // Reset engine buffer when enabling Vietnamese mode to clear stale state
         if new_state {
-            log_info(&format!(
-                "[vietc] reset() called - raw_buffer='{}' before reset",
-                self.engine.buffer()
-            ));
             self.engine.reset();
-            log_info(&format!(
-                "[vietc] after reset() - raw_buffer='{}'",
-                self.engine.buffer()
-            ));
         }
     }
 
@@ -374,14 +309,6 @@ impl Daemon {
             &self.config.macros,
             &self.keystroke_history,
         );
-
-        log_info(&format!(
-            "[vietc] replay: history_len={} old_screen='{}' new_output='{}' flush={}",
-            self.keystroke_history.len(),
-            self.screen_output,
-            new_output,
-            did_flush
-        ));
 
         if did_flush {
             // Engine flushed a word — commit it and clear state
@@ -438,13 +365,6 @@ impl Daemon {
                 &self.keystroke_history,
             )
         };
-
-        log_info(&format!(
-            "[vietc] replay_backspace: history_len={} old_screen='{}' new_output='{}'",
-            self.keystroke_history.len(),
-            self.screen_output,
-            new_output
-        ));
 
         // Calculate diff
         let backspaces = self.screen_output.chars().count();
@@ -576,7 +496,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "x11")]
     if display != display::DisplayServer::Wayland {
-        if let Some(mut capture) = X11Capture::new() {
+        if let Some(capture) = X11Capture::new() {
             // XRecord captures events globally — no grab needed for capture.
             // XGrabKeyboard on the same display as XRecord breaks event delivery.
             log_info("[vietc] X11 XRecord capture active — using X11 capture/injection");
@@ -724,7 +644,6 @@ fn run_with_x11(
         {
             let active_window = shared_active_window.lock().unwrap().clone();
             if active_window != last_active_window {
-                log_info(&format!("[vietc] Window changed: '{}' -> '{}'", last_active_window, active_window));
                 last_active_window = active_window.clone();
                 daemon.replay_reset();
             }
@@ -737,23 +656,22 @@ fn run_with_x11(
 
         // Reset on focus loss (VMK technique)
         if capture.focus_lost {
-            eprintln!("[vietc] Focus lost — resetting engine state");
             daemon.replay_reset();
             pressed_keys.clear();
             capture.focus_lost = false;
         }
 
-        // Wait for events with 100ms timeout
-        let got_data = capture.wait_for_event(100);
+        // Wait for events with 100ms timeout.
+        // SKIP_RECORD_EVENTS may still be true from a previous injection —
+        // drain_pipe drops any stale injected events while flag is true.
+        let _got_data = capture.wait_for_event(100);
+        // NOW safe to clear: any injected events from last iteration were dropped.
+        SKIP_RECORD_EVENTS.store(false, Ordering::Relaxed);
         let evt = capture.next_event();
         if evt.is_none() {
-            if got_data {
-                eprintln!("[vietc] DEBUG: select said data but no event in queue");
-            }
             continue;
         }
         let event = evt.unwrap();
-        eprintln!("[vietc] GOT KEY EVENT: keycode={} pressed={} ch={:?} state={}", event.keycode, event.pressed, event.ch, event.state);
 
         // Process this event
         {
@@ -776,9 +694,9 @@ fn run_with_x11(
                 // Modifier or non-character key → forward press only, reset replay
                 if capture.is_modifier_pressed(event.state) || event.ch.is_none() {
                     daemon.replay_reset();
-                    capture.without_grab(|| {
-                        let _ = injector.send_key_event(event.keycode as u16, 1);
-                    });
+                    SKIP_RECORD_EVENTS.store(true, Ordering::Relaxed);
+                    let _ = injector.send_key_event(event.keycode as u16, 1);
+                    // Flag stays true — cleared at top of next iteration after drain
                     continue;
                 }
 
@@ -786,43 +704,34 @@ fn run_with_x11(
                 if let Some(ch) = event.ch {
                     match ch {
                         '\x08' => {
-                            // Backspace: replay pattern pops from history
                             let commands = daemon.replay_backspace();
                             pressed_keys.remove(&event.keycode);
-                            capture.without_grab(|| {
-                                execute_commands(&*injector, &commands, true);
-                            });
-                            // If history is empty and commands only had a bare backspace,
-                            // we need to actually send it
+                            SKIP_RECORD_EVENTS.store(true, Ordering::Relaxed);
+                            execute_commands(&*injector, &commands, true);
                             if daemon.keystroke_history.is_empty() && commands.is_empty() {
-                                capture.without_grab(|| {
-                                    let _ = injector.send_backspace();
-                                });
+                                let _ = injector.send_backspace();
                             }
                         }
                         '\n' => {
                             pressed_keys.remove(&event.keycode);
                             daemon.replay_reset();
-                            capture.without_grab(|| {
-                                let _ = injector.send_key_event(event.keycode as u16, 1);
-                                let _ = injector.send_key_event(event.keycode as u16, 0);
-                            });
+                            SKIP_RECORD_EVENTS.store(true, Ordering::Relaxed);
+                            let _ = injector.send_key_event(event.keycode as u16, 1);
+                            let _ = injector.send_key_event(event.keycode as u16, 0);
                         }
                         _ => {
                             let commands = daemon.replay_and_inject(ch);
                             pressed_keys.remove(&event.keycode);
-                            capture.without_grab(|| {
-                                execute_commands(&*injector, &commands, true);
-                            });
+                            SKIP_RECORD_EVENTS.store(true, Ordering::Relaxed);
+                            execute_commands(&*injector, &commands, true);
                         }
                     }
                 }
             } else {
                 // Key release — only inject if we were tracking this key
                 if pressed_keys.remove(&event.keycode) {
-                    capture.without_grab(|| {
-                        let _ = injector.send_key_event(event.keycode as u16, 0);
-                    });
+                    SKIP_RECORD_EVENTS.store(true, Ordering::Relaxed);
+                    let _ = injector.send_key_event(event.keycode as u16, 0);
                 }
             }
         }
@@ -1139,31 +1048,17 @@ fn execute_commands(
                 } else {
                     *count
                 };
-                log_info(&format!(
-                    "[vietc] cmd: Backspace({}) -> adjusted={}",
-                    count, adjusted
-                ));
                 pending_backspaces += adjusted;
             }
             OutputCommand::Type(text) => {
-                log_info(&format!("[vietc] cmd: Type(\"{}\")", text));
                 pending_text.push_str(text);
             }
         }
     }
 
     if pending_backspaces > 0 || !pending_text.is_empty() {
-        log_info(&format!(
-            "[vietc] inject: BS={} text=\"{}\"",
-            pending_backspaces, pending_text
-        ));
-
-        // Use injector for text (ydotool/xdotool/wtype)
         let _ = injector.inject_replacement(pending_backspaces, &pending_text);
     } else if !commands.is_empty() {
-        // Empty text but commands exist (e.g. Backspace only or Flush empty string)
-        log_info(&format!("[vietc] inject: BS={}", pending_backspaces));
-
         let _ = injector.inject_replacement(pending_backspaces, &pending_text);
     }
 
