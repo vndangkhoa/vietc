@@ -31,6 +31,7 @@ struct X11Lib {
     x_default_root_window: unsafe extern "C" fn(*mut Display) -> Window,
     x_grab_keyboard: unsafe extern "C" fn(*mut Display, Window, c_int, c_int, c_int, Time) -> c_int,
     x_ungrab_keyboard: unsafe extern "C" fn(*mut Display, Time) -> c_int,
+    x_pending: unsafe extern "C" fn(*mut Display) -> c_int,
     x_next_event: unsafe extern "C" fn(*mut Display, *mut XEvent),
     x_lookup_string: unsafe extern "C" fn(*mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int,
     x_utf8_lookup_string: Option<unsafe extern "C" fn(*mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int>,
@@ -66,6 +67,7 @@ impl X11Lib {
             let x_default_root_window = sym!("XDefaultRootWindow");
             let x_grab_keyboard = sym!("XGrabKeyboard");
             let x_ungrab_keyboard = sym!("XUngrabKeyboard");
+            let x_pending = sym!("XPending");
             let x_next_event = sym!("XNextEvent");
             let x_lookup_string = sym!("XLookupString");
             let x_utf8_lookup_string = dlsym(handle, b"Xutf8LookupString\0".as_ptr() as *const c_char);
@@ -83,6 +85,7 @@ impl X11Lib {
                 x_default_root_window,
                 x_grab_keyboard,
                 x_ungrab_keyboard,
+                x_pending,
                 x_next_event,
                 x_lookup_string,
                 x_utf8_lookup_string,
@@ -212,8 +215,24 @@ impl X11Capture {
         }
     }
 
+    pub fn has_pending_events(&self) -> bool {
+        if !self.grabbed {
+            return false;
+        }
+        unsafe { (self.lib.x_pending)(self.display) > 0 }
+    }
+
+    pub fn is_grabbed(&self) -> bool {
+        self.grabbed
+    }
+
     pub fn next_event(&mut self) -> Option<X11KeyEvent> {
         if !self.grabbed {
+            return None;
+        }
+
+        // Non-blocking: only read if events are pending
+        if !self.has_pending_events() {
             return None;
         }
 

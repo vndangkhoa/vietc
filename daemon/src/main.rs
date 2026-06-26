@@ -814,6 +814,12 @@ fn run_with_x11(
             }
         }
 
+        // Re-grab if the grab was silently lost (tray started, WM took focus, etc.)
+        if !capture.is_grabbed() {
+            eprintln!("[vietc] Keyboard grab lost — re-grabbing");
+            capture.grab_keyboard();
+        }
+
         thread::sleep(Duration::from_millis(10));
     }
 }

@@ -208,7 +208,7 @@ fi
 if [ -z "$NEED_ROOT" ]; then
     # X11: no root needed
     pkill -x vietc 2>/dev/null; sleep 0.3
-    "$HERE/usr/bin/vietc" >"$HERE/vietc-daemon.log" 2>&1 &
+    "$HERE/usr/bin/vietc" >"$HOME/.config/vietc/vietc-daemon.log" 2>&1 &
     DAEMON_PID=$!
 else
     # Fix Wayland env for root: sudo resets XDG_RUNTIME_DIR, breaking wtype/wl-copy.

@@ -12,7 +12,7 @@ echo "=== Building Viet+ .deb package v${VERSION} ==="
 # Build binaries (all features: x11 + wayland)
 echo "[1/5] Building binaries..."
 cargo build --release --features "x11,wayland" --manifest-path "$PROJECT_ROOT/Cargo.toml"
-(cd "$PROJECT_ROOT/ui" && cargo build --release) || echo "  Warning: UI tray not built (libdbus-1-dev may be missing)"
+(cd "$PROJECT_ROOT/ui" && export PKG_CONFIG_PATH="/tmp/dbus-dev/extracted/usr/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH:-}" && export RUSTFLAGS="-L /tmp/dbus-dev/lib" && cargo build --release) || echo "  Warning: UI tray not built (libdbus-1-dev may be missing)"
 echo "  Done."
 
 # Clean and create staging
