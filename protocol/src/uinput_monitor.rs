@@ -124,6 +124,15 @@ impl KeyInjector for UinputInjector {
         InjectResult::Success
     }
 
+    fn send_enter(&self) {
+        self.send_uinput_event(EV_KEY, 28, 1); // KEY_ENTER press
+        self.send_uinput_event(0, 0, 0);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        self.send_uinput_event(EV_KEY, 28, 0);
+        self.send_uinput_event(0, 0, 0);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+
     fn send_key_event(&self, keycode: u16, value: i32) -> InjectResult {
         self.send_uinput_event(EV_KEY, keycode, value);
         self.send_uinput_event(0, 0, 0);
@@ -348,7 +357,11 @@ impl UinputInjector {
                 }
             }
             for ch in text.chars() {
-                let _ = self.send_char(ch);
+                if ch == '\n' {
+                    self.send_enter();
+                } else {
+                    let _ = self.send_char(ch);
+                }
             }
             return InjectResult::Success;
         }
@@ -385,7 +398,9 @@ impl UinputInjector {
         if !ascii_tail.is_empty() {
             std::thread::sleep(std::time::Duration::from_millis(15));
             for ch in ascii_tail.chars() {
-                if let Some(kc) = char_to_linux_keycode(ch) {
+                if ch == '\n' {
+                    self.send_enter();
+                } else if let Some(kc) = char_to_linux_keycode(ch) {
                     self.send_key_stroke(kc, false);
                 }
             }
