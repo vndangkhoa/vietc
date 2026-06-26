@@ -44,12 +44,12 @@ Physical Keyboard
 ┌──────────────────────────────────────────────────────────────┐
 │  Stage 1: KEY CAPTURE                                        │
 │                                                              │
-│  X11: XGrabKeyboard intercepts all key events                │
-│  evdev: /dev/input/event* reads kernel events                │
+│  evdev: /dev/input/event* grabs keyboard (primary, reliable) │
+│  X11: XRecord passive monitoring (fallback)                   │
 │                                                              │
 │  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐   │
-│  │ X11Capture  │  │ evdev grab   │  │ FocusIn/FocusOut │   │
-│  │ (libX11.so) │  │ (libevdev)   │  │ detection        │   │
+│  │ evdev grab  │  │ X11Capture   │  │ FocusIn/FocusOut │   │
+│  │ (libevdev)  │  │ (XRecord)    │  │ detection        │   │
 │  └─────────────┘  └──────────────┘  └──────────────────┘   │
 └──────────────────────────────────────────────────────────────┘
        │
@@ -61,58 +61,31 @@ Physical Keyboard
 │  Ctrl+Space → toggle Vietnamese ON/OFF                       │
 │  Backspace → replay_backspace()                              │
 │  Characters → replay_and_inject(ch)                          │
+│  VNI/Telex control keys → consume when no match              │
 └──────────────────────────────────────────────────────────────┘
        │
        ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  Stage 3: BACKSPACE-REPLAY                                   │
+│  Stage 3: BAMBOO ENGINE                                      │
 │                                                              │
-│  keystroke_history = ['c', 'h', 'a', 'o', 's']             │
-│                       │                                      │
-│                       ▼                                      │
-│  ┌──────────────────────────────────────────────┐           │
-│  │  Create FRESH engine                         │           │
-│  │  Replay ALL keystrokes through it            │           │
-│  │  engine.buffer() = "cháo"  ← correct output │           │
-│  └──────────────────────────────────────────────┘           │
-│                       │                                      │
-│                       ▼                                      │
-│  screen_output = "cháo"                                     │
-│  diff = backspaces(0) + type("cháo")                        │
-│  (or no change if screen already shows "cháo")              │
+│  Transformation model: keystrokes produce composition        │
+│  changes. Marks and tones modify existing characters.        │
+│  Flexible backtracking scans up to 5 chars for vowels.       │
+│  Smart uo→ươ cluster with backtrack.                         │
+│  Only emits Replace events when output actually changes.     │
 └──────────────────────────────────────────────────────────────┘
        │
        ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  Stage 4: OUTPUT COMMANDS                                    │
+│  Stage 4: KEY INJECTION                                      │
 │                                                              │
-│  EngineEvent::Replace { backspaces: 4, insert: "cháo" }     │
-│       │                                                      │
-│       ▼                                                      │
-│  OutputCommand::Backspace(4)                                 │
-│  OutputCommand::Type("cháo")                                 │
-└──────────────────────────────────────────────────────────────┘
-       │
-       ▼
-┌──────────────────────────────────────────────────────────────┐
-│  Stage 5: KEY INJECTION                                      │
+│  ASCII: direct Linux keycodes via /dev/uinput                │
+│  Backspace: Linux keycode 14 via uinput                      │
+│  Vietnamese Unicode: clipboard paste + trailing ASCII via    │
+│    uinput (split only at whitespace/punctuation boundary)    │
+│  Persistent X11 connection for Ctrl+V (no per-call overhead) │
 │                                                              │
-│  X11 path:                                                   │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │  1. Ungrab keyboard (XUngrabKeyboard)               │    │
-│  │  2. Send backspaces via XTestFakeKeyEvent           │    │
-│  │  3. Set clipboard via XChangeProperty               │    │
-│  │  4. Handle SelectionRequest events                  │    │
-│  │  5. Send Ctrl+V via XTestFakeKeyEvent               │    │
-│  │  6. Regrab keyboard (XGrabKeyboard)                 │    │
-│  └─────────────────────────────────────────────────────┘    │
-│                                                              │
-│  uinput path (Wayland):                                      │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │  1. Send backspaces via /dev/uinput (EV_KEY 14)     │    │
-│  │  2. For ASCII: send keycodes via uinput              │    │
-│  │  3. For Unicode: wl-copy + Ctrl+V via uinput         │    │
-│  └─────────────────────────────────────────────────────┘    │
+│  Fallback: vietc-uinputd Unix socket daemon (privileged)     │
 └──────────────────────────────────────────────────────────────┘
        │
        ▼
@@ -153,17 +126,18 @@ This means:
 
 ```
 vietc/
-├── engine/                  # Core Vietnamese composition engine
+├── engine/                  # Vietnamese composition engine (bamboo-core Rust port)
 │   ├── engine.rs            # Orchestrator + replay_keystrokes()
-│   ├── telex.rs             # Telex state machine (688 lines)
-│   ├── vni.rs               # VNI state machine (593 lines)
-│   ├── english.rs           # English auto-restore dictionary
+│   ├── bamboo.rs            # Bamboo engine: transformation model, composition, tone placement
+│   ├── input_method.rs      # Telex/VNI rule definitions
 │   └── spelling.rs          # Vietnamese syllable validation
 │
 ├── protocol/                # Keyboard capture & injection
 │   ├── inject.rs            # KeyInjector trait
-│   ├── x11_capture.rs       # XGrabKeyboard + XNextEvent loop
+│   ├── x11_capture.rs       # XRecord keyboard capture via C helper
 │   ├── x11_inject.rs        # XTest injection + direct clipboard
+│   ├── uinput_monitor.rs    # /dev/uinput injection for ASCII + Unicode
+│   ├── uinput_client.rs     # Unix socket client for vietc-uinputd
 │   └── wayland_im.rs        # Wayland IM protocol
 │
 ├── daemon/                  # Main daemon process
@@ -171,6 +145,9 @@ vietc/
 │   ├── config.rs            # TOML config loader + hot reload
 │   ├── app_state.rs         # Per-app Vietnamese/English memory
 │   └── display.rs           # X11/Wayland/compositor detection
+│
+├── uinputd/                 # Privileged uinput backspace daemon (VMK-style)
+│   └── main.rs              # Unix socket server for /dev/uinput injection
 │
 ├── ui/                      # System tray icon
 │   └── main.rs              # Tray + daemon launcher
@@ -250,19 +227,19 @@ vietc/
 
 ### VNI
 
-| Key | Result |
-|-----|--------|
-| `a1` | á |
-| `a2` | à |
-| `a3` | ả |
-| `a4` | ã |
-| `a5` | ạ |
-| `a6` | â |
-| `a8` | ă |
-| `e6` | ê |
-| `o6` | ô |
-| `o7` | ơ |
-| `u7` | ư |
+| Key | Result | Example |
+|-----|--------|---------|
+| `1` | á (sắc) | `a1` → `á` |
+| `2` | à (huyền) | `a2` → `à` |
+| `3` | ả (hỏi) | `a3` → `ả` |
+| `4` | ã (ngã) | `a4` → `ã` |
+| `5` | ạ (nặng) | `a5` → `ạ` |
+| `6` | â/ê/ô | `a6` → `â`, `e6` → `ê`, `o6` → `ô` |
+| `7` | ơ/ư | `o7` → `ơ`, `u7` → `ư` |
+| `8` | ă | `a8` → `ă` |
+| `9` | đ | `d9` → `đ` |
+
+Flexible typing: type the full syllable, then add marks/tone keys at the end. Example: `nguye6n4` → `nguyễn`. The engine scans backward up to 5 characters to find the target vowel.
 
 ---
 
@@ -270,18 +247,18 @@ vietc/
 
 | Feature | How It Works |
 |---------|-------------|
-| **Direct Input** | No pre-edit buffer. Keystrokes instantly become Unicode via XTest/uinput injection |
-| **Backspace-Replay** | Replays entire keystroke history in a fresh engine on every keypress — zero state desync |
-| **Flexible Placement** | Type tone/modifier at end of syllable (`tranaf` → `trần`) — engine scans backward to find the vowel |
-| **Smart Clusters** | `uo` → `ươ`, `ươ` + `o` → `uô`, shape modifier overriding (â↔ă, ô↔ơ) |
-| **Auto-Restore** | ~250 English words recognized — typing `hello` won't become Vietnamese. Triggered on space/ESC |
-| **ESC Undo** | Strip all tones from current word instantly |
+| **Direct Input** | No pre-edit buffer. Keystrokes instantly become text via uinput/XTest injection |
+| **Bamboo Engine** | Transformation model ported from bamboo-core — composition, marks, tones, flexible backtracking |
+| **Flexible Backtrack** | Type tone/modifier at end of syllable (`tranaf` → `trần`). Scans up to 5 chars backward |
+| **Smart Clusters** | `uo` → `ươ` with backtrack (`chuong7` → `chương`) |
+| **Tone Placement** | Correct tone positioning for all Vietnamese diphthongs (io→gió, uâ→xuất, yê→nguyễn) |
 | **Macro Expansion** | `ko` → `không`, `dc` → `được`, custom shortcuts |
-| **Casing Preservation** | `SATS` → `SÁT`, `Saa` → `Sả` — matches your typing pattern |
+| **Casing Preservation** | `Tieengs` → `Tiếng`, `TIEENGS` → `TIẾNG` |
 | **App Memory** | Per-app Vietnamese/English state, saved to `overrides.toml` |
 | **Hot Reload** | Config changes apply without restart (polls mtime every 1.5s) |
-| **Focus Reset** | FocusIn/FocusOut clears engine state — no stale injection on window switch |
+| **Focus Reset** | Focus change clears engine state — no stale injection on window switch |
 | **CPU Priority** | Pins daemon to P-cores (0-3) + nice(-10) for low-latency input |
+| **Uinput Daemon** | Privileged `vietc-uinputd` for clean backspace injection (Unix socket, VMK-style) |
 
 ---
 
