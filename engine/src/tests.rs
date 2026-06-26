@@ -6,14 +6,21 @@ mod tests {
         let mut events = Vec::new();
         for ch in input.chars() {
             if let Some(event) = engine.process_key(ch) {
+                let is_replace = matches!(&event, EngineEvent::Replace { .. });
+                let fl = is_flush_char(ch);
                 events.push(event);
+                if is_replace && fl {
+                    events.push(EngineEvent::Insert(ch.to_string()));
+                }
             } else if engine.is_enabled() {
-                // Engine didn't produce an event — the daemon would forward the raw key.
-                // Track this as an Insert for display reconstruction.
                 events.push(EngineEvent::Insert(ch.to_string()));
             }
         }
         events
+    }
+
+    fn is_flush_char(ch: char) -> bool {
+        matches!(ch, ' ' | '\t' | '.' | ',' | '!' | '?' | ';' | ':' | '\n')
     }
 
     fn get_display(events: &[EngineEvent]) -> String {
