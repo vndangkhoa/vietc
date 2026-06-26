@@ -15,6 +15,11 @@ mod display;
 use app_state::AppStateManager;
 use config::Config;
 
+#[cfg(feature = "x11")]
+use vietc_protocol::x11_capture::X11Capture;
+#[cfg(feature = "x11")]
+use vietc_protocol::x11_inject::X11Injector;
+
 fn get_log_path() -> Option<PathBuf> {
     dirs::config_dir().map(|p| p.join("vietc").join("vietc.log"))
 }
@@ -403,6 +408,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    #[cfg(feature = "x11")]
+    if display != display::DisplayServer::Wayland {
+        if let Some(mut capture) = X11Capture::new() {
+            if capture.grab_keyboard() {
+                log_info("[vietc] X11 keyboard grabbed — using X11 capture/injection");
+                return run_with_x11(
+                    capture,
+                    &mut daemon,
+                    shared_active_window,
+                    config_changed,
+                    status_changed,
+                    engine_enabled,
+                );
+            } else {
+                log_info("[vietc] X11 grab failed, falling back to evdev");
+            }
+        } else {
+            log_info("[vietc] X11 not available, falling back to evdev");
+        }
+    }
+
     match open_keyboard_device() {
         Ok((device, path)) => {
             log_info(&format!("[vietc] Keyboard device: {}", path));
@@ -499,6 +525,123 @@ fn open_keyboard_device() -> Result<(evdev::Device, String), Box<dyn std::error:
         }
     } else {
         Err("No keyboard device found".into())
+    }
+}
+
+#[cfg(feature = "x11")]
+fn run_with_x11(
+    mut capture: X11Capture,
+    daemon: &mut Daemon,
+    shared_active_window: Arc<Mutex<String>>,
+    config_changed: Arc<AtomicBool>,
+    status_changed: Arc<AtomicBool>,
+    _engine_enabled: Arc<AtomicBool>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let injector: Box<dyn vietc_protocol::KeyInjector> = Box::new(X11Injector::new()?);
+    let mut last_active_window = String::new();
+    // Track physically-held keys so we only inject press on KeyPress
+    // and release on KeyRelease — without this, every KeyPress injects
+    // press+release immediately, breaking held-key combos (Ctrl+C, Alt+Tab…).
+    let mut pressed_keys: HashSet<u32> = HashSet::new();
+
+    loop {
+        if status_changed.load(Ordering::SeqCst) {
+            daemon.sync_status_file();
+            status_changed.store(false, Ordering::SeqCst);
+        }
+
+        if config_changed.load(Ordering::SeqCst) {
+            daemon.reload_config();
+            config_changed.store(false, Ordering::SeqCst);
+        }
+
+        {
+            let active_window = shared_active_window.lock().unwrap().clone();
+            if active_window != last_active_window {
+                log_info(&format!("[vietc] Window changed: '{}' -> '{}'", last_active_window, active_window));
+                last_active_window = active_window.clone();
+                daemon.engine.reset();
+            }
+        }
+
+        if daemon.config.app_state.enabled {
+            let active_window = shared_active_window.lock().unwrap().clone();
+            daemon.check_app_change_with(active_window);
+        }
+
+        while let Some(event) = capture.next_event() {
+            if event.pressed {
+                // Skip autorepeat — key is already tracked as held
+                if !pressed_keys.insert(event.keycode) {
+                    continue;
+                }
+
+                // Toggle key: Ctrl+Space
+                if let Some(' ') = event.ch {
+                    if (event.state & 4) != 0 {
+                        pressed_keys.remove(&event.keycode);
+                        daemon.toggle();
+                        continue;
+                    }
+                }
+
+                // Modifier or non-character key → forward press only
+                if capture.is_modifier_pressed(event.state) || event.ch.is_none() {
+                    daemon.engine.reset();
+                    capture.without_grab(|| {
+                        let _ = injector.send_key_event(event.keycode as u16, 1);
+                    });
+                    continue;
+                }
+
+                // Character key
+                if let Some(ch) = event.ch {
+                    match ch {
+                        '\x08' => {
+                            daemon.engine.process_key('\x08');
+                            capture.without_grab(|| {
+                                let _ = injector.send_backspace();
+                            });
+                            // Keep in pressed_keys so release is forwarded
+                        }
+                        '\n' => {
+                            pressed_keys.remove(&event.keycode);
+                            daemon.engine.reset();
+                            capture.without_grab(|| {
+                                let _ = injector.send_key_event(event.keycode as u16, 1);
+                                let _ = injector.send_key_event(event.keycode as u16, 0);
+                            });
+                        }
+                        _ => {
+                            let commands = daemon.process_key(ch);
+                            if !commands.is_empty() {
+                                // Engine consumed the key; remove from tracking
+                                pressed_keys.remove(&event.keycode);
+                                capture.without_grab(|| {
+                                    execute_commands(&*injector, &commands, true);
+                                });
+                            } else {
+                                // Engine started composing; forward press+release immediately
+                                pressed_keys.remove(&event.keycode);
+                                capture.without_grab(|| {
+                                    let _ = injector.send_key_event(event.keycode as u16, 1);
+                                    let _ = injector.send_key_event(event.keycode as u16, 0);
+                                });
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Key release — only inject if we were tracking this key
+                if pressed_keys.remove(&event.keycode) {
+                    capture.without_grab(|| {
+                        let _ = injector.send_key_event(event.keycode as u16, 0);
+                    });
+                }
+            }
+        }
+
+        thread::sleep(Duration::from_millis(10));
     }
 }
 

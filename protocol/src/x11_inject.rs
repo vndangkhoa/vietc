@@ -1,26 +1,46 @@
 use super::inject::{InjectResult, KeyInjector};
+use std::cell::RefCell;
 use std::ffi::{c_char, c_int, c_void};
 
 type Display = c_void;
 type Window = u64;
+type Atom = u64;
+type Time = u64;
 
-// Dynamic linker FFI
 extern "C" {
     fn dlopen(filename: *const c_char, flag: c_int) -> *mut c_void;
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
     fn dlclose(handle: *mut c_void) -> c_int;
 }
 
+const CURRENT_TIME: Time = 0;
+const PROP_MODE_REPLACE: c_int = 0;
+const NO_EVENT_MASK: i64 = 0;
+const INPUT_OUTPUT: c_int = 1;
+const COPY_FROM_PARENT: Window = 0;
+
+const SELECTION_REQUEST: c_int = 30;
+const SELECTION_NOTIFY: c_int = 31;
+
 struct X11Lib {
     x11_handle: *mut c_void,
     xtst_handle: *mut c_void,
 
-    // Symbols
     x_open_display: unsafe extern "C" fn(*const c_char) -> *mut Display,
     x_close_display: unsafe extern "C" fn(*mut Display) -> c_int,
     x_default_root_window: unsafe extern "C" fn(*mut Display) -> Window,
     x_flush: unsafe extern "C" fn(*mut Display) -> c_int,
     x_test_fake_key_event: unsafe extern "C" fn(*mut Display, u32, c_int, u64) -> c_int,
+    x_intern_atom: unsafe extern "C" fn(*mut Display, *const c_char, c_int) -> Atom,
+    x_set_selection_owner: unsafe extern "C" fn(*mut Display, Atom, Window, Time) -> c_int,
+    x_change_property: unsafe extern "C" fn(*mut Display, Window, Atom, Atom, c_int, c_int, *const c_void, c_int) -> c_int,
+    x_get_selection_owner: unsafe extern "C" fn(*mut Display, Atom) -> Window,
+    x_send_event: unsafe extern "C" fn(*mut Display, Window, c_int, i64, *const c_void) -> c_int,
+    x_create_simple_window: unsafe extern "C" fn(*mut Display, Window, c_int, c_int, c_int, c_int, c_int, Atom, Atom) -> Window,
+    x_map_window: unsafe extern "C" fn(*mut Display, Window) -> c_int,
+    x_destroy_window: unsafe extern "C" fn(*mut Display, Window) -> c_int,
+    x_pending: unsafe extern "C" fn(*mut Display) -> c_int,
+    x_next_event: unsafe extern "C" fn(*mut Display, *mut XEvent),
 }
 
 impl X11Lib {
@@ -32,7 +52,7 @@ impl X11Lib {
             ];
             let mut x11_handle = std::ptr::null_mut();
             for path in x11_paths {
-                x11_handle = dlopen(path, 1); // RTLD_LAZY
+                x11_handle = dlopen(path, 1);
                 if !x11_handle.is_null() {
                     break;
                 }
@@ -57,24 +77,27 @@ impl X11Lib {
                 return Err("Failed to load libXtst.so.6".into());
             }
 
-            let x_open_display = std::mem::transmute(dlsym(
-                x11_handle,
-                b"XOpenDisplay\0".as_ptr() as *const c_char,
-            ));
-            let x_close_display = std::mem::transmute(dlsym(
-                x11_handle,
-                b"XCloseDisplay\0".as_ptr() as *const c_char,
-            ));
-            let x_default_root_window = std::mem::transmute(dlsym(
-                x11_handle,
-                b"XDefaultRootWindow\0".as_ptr() as *const c_char,
-            ));
-            let x_flush =
-                std::mem::transmute(dlsym(x11_handle, b"XFlush\0".as_ptr() as *const c_char));
-            let x_test_fake_key_event = std::mem::transmute(dlsym(
-                xtst_handle,
-                b"XTestFakeKeyEvent\0".as_ptr() as *const c_char,
-            ));
+            macro_rules! sym {
+                ($handle:expr, $name:expr) => {
+                    std::mem::transmute(dlsym($handle, concat!($name, "\0").as_ptr() as *const c_char))
+                };
+            }
+
+            let x_open_display = sym!(x11_handle, "XOpenDisplay");
+            let x_close_display = sym!(x11_handle, "XCloseDisplay");
+            let x_default_root_window = sym!(x11_handle, "XDefaultRootWindow");
+            let x_flush = sym!(x11_handle, "XFlush");
+            let x_intern_atom = sym!(x11_handle, "XInternAtom");
+            let x_set_selection_owner = sym!(x11_handle, "XSetSelectionOwner");
+            let x_change_property = sym!(x11_handle, "XChangeProperty");
+            let x_get_selection_owner = sym!(x11_handle, "XGetSelectionOwner");
+            let x_send_event = sym!(x11_handle, "XSendEvent");
+            let x_create_simple_window = sym!(x11_handle, "XCreateSimpleWindow");
+            let x_map_window = sym!(x11_handle, "XMapWindow");
+            let x_destroy_window = sym!(x11_handle, "XDestroyWindow");
+            let x_pending = sym!(x11_handle, "XPending");
+            let x_next_event = sym!(x11_handle, "XNextEvent");
+            let x_test_fake_key_event = sym!(xtst_handle, "XTestFakeKeyEvent");
 
             Ok(Self {
                 x11_handle,
@@ -84,6 +107,16 @@ impl X11Lib {
                 x_default_root_window,
                 x_flush,
                 x_test_fake_key_event,
+                x_intern_atom,
+                x_set_selection_owner,
+                x_change_property,
+                x_get_selection_owner,
+                x_send_event,
+                x_create_simple_window,
+                x_map_window,
+                x_destroy_window,
+                x_pending,
+                x_next_event,
             })
         }
     }
@@ -98,10 +131,8 @@ impl Drop for X11Lib {
     }
 }
 
-// Linux-to-X11 keycode offset (X11 keycodes = Linux keycodes + 8)
 const X11_KEYCODE_OFFSET: u32 = 8;
 
-// X11 keycodes for common ASCII characters
 fn char_to_keycode(ch: char) -> Option<(u32, bool)> {
     match ch {
         'a' => Some((30, false)),
@@ -156,53 +187,41 @@ fn char_to_keycode(ch: char) -> Option<(u32, bool)> {
         'X' => Some((45, true)),
         'Y' => Some((21, true)),
         'Z' => Some((44, true)),
-        '0' => Some((11, false)),
-        '1' => Some((2, false)),
-        '2' => Some((3, false)),
-        '3' => Some((4, false)),
-        '4' => Some((5, false)),
-        '5' => Some((6, false)),
-        '6' => Some((7, false)),
-        '7' => Some((8, false)),
-        '8' => Some((9, false)),
-        '9' => Some((10, false)),
-        ' ' => Some((57, false)),
-        '.' => Some((52, false)),
-        ',' => Some((51, false)),
-        '-' => Some((12, false)),
-        '=' => Some((13, false)),
-        ';' => Some((39, false)),
-        '\'' => Some((40, false)),
-        '/' => Some((53, false)),
-        '\\' => Some((43, false)),
-        '`' => Some((41, false)),
-        '0' => Some((11, false)),
-        '1' => Some((2, false)),
-        '2' => Some((3, false)),
-        '3' => Some((4, false)),
-        '4' => Some((5, false)),
-        '5' => Some((6, false)),
-        '6' => Some((7, false)),
-        '7' => Some((8, false)),
-        '8' => Some((9, false)),
-        '9' => Some((10, false)),
-        ' ' => Some((57, false)),
-        '.' => Some((52, false)),
-        ',' => Some((51, false)),
-        '-' => Some((12, false)),
-        '=' => Some((13, false)),
-        ';' => Some((39, false)),
-        '\'' => Some((40, false)),
-        '/' => Some((53, false)),
         _ => None,
     }
+}
+
+#[repr(C)]
+struct XSelectionRequestEvent {
+    _type: c_int,
+    _serial: u64,
+    _send_event: c_int,
+    _display: *mut Display,
+    owner: Window,
+    requestor: Window,
+    selection: Atom,
+    target: Atom,
+    property: Atom,
+    time: Time,
+}
+
+#[repr(C)]
+struct XEvent {
+    _type: c_int,
+    _pad: [u8; 24],
+    data: [u64; 6],
 }
 
 pub struct X11Injector {
     lib: X11Lib,
     display: *mut Display,
-    #[allow(dead_code)]
-    window: Window,
+    root: Window,
+    clipboard_window: Window,
+    atom_clipboard: Atom,
+    atom_utf8: Atom,
+    atom_targets: Atom,
+    atom_string: Atom,
+    clipboard_text: RefCell<String>,
 }
 
 unsafe impl Send for X11Injector {}
@@ -216,33 +235,208 @@ impl X11Injector {
             if display.is_null() {
                 return Err("Cannot open X11 display. Is DISPLAY set?".into());
             }
-            let window = (lib.x_default_root_window)(display);
+            let root = (lib.x_default_root_window)(display);
+
+            let atom_clipboard = (lib.x_intern_atom)(display, b"CLIPBOARD\0".as_ptr() as *const c_char, 0);
+            let atom_utf8 = (lib.x_intern_atom)(display, b"UTF8_STRING\0".as_ptr() as *const c_char, 0);
+            let atom_targets = (lib.x_intern_atom)(display, b"TARGETS\0".as_ptr() as *const c_char, 0);
+            let atom_string = (lib.x_intern_atom)(display, b"STRING\0".as_ptr() as *const c_char, 0);
+
+            // Create a small hidden window for clipboard ownership
+            let clipboard_window = (lib.x_create_simple_window)(
+                display, root, 0, 0, 1, 1, 0, COPY_FROM_PARENT, COPY_FROM_PARENT,
+            );
+            (lib.x_map_window)(display, clipboard_window);
+
             Ok(Self {
                 lib,
                 display,
-                window,
+                root,
+                clipboard_window,
+                atom_clipboard,
+                atom_utf8,
+                atom_targets,
+                atom_string,
+                clipboard_text: RefCell::new(String::new()),
             })
         }
+    }
+
+    fn set_clipboard_text(&self, text: &str) {
+        *self.clipboard_text.borrow_mut() = text.to_string();
+        unsafe {
+            // Set the text as a property on our clipboard window
+            (self.lib.x_change_property)(
+                self.display,
+                self.clipboard_window,
+                self.atom_clipboard,
+                self.atom_utf8,
+                8, // 8-bit format
+                PROP_MODE_REPLACE,
+                text.as_ptr() as *const c_void,
+                text.len() as c_int,
+            );
+
+            // Also set as STRING (for apps that don't understand UTF8_STRING)
+            (self.lib.x_change_property)(
+                self.display,
+                self.clipboard_window,
+                self.atom_clipboard,
+                self.atom_string,
+                8,
+                PROP_MODE_REPLACE,
+                text.as_ptr() as *const c_void,
+                text.len() as c_int,
+            );
+
+            // Claim the CLIPBOARD selection
+            (self.lib.x_set_selection_owner)(
+                self.display,
+                self.atom_clipboard,
+                self.clipboard_window,
+                CURRENT_TIME,
+            );
+
+            (self.lib.x_flush)(self.display);
+        }
+    }
+
+    fn handle_pending_events(&self) {
+        unsafe {
+            while (self.lib.x_pending)(self.display) > 0 {
+                let mut event: XEvent = std::mem::zeroed();
+                (self.lib.x_next_event)(self.display, &mut event);
+                if event._type == SELECTION_REQUEST {
+                    let req = &*(&event as *const XEvent as *const XSelectionRequestEvent);
+                    self.handle_selection_request(req);
+                }
+            }
+        }
+    }
+
+    fn handle_selection_request(&self, req: &XSelectionRequestEvent) {
+        eprintln!(
+            "[vietc] SelectionRequest: target={} requestor={}",
+            req.target, req.requestor
+        );
+
+        // Determine what property to use for the response
+        let property = if req.property == 0 {
+            req.target // Use the target atom as property if property is None
+        } else {
+            req.property
+        };
+
+        unsafe {
+            if req.target == self.atom_targets {
+                // Respond with supported targets: TARGETS, UTF8_STRING, STRING
+                let targets: [Atom; 3] = [self.atom_targets, self.atom_utf8, self.atom_string];
+                (self.lib.x_change_property)(
+                    self.display,
+                    req.requestor,
+                    property,
+                    self.atom_targets,
+                    32, // 32-bit format
+                    PROP_MODE_REPLACE,
+                    targets.as_ptr() as *const c_void,
+                    targets.len() as c_int,
+                );
+            } else if req.target == self.atom_utf8 || req.target == self.atom_string {
+                // Respond with the actual clipboard text
+                (self.lib.x_change_property)(
+                    self.display,
+                    req.requestor,
+                    property,
+                    req.target,
+                    8, // 8-bit format
+                    PROP_MODE_REPLACE,
+                    self.clipboard_text.borrow().as_ptr() as *const c_void,
+                    self.clipboard_text.borrow().len() as c_int,
+                );
+            }
+
+            // Send SelectionNotify to inform the requestor
+            let mut notify = std::mem::zeroed::<XSelectionNotifyEvent>();
+            notify._type = SELECTION_NOTIFY as c_int;
+            notify._display = self.display;
+            notify.requestor = req.requestor;
+            notify.selection = req.selection;
+            notify.target = req.target;
+            notify.property = if req.target == self.atom_targets
+                || req.target == self.atom_utf8
+                || req.target == self.atom_string
+            {
+                property
+            } else {
+                0 // PropertyNone = unsupported target
+            };
+            notify.time = req.time;
+
+            (self.lib.x_send_event)(
+                self.display,
+                req.requestor,
+                0, // propagate = False
+                NO_EVENT_MASK,
+                &notify as *const XSelectionNotifyEvent as *const c_void,
+            );
+            (self.lib.x_flush)(self.display);
+        }
+    }
+
+    fn paste_via_clipboard(&self, backspaces: usize, text: &str) -> bool {
+        // Set clipboard text directly via X11
+        self.set_clipboard_text(text);
+
+        // Handle any pending SelectionRequest events that may have queued
+        // (unlikely at this point, but be safe)
+        self.handle_pending_events();
+
+        // Send backspaces via XTest
+        if backspaces > 0 {
+            for _ in 0..backspaces {
+                self.send_keycode(14, false); // KEY_BACKSPACE
+            }
+        }
+
+        // Send Ctrl+V via XTest to paste
+        unsafe {
+            // X11 keycodes: 37 = Ctrl_L, 55 = V
+            (self.lib.x_test_fake_key_event)(self.display, 37, 1, 0);
+            (self.lib.x_test_fake_key_event)(self.display, 55, 1, 0);
+            (self.lib.x_test_fake_key_event)(self.display, 55, 0, 0);
+            (self.lib.x_test_fake_key_event)(self.display, 37, 0, 0);
+            (self.lib.x_flush)(self.display);
+        }
+
+        // Handle SelectionRequest events that come from the paste target
+        // Process events with a short spin loop (up to ~50ms)
+        for _ in 0..10 {
+            // Brief sleep to let X11 events propagate
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            self.handle_pending_events();
+        }
+
+        true
     }
 
     fn send_keycode(&self, keycode: u32, shift: bool) {
         unsafe {
             if shift {
-                (self.lib.x_test_fake_key_event)(self.display, 50, 1, 0); // Shift press
+                (self.lib.x_test_fake_key_event)(self.display, 50, 1, 0);
             }
-            (self.lib.x_test_fake_key_event)(self.display, keycode, 1, 0); // Key press
-            (self.lib.x_test_fake_key_event)(self.display, keycode, 0, 0); // Key release
+            (self.lib.x_test_fake_key_event)(self.display, keycode, 1, 0);
+            (self.lib.x_test_fake_key_event)(self.display, keycode, 0, 0);
             if shift {
-                (self.lib.x_test_fake_key_event)(self.display, 50, 0, 0); // Shift release
+                (self.lib.x_test_fake_key_event)(self.display, 50, 0, 0);
             }
             (self.lib.x_flush)(self.display);
         }
     }
 
     fn send_unicode_via_xdotool(&self, ch: char) {
-        // For Unicode chars, try ydotool first (uinput-based, works as root),
-        // then xdotool (X11 XTest) as fallback.
         let s = ch.to_string();
+
+        // Try ydotool first (uinput-based, works as root)
         let ydotool_ok = std::process::Command::new("ydotool")
             .args(["type", &s])
             .output()
@@ -251,6 +445,8 @@ impl X11Injector {
         if ydotool_ok {
             return;
         }
+
+        // Try xdotool
         let xdotool_ok = std::process::Command::new("xdotool")
             .args(["type", "--clearmodifiers", &s])
             .output()
@@ -259,33 +455,47 @@ impl X11Injector {
         if xdotool_ok {
             return;
         }
-        // Clipboard fallback: xclip + Ctrl+V via XTEST
-        let copied = std::process::Command::new("xclip")
-            .args(["-selection", "clipboard"])
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                use std::io::Write;
-                child.stdin.take().unwrap().write_all(s.as_bytes())?;
-                child.wait()
-            })
-            .map(|status| status.success())
-            .unwrap_or(false);
-        if copied {
-            unsafe {
-                (self.lib.x_test_fake_key_event)(self.display, 37, 1, 0); // Ctrl press (X11 keycode)
-                (self.lib.x_test_fake_key_event)(self.display, 55, 1, 0); // V press (X11 keycode)
-                (self.lib.x_test_fake_key_event)(self.display, 55, 0, 0); // V release
-                (self.lib.x_test_fake_key_event)(self.display, 37, 0, 0); // Ctrl release
-                (self.lib.x_flush)(self.display);
+
+        // Fallback: direct X11 clipboard + Ctrl+V
+        self.paste_via_clipboard(0, &s);
+    }
+}
+
+impl Drop for X11Injector {
+    fn drop(&mut self) {
+        unsafe {
+            if self.clipboard_window != 0 && !self.display.is_null() {
+                (self.lib.x_destroy_window)(self.display, self.clipboard_window);
             }
+            (self.lib.x_close_display)(self.display);
         }
     }
 }
 
+#[repr(C)]
+struct XSelectionNotifyEvent {
+    _type: c_int,
+    _serial: u64,
+    _send_event: c_int,
+    _display: *mut Display,
+    requestor: Window,
+    selection: Atom,
+    target: Atom,
+    property: Atom,
+    time: Time,
+}
+
 impl KeyInjector for X11Injector {
+    fn send_key_event(&self, keycode: u16, value: i32) -> InjectResult {
+        unsafe {
+            (self.lib.x_test_fake_key_event)(self.display, keycode as u32, value, 0);
+            (self.lib.x_flush)(self.display);
+        }
+        InjectResult::Success
+    }
+
     fn send_backspace(&self) -> InjectResult {
-        self.send_keycode(14, false); // KEY_BACKSPACE
+        self.send_keycode(14, false);
         InjectResult::Success
     }
 
@@ -308,11 +518,10 @@ impl KeyInjector for X11Injector {
 
     fn inject_replacement(&self, backspaces: usize, text: &str) -> InjectResult {
         let is_ascii = text.chars().all(|c| char_to_keycode(c).is_some());
-
         if is_ascii {
             if backspaces > 0 {
                 for _ in 0..backspaces {
-                    self.send_keycode(14, false); // KEY_BACKSPACE
+                    self.send_keycode(14, false);
                 }
             }
             for ch in text.chars() {
@@ -323,80 +532,11 @@ impl KeyInjector for X11Injector {
             return InjectResult::Success;
         }
 
-        // Contains Unicode: try xdotool with both backspaces and text in a single command
-        let has_xdotool = std::process::Command::new("which")
-            .arg("xdotool")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-
-        if has_xdotool {
-            let mut args = Vec::new();
-            if backspaces > 0 {
-                args.push("key".to_string());
-                for _ in 0..backspaces {
-                    args.push("BackSpace".to_string());
-                }
-            }
-            if !text.is_empty() {
-                args.push("type".to_string());
-                args.push("--clearmodifiers".to_string());
-                args.push(text.to_string());
-            }
-
-            let ok = std::process::Command::new("xdotool")
-                .args(&args)
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
-            if ok {
-                return InjectResult::Success;
-            }
-        }
-
-        // Fallback: Clipboard copy + paste.
-        // Send backspaces via XTEST, then copy to clipboard, then paste (Ctrl+V) via XTEST.
-        // Since all XTEST key events go through the same display connection, their ordering is guaranteed.
-        let mut clipboard_cmd = std::process::Command::new("xclip");
-        clipboard_cmd.args(["-selection", "clipboard"]);
-        clipboard_cmd.stdin(std::process::Stdio::piped());
-        let copied = clipboard_cmd
-            .spawn()
-            .and_then(|mut child| {
-                use std::io::Write;
-                child.stdin.take().unwrap().write_all(text.as_bytes())?;
-                child.wait()
-            })
-            .map(|status| status.success())
-            .unwrap_or(false);
-
-        if copied {
-            if backspaces > 0 {
-                for _ in 0..backspaces {
-                    self.send_keycode(14, false); // KEY_BACKSPACE
-                }
-            }
-            unsafe {
-                (self.lib.x_test_fake_key_event)(self.display, 37, 1, 0); // Ctrl press (X11 keycode)
-                (self.lib.x_test_fake_key_event)(self.display, 55, 1, 0); // V press (X11 keycode)
-                (self.lib.x_test_fake_key_event)(self.display, 55, 0, 0); // V release
-                (self.lib.x_test_fake_key_event)(self.display, 37, 0, 0); // Ctrl release
-                (self.lib.x_flush)(self.display);
-            }
-            InjectResult::Success
-        } else {
-            // Absolute last resort: backspaces via XTEST followed by individual unicode send_unicode_via_xdotool
-            if backspaces > 0 {
-                for _ in 0..backspaces {
-                    self.send_keycode(14, false); // KEY_BACKSPACE
-                }
-            }
-            for ch in text.chars() {
-                self.send_char(ch);
-            }
-            InjectResult::Success
-        }
+        // Contains Unicode: use direct X11 clipboard + XTest Ctrl+V
+        self.paste_via_clipboard(backspaces, text);
+        InjectResult::Success
     }
+
     fn flush(&self) -> InjectResult {
         unsafe {
             (self.lib.x_flush)(self.display);
@@ -404,20 +544,7 @@ impl KeyInjector for X11Injector {
         InjectResult::Success
     }
 
-    /// Record that Unicode text was pasted via clipboard (for future delete/backspace support)
     fn update_pasted_text(&self, _text: &str) -> InjectResult {
-        eprintln!(
-            "[vietc] X11 update_pasted_text: recorded text (len={})",
-            _text.len()
-        );
         InjectResult::Success
-    }
-}
-
-impl Drop for X11Injector {
-    fn drop(&mut self) {
-        unsafe {
-            (self.lib.x_close_display)(self.display);
-        }
     }
 }

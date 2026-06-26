@@ -1,8 +1,8 @@
 # Viet+ IME Configuration
 
-input_method = "telex"
+input_method = "vni"
 toggle_key = "space"
-start_enabled = true
+start_enabled = false
 grab = true
 
 [auto_restore]

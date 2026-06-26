@@ -12,7 +12,7 @@ echo "=== Building Viet+ .deb package v${VERSION} ==="
 # Build binaries (all features: x11 + wayland)
 echo "[1/5] Building binaries..."
 cargo build --release --features "x11,wayland" --manifest-path "$PROJECT_ROOT/Cargo.toml"
-(cd "$PROJECT_ROOT/ui" && cargo build --release)
+(cd "$PROJECT_ROOT/ui" && cargo build --release) || echo "  Warning: UI tray not built (libdbus-1-dev may be missing)"
 echo "  Done."
 
 # Clean and create staging
@@ -113,7 +113,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Depends: libc6 (>= 2.31), libevdev2 (>= 1.9.0)
-Recommends: libwayland-client0 (>= 1.20), libx11-6
+Recommends: libwayland-client0 (>= 1.20), libx11-6, libxtst6, xclip
 Maintainer: Khoa Vo <vndangkhoa@gmail.com>
 Description: Viet+ — Vietnamese Input Method for Linux
  Zero-configuration Vietnamese input method engine supporting

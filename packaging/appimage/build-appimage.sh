@@ -43,6 +43,15 @@ else
     [ -f ui/target/release/vietc-tray ] && cp ui/target/release/vietc-tray "$APPDIR/usr/bin/"
 fi
 
+# Bundle xclip as fallback for clipboard operations
+echo "  Bundling xclip..."
+if command -v xclip &>/dev/null; then
+    cp "$(which xclip)" "$APPDIR/usr/bin/"
+    echo "  xclip bundled"
+else
+    echo "  xclip not found on system, skipping"
+fi
+
 # Desktop integration
 echo "[3/5] Installing desktop integration..."
 if [ -f "deb-build/vietc.desktop" ]; then
@@ -109,6 +118,67 @@ else
     cp "$APPDIR/usr/share/applications/vietc.desktop" "$APPDIR/"
 fi
 
+# Icon — required by appimagetool (desktop file has Icon=vietc)
+# Use SVG from deb build if available, otherwise generate a keyboard icon
+if [ -f "deb-build/usr/share/icons/hicolor/256x256/apps/vietc.svg" ]; then
+    cp "deb-build/usr/share/icons/hicolor/256x256/apps/vietc.svg" "$APPDIR/vietc.svg"
+elif [ -f "deb-build/usr/share/icons/hicolor/256x256/apps/vietc.png" ]; then
+    cp "deb-build/usr/share/icons/hicolor/256x256/apps/vietc.png" "$APPDIR/vietc.png"
+else
+    # Generate a proper keyboard+VN icon as SVG
+    cat > "$APPDIR/vietc.svg" << 'SVGEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect x="20" y="60" width="216" height="140" rx="16" fill="#2d2d2d" stroke="#1a1a1a" stroke-width="4"/>
+  <rect x="36" y="76" width="184" height="108" rx="8" fill="#3d3d3d"/>
+  <rect x="48" y="88" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="78" y="88" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="108" y="88" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="138" y="88" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="168" y="88" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="198" y="88" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="54" y="114" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="84" y="114" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="114" y="114" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="144" y="114" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="174" y="114" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="60" y="140" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="90" y="140" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="120" y="140" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="150" y="140" width="24" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="180" y="140" width="42" height="20" rx="3" fill="#f0f0f0"/>
+  <rect x="72" y="166" width="112" height="16" rx="3" fill="#f0f0f0"/>
+  <circle cx="216" cy="48" r="28" fill="#da251d"/>
+  <text x="216" y="56" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="sans-serif">VN</text>
+</svg>
+SVGEOF
+fi
+
+# Convert SVG to PNG for appimagetool (it prefers PNG for the root icon)
+if [ -f "$APPDIR/vietc.svg" ] && ! [ -f "$APPDIR/vietc.png" ]; then
+    if command -v rsvg-convert &>/dev/null; then
+        rsvg-convert -w 256 -h 256 "$APPDIR/vietc.svg" -o "$APPDIR/vietc.png"
+    elif command -v inkscape &>/dev/null; then
+        inkscape -w 256 -h 256 "$APPDIR/vietc.svg" --export-filename="$APPDIR/vietc.png" 2>/dev/null
+    elif command -v convert &>/dev/null; then
+        convert -background none "$APPDIR/vietc.svg" -resize 256x256 "$APPDIR/vietc.png" 2>/dev/null
+    elif command -v python3 &>/dev/null; then
+        python3 -c "
+import subprocess, sys
+try:
+    subprocess.check_call(['rsvg-convert', '-w', '256', '-h', '256', '$APPDIR/vietc.svg', '-o', '$APPDIR/vietc.png'])
+except Exception:
+    pass
+" 2>/dev/null
+    fi
+    # If no converter, appimagetool can use SVG directly
+fi
+
+# Also put icon in hicolor for system installs via AppImage
+mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+[ -f "$APPDIR/vietc.svg" ] && cp "$APPDIR/vietc.svg" "$APPDIR/usr/share/icons/hicolor/256x256/apps/"
+[ -f "$APPDIR/vietc.png" ] && cp "$APPDIR/vietc.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/"
+
 # Create custom AppRun script
 cat > "$APPDIR/AppRun" << 'EOF'
 #!/bin/sh
@@ -128,39 +198,51 @@ ENV_PREFIX="env"
 [ -n "$XDG_RUNTIME_DIR" ]   && ENV_PREFIX="$ENV_PREFIX XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
 
 # Start daemon (kill old non-root one first if we have root)
-
-# Fix Wayland env for root: sudo resets XDG_RUNTIME_DIR, breaking wtype/wl-copy.
-# Only set WAYLAND_DISPLAY if the user actually has a Wayland session.
-if [ "$(id -u)" = "0" ] && [ -z "$XDG_RUNTIME_DIR" ] && [ -n "$SUDO_USER" ]; then
-    USER_UID=$(id -u "$SUDO_USER" 2>/dev/null || echo 1000)
-    export XDG_RUNTIME_DIR="/run/user/$USER_UID"
-    if [ -d "/run/user/$USER_UID" ] && ls "/run/user/$USER_UID/wayland-*" >/dev/null 2>&1; then
-        export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
-    fi
+# On X11 we can run without root (XGrabKeyboard + XTest injection needs no special permissions).
+# On Wayland, evdev requires root (input group) or uinput.
+NEED_ROOT=""
+if [ -n "$WAYLAND_DISPLAY" ]; then
+    NEED_ROOT="yes"
 fi
 
-if command -v pkexec >/dev/null && [ -z "$WAYLAND_DISPLAY" ]; then
-    pkill -x vietc 2>/dev/null; sleep 0.5
-    pkexec $ENV_PREFIX "$HERE/usr/bin/vietc" >/dev/null &
+if [ -z "$NEED_ROOT" ]; then
+    # X11: no root needed
+    pkill -x vietc 2>/dev/null; sleep 0.3
+    "$HERE/usr/bin/vietc" >/dev/null &
     DAEMON_PID=$!
-elif [ -n "$WAYLAND_DISPLAY" ]; then
-    password=""
-    if command -v kdialog >/dev/null; then
-        password=$(kdialog --password "Viet+ needs root privileges to grab the keyboard.") || password=""
-    elif command -v zenity >/dev/null; then
-        password=$(zenity --password --title="Viet+ needs root") || password=""
-    elif command -v ssh-askpass >/dev/null; then
-        password=$(ssh-askpass "Viet+ needs root privileges") || password=""
+else
+    # Fix Wayland env for root: sudo resets XDG_RUNTIME_DIR, breaking wtype/wl-copy.
+    if [ "$(id -u)" = "0" ] && [ -z "$XDG_RUNTIME_DIR" ] && [ -n "$SUDO_USER" ]; then
+        USER_UID=$(id -u "$SUDO_USER" 2>/dev/null || echo 1000)
+        export XDG_RUNTIME_DIR="/run/user/$USER_UID"
+        if [ -d "/run/user/$USER_UID" ] && ls "/run/user/$USER_UID/wayland-*" >/dev/null 2>&1; then
+            export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+        fi
     fi
-    if [ -n "$password" ]; then
+
+    if command -v pkexec >/dev/null; then
         pkill -x vietc 2>/dev/null; sleep 0.5
-        echo "$password" | sudo -S $ENV_PREFIX "$HERE/usr/bin/vietc" >/dev/null &
+        pkexec $ENV_PREFIX "$HERE/usr/bin/vietc" >/dev/null &
+        DAEMON_PID=$!
+    elif [ -n "$WAYLAND_DISPLAY" ]; then
+        password=""
+        if command -v kdialog >/dev/null; then
+            password=$(kdialog --password "Viet+ needs root privileges to grab the keyboard.") || password=""
+        elif command -v zenity >/dev/null; then
+            password=$(zenity --password --title="Viet+ needs root") || password=""
+        elif command -v ssh-askpass >/dev/null; then
+            password=$(ssh-askpass "Viet+ needs root privileges") || password=""
+        fi
+        if [ -n "$password" ]; then
+            pkill -x vietc 2>/dev/null; sleep 0.5
+            echo "$password" | sudo -S $ENV_PREFIX "$HERE/usr/bin/vietc" >/dev/null &
+            DAEMON_PID=$!
+        fi
+    elif command -v sudo >/dev/null; then
+        pkill -x vietc 2>/dev/null; sleep 0.5
+        sudo $ENV_PREFIX "$HERE/usr/bin/vietc" >/dev/null &
         DAEMON_PID=$!
     fi
-elif command -v sudo >/dev/null; then
-    pkill -x vietc 2>/dev/null; sleep 0.5
-    sudo $ENV_PREFIX "$HERE/usr/bin/vietc" >/dev/null &
-    DAEMON_PID=$!
 fi
 
 if [ -z "$DAEMON_PID" ] && ! pgrep -x vietc >/dev/null; then

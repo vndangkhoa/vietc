@@ -24,6 +24,7 @@ fn get_display(events: &[EngineEvent]) -> String {
                 for _ in 0..*backspaces { display.pop(); }
                 display.push_str(restored);
             }
+            EngineEvent::Paste(text) => { display.push_str(text); }
         }
     }
     display
