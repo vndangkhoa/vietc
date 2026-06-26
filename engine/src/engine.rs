@@ -1,6 +1,13 @@
 use crate::bamboo::BambooEngine;
+use crate::english::EnglishDict;
 use crate::input_method::InputMethod;
 use std::collections::HashMap;
+use std::sync::OnceLock;
+
+fn english_dict() -> &'static EnglishDict {
+    static DICT: OnceLock<EnglishDict> = OnceLock::new();
+    DICT.get_or_init(EnglishDict::new)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum EngineEvent {
@@ -17,6 +24,7 @@ pub struct Engine {
     macros: HashMap<String, String>,
     raw_buffer: String,
     paste_mode: bool,
+    auto_restore: bool,
 }
 
 impl Engine {
@@ -26,7 +34,39 @@ impl Engine {
             macros: HashMap::new(),
             raw_buffer: String::new(),
             paste_mode: false,
+            auto_restore: true,
         }
+    }
+
+    pub fn set_auto_restore(&mut self, enabled: bool) {
+        self.auto_restore = enabled;
+    }
+
+    /// Decide whether a committed word should be reverted to the raw keystrokes
+    /// the user typed instead of the Vietnamese transformation. Returns true for
+    /// words that are clearly English / non-Vietnamese: a known English word, a
+    /// result that isn't a phonologically valid Vietnamese syllable, or one that
+    /// contains letters foreign to Vietnamese. `composed` is the transformed
+    /// output; `raw` is the literal keystrokes typed.
+    pub fn should_restore_word(composed: &str, raw: &str) -> bool {
+        // No transformation happened — English already passed through untouched.
+        if composed == raw {
+            return false;
+        }
+
+        let dict = english_dict();
+        let raw_lower = raw.to_lowercase();
+        let composed_lower = composed.to_lowercase();
+
+        // Genuine Vietnamese words that happen to look like English stay as-is.
+        if dict.is_vietnamese_override(&composed_lower) {
+            return false;
+        }
+        if dict.is_english_word(&raw_lower) {
+            return true;
+        }
+
+        !crate::spelling::is_valid_vietnamese_syllable(composed)
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
@@ -171,12 +211,28 @@ impl Engine {
                 });
             }
 
+            let raw = self.raw_buffer.clone();
             self.reset();
             // The composed word is already correctly on screen — re-typing it
             // here would trigger a redundant backspace + clipboard-paste cycle
             // that races against the separately-forwarded flush char, eating
             // spaces and merging words. Just finalize and let the flush char
             // through untouched.
+            if prev_len > 0 {
+                // Auto-restore: if the committed word is English / not valid
+                // Vietnamese, revert to the raw keystrokes the user typed.
+                if self.auto_restore && Engine::should_restore_word(&previous, &raw) {
+                    return Some(EngineEvent::Replace {
+                        backspaces: prev_len,
+                        insert: raw,
+                    });
+                }
+                // Don't include flush char in insert — daemon forwards it separately
+                return Some(EngineEvent::Replace {
+                    backspaces: prev_len,
+                    insert: previous,
+                });
+            }
             return None;
         }
 
