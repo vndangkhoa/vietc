@@ -16,7 +16,6 @@ extern "C" {
 const CURRENT_TIME: Time = 0;
 const PROP_MODE_REPLACE: c_int = 0;
 const NO_EVENT_MASK: i64 = 0;
-const INPUT_OUTPUT: c_int = 1;
 const COPY_FROM_PARENT: Window = 0;
 
 const SELECTION_REQUEST: c_int = 30;
@@ -34,7 +33,6 @@ struct X11Lib {
     x_intern_atom: unsafe extern "C" fn(*mut Display, *const c_char, c_int) -> Atom,
     x_set_selection_owner: unsafe extern "C" fn(*mut Display, Atom, Window, Time) -> c_int,
     x_change_property: unsafe extern "C" fn(*mut Display, Window, Atom, Atom, c_int, c_int, *const c_void, c_int) -> c_int,
-    x_get_selection_owner: unsafe extern "C" fn(*mut Display, Atom) -> Window,
     x_send_event: unsafe extern "C" fn(*mut Display, Window, c_int, i64, *const c_void) -> c_int,
     x_create_simple_window: unsafe extern "C" fn(*mut Display, Window, c_int, c_int, c_int, c_int, c_int, Atom, Atom) -> Window,
     x_map_window: unsafe extern "C" fn(*mut Display, Window) -> c_int,
@@ -90,7 +88,6 @@ impl X11Lib {
             let x_intern_atom = sym!(x11_handle, "XInternAtom");
             let x_set_selection_owner = sym!(x11_handle, "XSetSelectionOwner");
             let x_change_property = sym!(x11_handle, "XChangeProperty");
-            let x_get_selection_owner = sym!(x11_handle, "XGetSelectionOwner");
             let x_send_event = sym!(x11_handle, "XSendEvent");
             let x_create_simple_window = sym!(x11_handle, "XCreateSimpleWindow");
             let x_map_window = sym!(x11_handle, "XMapWindow");
@@ -110,7 +107,6 @@ impl X11Lib {
                 x_intern_atom,
                 x_set_selection_owner,
                 x_change_property,
-                x_get_selection_owner,
                 x_send_event,
                 x_create_simple_window,
                 x_map_window,
@@ -130,8 +126,6 @@ impl Drop for X11Lib {
         }
     }
 }
-
-const X11_KEYCODE_OFFSET: u32 = 8;
 
 fn char_to_keycode(ch: char) -> Option<(u32, bool)> {
     match ch {
@@ -215,7 +209,6 @@ struct XEvent {
 pub struct X11Injector {
     lib: X11Lib,
     display: *mut Display,
-    root: Window,
     clipboard_window: Window,
     atom_clipboard: Atom,
     atom_utf8: Atom,
@@ -251,7 +244,6 @@ impl X11Injector {
             Ok(Self {
                 lib,
                 display,
-                root,
                 clipboard_window,
                 atom_clipboard,
                 atom_utf8,

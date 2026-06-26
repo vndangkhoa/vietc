@@ -92,6 +92,72 @@ impl Engine {
         event
     }
 
+    /// Replay a sequence of keystrokes through a fresh engine and return the
+    /// final screen output. This is the core of the Backspace-Replay pattern:
+    /// instead of tracking incremental state, we always recompute from scratch.
+    /// Returns (output_on_screen, did_flush).
+    /// `did_flush` means the engine processed a word boundary and the cursor
+    /// is now at a clean position — caller should clear keystroke history.
+    pub fn replay_keystrokes(
+        method: InputMethod,
+        macros: &std::collections::HashMap<String, String>,
+        keystrokes: &[char],
+    ) -> (String, bool) {
+        let mut engine = Engine::new(method);
+        for (shortcut, expansion) in macros {
+            engine.add_macro(shortcut.clone(), expansion.clone());
+        }
+
+        let mut last_output = String::new();
+        let mut did_flush = false;
+
+        for &ch in keystrokes {
+            if let Some(event) = engine.process_key(ch) {
+                match event {
+                    EngineEvent::Replace { insert, .. } => {
+                        last_output = insert;
+                    }
+                    EngineEvent::Flush(_word) => {
+                        // Word was flushed. The flush char is NOT part of the word.
+                        // The word is committed; clear tracking for current composing.
+                        last_output.clear();
+                        did_flush = true;
+                    }
+                    EngineEvent::Insert(text) => {
+                        last_output = text;
+                    }
+                    EngineEvent::UndoTones { restored, .. } => {
+                        last_output = restored;
+                    }
+                    EngineEvent::Paste(text) => {
+                        last_output = text;
+                    }
+                    EngineEvent::AutoRestore(word) => {
+                        last_output = word;
+                    }
+                }
+            } else {
+                // Key consumed but no screen change — buffer is building
+                let buf = engine.buffer().to_string();
+                if !buf.is_empty() {
+                    last_output = buf;
+                }
+            }
+        }
+
+        // If the engine has a buffer that hasn't been flushed, that's on screen
+        let buf = engine.buffer().to_string();
+        if !buf.is_empty() {
+            last_output = buf;
+            did_flush = false; // Still composing
+        } else if did_flush {
+            // After flush, nothing is on screen for the composing word
+            last_output.clear();
+        }
+
+        (last_output, did_flush)
+    }
+
     /// Update buffer with pasted text for subsequent edit operations (delete/backspace)
     pub fn update_with_pasted_text(&mut self, text: &str) {
         self.raw_buffer.clear();
@@ -496,5 +562,64 @@ mod tests {
         } else {
             panic!("Expected Replace event, got {:?}", event2);
         }
+    }
+
+    #[test]
+    fn test_replay_keystrokes_telex() {
+        let macros = std::collections::HashMap::new();
+
+        // Replay "chao" -> should produce "chao" (no tone yet)
+        let (output, flush) = Engine::replay_keystrokes(
+            InputMethod::Telex,
+            &macros,
+            &['c', 'h', 'a', 'o'],
+        );
+        assert_eq!(output, "chao");
+        assert!(!flush);
+
+        // Replay "chaos" -> s adds acute accent: "cháo"
+        let (output, flush) = Engine::replay_keystrokes(
+            InputMethod::Telex,
+            &macros,
+            &['c', 'h', 'a', 'o', 's'],
+        );
+        assert_eq!(output, "cháo");
+        assert!(!flush);
+
+        // Replay "chaof" -> f adds grave accent: "chào"
+        let (output, flush) = Engine::replay_keystrokes(
+            InputMethod::Telex,
+            &macros,
+            &['c', 'h', 'a', 'o', 'f'],
+        );
+        assert_eq!(output, "chào");
+        assert!(!flush);
+    }
+
+    #[test]
+    fn test_replay_keystrokes_backspace() {
+        let macros = std::collections::HashMap::new();
+
+        // Replay "chaos" then backspace -> engine pops 'o' from "cháo" → "chá"
+        let (output, _) = Engine::replay_keystrokes(
+            InputMethod::Telex,
+            &macros,
+            &['c', 'h', 'a', 'o', 's', '\x08'],
+        );
+        assert_eq!(output, "chá");
+    }
+
+    #[test]
+    fn test_replay_keystrokes_vni() {
+        let macros = std::collections::HashMap::new();
+
+        // VNI: "chao1" → acute accent on last vowel
+        let (output, _) = Engine::replay_keystrokes(
+            InputMethod::Vni,
+            &macros,
+            &['c', 'h', 'a', 'o', '1'],
+        );
+        // Verify it produces accented output (engine applies tone to last vowel)
+        assert!(output.contains('á') || output.contains('ó'), "Expected toned output, got: {}", output);
     }
 }

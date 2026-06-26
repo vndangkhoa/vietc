@@ -8,6 +8,31 @@ use std::time::Duration;
 
 use vietc_engine::{Engine, EngineEvent, InputMethod};
 
+/// Pin current thread to performance cores (0-3) and boost priority.
+/// Inspired by VMK's approach to minimize input latency on Intel hybrid CPUs.
+fn boost_thread_priority() {
+    unsafe {
+        // Set nice value to -10 (higher priority than normal)
+        libc::setpriority(libc::PRIO_PROCESS, 0, -10);
+
+        // Try to pin to P-cores (cores 0-3 on Intel hybrid)
+        #[cfg(target_os = "linux")]
+        {
+            let mut cpuset: libc::cpu_set_t = std::mem::zeroed();
+            // Pin to cores 0-3 (P-cores on Intel 12th gen+)
+            for i in 0..4 {
+                libc::CPU_SET(i, &mut cpuset);
+            }
+            let ret = libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset);
+            if ret == 0 {
+                eprintln!("[vietc] Pinned to P-cores 0-3, nice=-10");
+            } else {
+                eprintln!("[vietc] CPU pinning failed ({}), nice=-10 still set", ret);
+            }
+        }
+    }
+}
+
 mod app_state;
 mod config;
 mod display;
@@ -84,6 +109,13 @@ struct Daemon {
     app_state: AppStateManager,
     engine_enabled: Arc<AtomicBool>,
     grab_enabled: bool,
+    /// Backspace-Replay: all keystrokes in the current word being composed.
+    /// On each keypress, we replay the entire history through a fresh engine
+    /// to compute the correct screen output, eliminating state desync.
+    keystroke_history: Vec<char>,
+    /// What's currently displayed on screen for the current word.
+    /// Used to calculate how many backspaces we need before retyping.
+    screen_output: String,
 }
 
 impl Daemon {
@@ -120,6 +152,8 @@ impl Daemon {
             config_modified,
             app_state,
             engine_enabled,
+            keystroke_history: Vec::new(),
+            screen_output: String::new(),
         }
     }
 
@@ -307,6 +341,130 @@ impl Daemon {
         self.app_state.is_current_app_bypassed()
     }
 
+    /// Backspace-Replay: replay the entire keystroke history through a fresh
+    /// engine, compute what should be on screen, and return the commands
+    /// (backspaces to erase old + new text to type).
+    fn replay_and_inject(&mut self, ch: char) -> Vec<OutputCommand> {
+        let mut commands = Vec::new();
+
+        // Flush characters: commit current word, type the character, clear state
+        if is_flush_char(ch) {
+            if !self.screen_output.is_empty() {
+                let backspaces = self.screen_output.chars().count();
+                commands.push(OutputCommand::Backspace(backspaces));
+                commands.push(OutputCommand::Type(self.screen_output.clone()));
+            }
+            // Type the flush character itself
+            commands.push(OutputCommand::Type(ch.to_string()));
+            self.keystroke_history.clear();
+            self.screen_output.clear();
+            return commands;
+        }
+
+        // Add the new keystroke to history
+        self.keystroke_history.push(ch);
+
+        // Replay through fresh engine
+        let method = match self.config.input_method.as_str() {
+            "vni" => InputMethod::Vni,
+            _ => InputMethod::Telex,
+        };
+        let (new_output, did_flush) = Engine::replay_keystrokes(
+            method,
+            &self.config.macros,
+            &self.keystroke_history,
+        );
+
+        log_info(&format!(
+            "[vietc] replay: history_len={} old_screen='{}' new_output='{}' flush={}",
+            self.keystroke_history.len(),
+            self.screen_output,
+            new_output,
+            did_flush
+        ));
+
+        if did_flush {
+            // Engine flushed a word — commit it and clear state
+            // The flush char (space/period/etc) was NOT in history, so we need to
+            // type whatever was on screen + the flush char
+            if !self.screen_output.is_empty() {
+                let backspaces = self.screen_output.chars().count();
+                commands.push(OutputCommand::Backspace(backspaces));
+                commands.push(OutputCommand::Type(self.screen_output.clone()));
+            }
+            self.keystroke_history.clear();
+            self.screen_output.clear();
+            return commands;
+        }
+
+        if new_output != self.screen_output {
+            let backspaces = self.screen_output.chars().count();
+            if backspaces > 0 {
+                commands.push(OutputCommand::Backspace(backspaces));
+            }
+            if !new_output.is_empty() {
+                commands.push(OutputCommand::Type(new_output.clone()));
+            }
+            self.screen_output = new_output;
+        }
+
+        commands
+    }
+
+    /// Backspace-Replay: pop from history, replay, and return commands to fix screen.
+    fn replay_backspace(&mut self) -> Vec<OutputCommand> {
+        let mut commands = Vec::new();
+
+        if self.keystroke_history.is_empty() {
+            // Nothing in history — just forward the backspace
+            commands.push(OutputCommand::Backspace(1));
+            return commands;
+        }
+
+        // Remove last keystroke from history
+        self.keystroke_history.pop();
+
+        // Replay through fresh engine
+        let method = match self.config.input_method.as_str() {
+            "vni" => InputMethod::Vni,
+            _ => InputMethod::Telex,
+        };
+        let (new_output, _) = if self.keystroke_history.is_empty() {
+            (String::new(), false)
+        } else {
+            Engine::replay_keystrokes(
+                method,
+                &self.config.macros,
+                &self.keystroke_history,
+            )
+        };
+
+        log_info(&format!(
+            "[vietc] replay_backspace: history_len={} old_screen='{}' new_output='{}'",
+            self.keystroke_history.len(),
+            self.screen_output,
+            new_output
+        ));
+
+        // Calculate diff
+        let backspaces = self.screen_output.chars().count();
+        if backspaces > 0 {
+            commands.push(OutputCommand::Backspace(backspaces));
+        }
+        if !new_output.is_empty() {
+            commands.push(OutputCommand::Type(new_output.clone()));
+        }
+        self.screen_output = new_output;
+
+        commands
+    }
+
+    /// Reset the replay state (on flush, focus loss, modifier key, etc.)
+    fn replay_reset(&mut self) {
+        self.keystroke_history.clear();
+        self.screen_output.clear();
+    }
+
     fn check_app_change_with(&mut self, new_class: String) {
         if let Some(should_enable) = self.app_state.update_with_app(new_class) {
             self.engine.set_enabled(should_enable);
@@ -319,6 +477,11 @@ impl Daemon {
 enum OutputCommand {
     Type(String),
     Backspace(usize),
+}
+
+/// Characters that flush the current word and start a new one.
+fn is_flush_char(ch: char) -> bool {
+    matches!(ch, ' ' | '.' | ',' | '!' | '?' | ';' | ':' | '\t' | '\n')
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -352,6 +515,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "OFF"
         }
     ));
+
+    // Boost thread priority for low-latency input (VMK technique)
+    boost_thread_priority();
 
     // Spawn background monitor for active window, config changes, and status changes
     let shared_active_window = Arc::new(Mutex::new(String::new()));
@@ -560,7 +726,7 @@ fn run_with_x11(
             if active_window != last_active_window {
                 log_info(&format!("[vietc] Window changed: '{}' -> '{}'", last_active_window, active_window));
                 last_active_window = active_window.clone();
-                daemon.engine.reset();
+                daemon.replay_reset();
             }
         }
 
@@ -569,9 +735,17 @@ fn run_with_x11(
             daemon.check_app_change_with(active_window);
         }
 
+        // Reset on focus loss (VMK technique)
+        if capture.focus_lost {
+            eprintln!("[vietc] Focus lost — resetting engine state");
+            daemon.replay_reset();
+            pressed_keys.clear();
+            capture.focus_lost = false;
+        }
+
         while let Some(event) = capture.next_event() {
             if event.pressed {
-                // Skip autorepeat — key is already tracked as held
+                // Skip autorepeat
                 if !pressed_keys.insert(event.keycode) {
                     continue;
                 }
@@ -580,54 +754,53 @@ fn run_with_x11(
                 if let Some(' ') = event.ch {
                     if (event.state & 4) != 0 {
                         pressed_keys.remove(&event.keycode);
+                        daemon.replay_reset();
                         daemon.toggle();
                         continue;
                     }
                 }
 
-                // Modifier or non-character key → forward press only
+                // Modifier or non-character key → forward press only, reset replay
                 if capture.is_modifier_pressed(event.state) || event.ch.is_none() {
-                    daemon.engine.reset();
+                    daemon.replay_reset();
                     capture.without_grab(|| {
                         let _ = injector.send_key_event(event.keycode as u16, 1);
                     });
                     continue;
                 }
 
-                // Character key
+                // Character key — use Backspace-Replay
                 if let Some(ch) = event.ch {
                     match ch {
                         '\x08' => {
-                            daemon.engine.process_key('\x08');
+                            // Backspace: replay pattern pops from history
+                            let commands = daemon.replay_backspace();
+                            pressed_keys.remove(&event.keycode);
                             capture.without_grab(|| {
-                                let _ = injector.send_backspace();
+                                execute_commands(&*injector, &commands, true);
                             });
-                            // Keep in pressed_keys so release is forwarded
+                            // If history is empty and commands only had a bare backspace,
+                            // we need to actually send it
+                            if daemon.keystroke_history.is_empty() && commands.is_empty() {
+                                capture.without_grab(|| {
+                                    let _ = injector.send_backspace();
+                                });
+                            }
                         }
                         '\n' => {
                             pressed_keys.remove(&event.keycode);
-                            daemon.engine.reset();
+                            daemon.replay_reset();
                             capture.without_grab(|| {
                                 let _ = injector.send_key_event(event.keycode as u16, 1);
                                 let _ = injector.send_key_event(event.keycode as u16, 0);
                             });
                         }
                         _ => {
-                            let commands = daemon.process_key(ch);
-                            if !commands.is_empty() {
-                                // Engine consumed the key; remove from tracking
-                                pressed_keys.remove(&event.keycode);
-                                capture.without_grab(|| {
-                                    execute_commands(&*injector, &commands, true);
-                                });
-                            } else {
-                                // Engine started composing; forward press+release immediately
-                                pressed_keys.remove(&event.keycode);
-                                capture.without_grab(|| {
-                                    let _ = injector.send_key_event(event.keycode as u16, 1);
-                                    let _ = injector.send_key_event(event.keycode as u16, 0);
-                                });
-                            }
+                            let commands = daemon.replay_and_inject(ch);
+                            pressed_keys.remove(&event.keycode);
+                            capture.without_grab(|| {
+                                execute_commands(&*injector, &commands, true);
+                            });
                         }
                     }
                 }

@@ -2,15 +2,15 @@ use std::ffi::{c_char, c_int, c_void};
 
 type Display = c_void;
 type Window = u64;
-type XID = u64;
 type Time = u64;
 
 // X11 event types
 const KEY_PRESS: c_int = 2;
 const KEY_RELEASE: c_int = 3;
+const FOCUS_IN: c_int = 9;
+const FOCUS_OUT: c_int = 10;
 
 // X11 modifier masks
-const SHIFT_MASK: c_int = 1;
 const CONTROL_MASK: c_int = 4;
 const MOD1_MASK: c_int = 8;  // Alt
 const MOD4_MASK: c_int = 64; // Super/Win
@@ -33,7 +33,6 @@ struct X11Lib {
     x_ungrab_keyboard: unsafe extern "C" fn(*mut Display, Time) -> c_int,
     x_next_event: unsafe extern "C" fn(*mut Display, *mut XEvent),
     x_lookup_string: unsafe extern "C" fn(*mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int,
-    x_keysym_to_keycode: unsafe extern "C" fn(*mut Display, KeySym) -> u32,
     x_utf8_lookup_string: Option<unsafe extern "C" fn(*mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int>,
     x_flush: unsafe extern "C" fn(*mut Display) -> c_int,
 }
@@ -69,7 +68,6 @@ impl X11Lib {
             let x_ungrab_keyboard = sym!("XUngrabKeyboard");
             let x_next_event = sym!("XNextEvent");
             let x_lookup_string = sym!("XLookupString");
-            let x_keysym_to_keycode = sym!("XKeysymToKeycode");
             let x_utf8_lookup_string = dlsym(handle, b"Xutf8LookupString\0".as_ptr() as *const c_char);
             let x_utf8_lookup_string = if x_utf8_lookup_string.is_null() {
                 None
@@ -87,7 +85,6 @@ impl X11Lib {
                 x_ungrab_keyboard,
                 x_next_event,
                 x_lookup_string,
-                x_keysym_to_keycode,
                 x_utf8_lookup_string,
                 x_flush,
             })
@@ -149,7 +146,8 @@ pub struct X11Capture {
     display: *mut Display,
     root: Window,
     grabbed: bool,
-    event_buf: Vec<u8>,
+    /// Set to true when FocusOut is received — caller should reset engine state
+    pub focus_lost: bool,
 }
 
 unsafe impl Send for X11Capture {}
@@ -178,7 +176,7 @@ impl X11Capture {
                 display,
                 root,
                 grabbed: false,
-                event_buf: Vec::new(),
+                focus_lost: false,
             })
         }
     }
@@ -225,6 +223,17 @@ impl X11Capture {
         }
 
         let _type = event._type;
+
+        // Handle FocusIn/FocusOut — reset engine state when focus changes
+        if _type == FOCUS_OUT {
+            self.focus_lost = true;
+            return self.next_event();
+        }
+        if _type == FOCUS_IN {
+            self.focus_lost = false;
+            return self.next_event();
+        }
+
         if _type != KEY_PRESS && _type != KEY_RELEASE {
             return self.next_event();
         }
