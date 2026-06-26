@@ -127,6 +127,30 @@ impl BambooEngine {
                     }
                 }
             }
+
+            // Smart "ua" → "ưa": the horn goes on the u (xưa, chưa, mưa, lửa),
+            // not the breve on the a ("xuă" is not a valid syllable). Skip the
+            // "qu" glide case, where the u belongs to the initial consonant and
+            // the a takes the breve instead (quă → quăng).
+            if self.composition.len() >= 2 {
+                let a_idx = self.composition.len() - 1;
+                let u_idx = a_idx - 1;
+                let a_ch = self.composition[a_idx].base_char.to_ascii_lowercase();
+                let u_ch = self.composition[u_idx].base_char.to_ascii_lowercase();
+                let preceded_by_q = u_idx > 0
+                    && self.composition[u_idx - 1]
+                        .base_char
+                        .eq_ignore_ascii_case(&'q');
+                if a_ch == 'a'
+                    && u_ch == 'u'
+                    && self.composition[u_idx].mark_applied.is_none()
+                    && !preceded_by_q
+                {
+                    self.composition[u_idx].base_char = 'ư';
+                    self.composition[u_idx].mark_applied = Some('ư');
+                    return Some(self.flatten());
+                }
+            }
         }
 
         // Try mark rules with flexible backtrack" (scan up to 3 chars backward)
@@ -579,6 +603,23 @@ fn test_telex_gios() {
 }
 
 
+
+    #[test]
+    fn test_telex_ua_horn() {
+        // "w" after a "ua" cluster puts the horn on the u (ưa), it must not
+        // put the breve on the a ("xuă" is not a valid Vietnamese syllable).
+        assert_eq!(process(InputMethod::Telex, "xuaw"), "xưa");
+        assert_eq!(process(InputMethod::Telex, "chuaw"), "chưa");
+        assert_eq!(process(InputMethod::Telex, "muaw"), "mưa");
+        assert_eq!(process(InputMethod::Telex, "Xuaw"), "Xưa");
+        // With a following tone the horn target still carries the tone.
+        assert_eq!(process(InputMethod::Telex, "luawr"), "lửa");
+        // "qu" glide exception: the u belongs to the initial, a takes the breve.
+        assert_eq!(process(InputMethod::Telex, "quawng"), "quăng");
+        // VNI parity.
+        assert_eq!(process(InputMethod::Vni, "xua7"), "xưa");
+        assert_eq!(process(InputMethod::Vni, "qua8ng"), "quăng");
+    }
 
     #[test]
     fn test_telex_r_as_normal_char() {
