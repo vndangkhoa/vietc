@@ -24,6 +24,15 @@ unsafe impl Send for UinputInjector {}
 unsafe impl Sync for UinputInjector {}
 
 impl UinputInjector {
+    fn send_enter(&self) {
+        self.send_uinput_event(EV_KEY, 28, 1);
+        self.send_uinput_event(0, 0, 0);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        self.send_uinput_event(EV_KEY, 28, 0);
+        self.send_uinput_event(0, 0, 0);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+
     pub fn new(name: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let file = OpenOptions::new()
             .read(true)
@@ -122,15 +131,6 @@ impl KeyInjector for UinputInjector {
         std::thread::sleep(std::time::Duration::from_millis(2));
 
         InjectResult::Success
-    }
-
-    fn send_enter(&self) {
-        self.send_uinput_event(EV_KEY, 28, 1); // KEY_ENTER press
-        self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_millis(2));
-        self.send_uinput_event(EV_KEY, 28, 0);
-        self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_millis(2));
     }
 
     fn send_key_event(&self, keycode: u16, value: i32) -> InjectResult {
