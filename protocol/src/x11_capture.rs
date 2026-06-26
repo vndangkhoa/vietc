@@ -46,14 +46,11 @@ struct X11Lib {
     x_free: unsafe extern "C" fn(*mut c_void) -> c_int,
 }
 
-// XRecordRange - must match C layout exactly
-// C layout: { int client_spec; struct { u8 first; u8 last; } device_events; ... }
+// XRecordRange: 32 bytes total
+// device_events is at offset 18 (XRecordRange8: first=offset 18, last=offset 19)
 #[repr(C)]
 struct XRecordRange {
-    client_spec: c_int,
-    device_events_first: u8,
-    device_events_last: u8,
-    _pad: [u8; 250],
+    _bytes: [u8; 32],
 }
 
 type XRecordCallback = unsafe extern "C" fn(*mut c_void, *mut XRecordInterceptData);
@@ -332,18 +329,20 @@ impl X11Capture {
                 (lib.x_close_display)(display);
                 return None;
             }
-            // Set range: KeyPress (2) through KeyRelease (3)
-            (*range).device_events_first = KEY_PRESS as u8;
-            (*range).device_events_last = KEY_RELEASE as u8;
+            // Set range: device_events at offset 18
+            // XRecordRange8: first byte, last byte
+            (*range)._bytes[18] = KEY_PRESS as u8;  // device_events.first
+            (*range)._bytes[19] = KEY_RELEASE as u8; // device_events.last
             eprintln!("[vietc] X11Capture: range set (KeyPress={}, KeyRelease={})", KEY_PRESS, KEY_RELEASE);
 
             // Create XRecord context
-            let mut spec: c_int = 1; // XRecordAllClients = 1
+            // XRecordClientSpec is XID = unsigned long (8 bytes on x86_64)
+            let mut spec: u64 = 3; // XRecordAllClients = 3
             let mut range_ptr: *mut XRecordRange = range;
             let ctx = (lib.x_record_create_context)(
                 display,
                 0,              // own_client
-                &mut spec,      // clients
+                &mut spec as *mut u64 as *mut c_int, // client_spec (pointer to unsigned long)
                 1,              // nclients
                 &mut range_ptr, // ranges (pointer to array of range pointers)
                 1,              // nranges
