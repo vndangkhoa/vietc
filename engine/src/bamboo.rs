@@ -89,12 +89,18 @@ impl BambooEngine {
             self.macro_buf.clear();
         }
 
-        // Check tone keys
+        // Check tone keys — only apply if composition has a vowel, else treat as normal char
         if let Some(&(tone_char, _tone_name)) = self.rules.tone_keys.get(&lower) {
-            return self.apply_tone(tone_char);
+            let has_vowel = self.composition.iter().any(|t| {
+                is_vowel(t.mark_applied.unwrap_or(t.base_char))
+            });
+            if has_vowel {
+                return self.apply_tone(tone_char);
+            }
+            // Fall through: append as normal character
         }
 
-        // Smart "uo" → "ươ" shortcut with flexible backtrack:
+        // Smart "uo" → "ươ" shortcut with flexible backtrack":
         // Scan backward through consonants to find the "uo" pair
         if self.rules.method == InputMethod::Telex && lower == 'w'
             || self.rules.method == InputMethod::Vni && lower == '7'
@@ -123,7 +129,7 @@ impl BambooEngine {
             }
         }
 
-        // Try mark rules with flexible backtrack (scan up to 3 chars backward)
+        // Try mark rules with flexible backtrack" (scan up to 3 chars backward)
         let mark_match = self.find_mark_backtrack(lower);
 
         if let Some((idx, pattern, result)) = mark_match {
@@ -558,6 +564,33 @@ fn test_telex_gios() {
     }
     assert_eq!(out, "gió", "Expected gió, got {}", out);
 }
+
+
+
+    #[test]
+    fn test_telex_r_as_normal_char() {
+        let mut e = BambooEngine::new(InputMethod::Telex);
+        let mut out = String::new();
+        for ch in "tr".chars() {
+            if let Some(o) = e.process_key(ch) { out = o; }
+        }
+        assert_eq!(out, "tr");
+        out.clear(); e.reset();
+        for ch in "traf".chars() {
+            if let Some(o) = e.process_key(ch) { out = o; }
+        }
+        assert_eq!(out, "trà");
+        out.clear(); e.reset();
+        for ch in "tar".chars() {
+            if let Some(o) = e.process_key(ch) { out = o; }
+        }
+        assert_eq!(out, "tả");
+        out.clear(); e.reset();
+        for ch in "tramr".chars() {
+            if let Some(o) = e.process_key(ch) { out = o; }
+        }
+        assert_eq!(out, "trảm");
+    }
 
 
 }
