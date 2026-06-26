@@ -47,11 +47,13 @@ struct X11Lib {
 }
 
 // XRecordRange - must match C layout exactly
+// C layout: { int client_spec; struct { u8 first; u8 last; } device_events; ... }
 #[repr(C)]
 struct XRecordRange {
+    client_spec: c_int,
     device_events_first: u8,
     device_events_last: u8,
-    _pad: [u8; 254],
+    _pad: [u8; 250],
 }
 
 type XRecordCallback = unsafe extern "C" fn(*mut c_void, *mut XRecordInterceptData);
@@ -243,13 +245,17 @@ struct EventQueue {
 static mut EVENT_QUEUE: Option<Arc<Mutex<EventQueue>>> = None;
 
 unsafe extern "C" fn record_callback(_closure: *mut c_void, data: *mut XRecordInterceptData) {
-    if (*data).id == 0 {
-        return; // This is our own XRecord data from the init, skip
+    if data.is_null() {
+        return;
     }
-    if (*data).data_len < 2 {
+    let data_len = (*data).data_len;
+    if data_len < 2 {
         return;
     }
     let data_bytes = (*data).data;
+    if data_bytes.is_null() {
+        return;
+    }
     let event_type: c_int = *data_bytes as c_int;
     let keycode: u8 = *data_bytes.add(1);
 
@@ -257,10 +263,8 @@ unsafe extern "C" fn record_callback(_closure: *mut c_void, data: *mut XRecordIn
         return;
     }
 
-    // For XRecord events, we get the raw keycode and event type.
-    // We need to construct a fake XKeyEvent to pass to XLookupString for the character.
-    // The state (modifier bits) is at offset 28-31 in the XRecord data for keyboard events.
-    let state: c_int = if (*data).data_len >= 4 {
+    // XRecord data layout for keyboard events: type(1) + keycode(1) + state(2)
+    let state: c_int = if data_len >= 4 {
         *(data_bytes.add(2) as *const u16) as c_int
     } else {
         0
@@ -331,16 +335,17 @@ impl X11Capture {
             // Set range: KeyPress (2) through KeyRelease (3)
             (*range).device_events_first = KEY_PRESS as u8;
             (*range).device_events_last = KEY_RELEASE as u8;
+            eprintln!("[vietc] X11Capture: range set (KeyPress={}, KeyRelease={})", KEY_PRESS, KEY_RELEASE);
 
             // Create XRecord context
             let mut spec: c_int = 1; // XRecordAllClients = 1
-            let range_ptr = range as *mut *mut XRecordRange;
+            let mut range_ptr: *mut XRecordRange = range;
             let ctx = (lib.x_record_create_context)(
                 display,
                 0,              // own_client
                 &mut spec,      // clients
                 1,              // nclients
-                range_ptr,      // ranges
+                &mut range_ptr, // ranges (pointer to array of range pointers)
                 1,              // nranges
             );
             (lib.x_free)(range as *mut c_void);
@@ -350,6 +355,7 @@ impl X11Capture {
                 (lib.x_close_display)(display);
                 return None;
             }
+            eprintln!("[vietc] X11Capture: XRecord context created (ctx={})", ctx);
 
             // Initialize event queue
             EVENT_QUEUE = Some(Arc::new(Mutex::new(EventQueue {
