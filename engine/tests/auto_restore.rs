@@ -91,11 +91,15 @@ fn auto_restore_can_be_disabled() {
     for ch in "cargo".chars() {
         engine.process_key(ch);
     }
+    // With auto-restore off the Vietnamese composition is kept on screen
+    // (no restore back to the raw English keystrokes).
+    assert_eq!(engine.buffer(), "cảgo");
+    // The composed word is already correct on screen, so flushing emits no
+    // Replace — re-typing it would race with the forwarded flush char and eat
+    // the spacing. (Contrast with auto-restore on, which emits Replace→"cargo".)
     let event = engine.process_key(' ');
-    match event {
-        Some(vietc_engine::EngineEvent::Replace { insert, .. }) => {
-            assert_eq!(insert, "cảgo", "with auto-restore off the VN form is kept");
-        }
-        other => panic!("expected Replace to 'cảgo', got {other:?}"),
-    }
+    assert!(
+        event.is_none(),
+        "with auto-restore off the composed VN word stays untouched on flush, got {event:?}"
+    );
 }

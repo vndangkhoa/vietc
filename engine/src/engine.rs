@@ -213,25 +213,21 @@ impl Engine {
 
             let raw = self.raw_buffer.clone();
             self.reset();
-            // The composed word is already correctly on screen — re-typing it
-            // here would trigger a redundant backspace + clipboard-paste cycle
-            // that races against the separately-forwarded flush char, eating
-            // spaces and merging words. Just finalize and let the flush char
-            // through untouched.
             if prev_len > 0 {
                 // Auto-restore: if the committed word is English / not valid
-                // Vietnamese, revert to the raw keystrokes the user typed.
+                // Vietnamese, revert to the raw keystrokes the user typed. This
+                // genuinely changes the on-screen word, so a Replace is needed.
                 if self.auto_restore && Engine::should_restore_word(&previous, &raw) {
                     return Some(EngineEvent::Replace {
                         backspaces: prev_len,
                         insert: raw,
                     });
                 }
-                // Don't include flush char in insert — daemon forwards it separately
-                return Some(EngineEvent::Replace {
-                    backspaces: prev_len,
-                    insert: previous,
-                });
+                // Normal case: the composed word is already correctly on screen.
+                // Re-typing it would trigger a redundant backspace + retype that
+                // races against the separately-forwarded flush char, eating
+                // spaces and merging words. Finalize and let the flush char
+                // through untouched.
             }
             return None;
         }

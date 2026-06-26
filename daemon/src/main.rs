@@ -285,15 +285,17 @@ impl Daemon {
     fn replay_and_inject(&mut self, ch: char) -> Vec<OutputCommand> {
         let mut commands = Vec::new();
 
-        // Flush characters: commit current word, type the character, clear state.
-        // The composed word is already correctly on screen, so we must NOT
-        // backspace and retype it — doing so eats the spacing and shifts the
-        // finished word left. Just type the flush char and clear state.
+        // Flush characters: commit the current word and type the flush char.
+        // Only backspace + retype when auto-restore actually CHANGES the word
+        // (English / invalid Vietnamese). For a normal composed word it is
+        // already correctly on screen, so retyping it would eat the spacing and
+        // shift the finished word left.
         if is_flush_char(ch) {
-            if !self.screen_output.is_empty() {
+            let to_commit = self.word_to_commit();
+            if !self.screen_output.is_empty() && to_commit != self.screen_output {
                 let backspaces = self.screen_output.chars().count();
                 commands.push(OutputCommand::Backspace(backspaces));
-                commands.push(OutputCommand::Type(self.word_to_commit()));
+                commands.push(OutputCommand::Type(to_commit));
             }
             // Type the flush character itself
             commands.push(OutputCommand::Type(ch.to_string()));
@@ -317,16 +319,15 @@ impl Daemon {
         );
 
         if did_flush {
-            // Engine flushed a word — it is already correctly on screen, so
-            // just clear state without backspacing/retyping it (retyping eats
-            // spacing and shifts the finished word left).
-            // Engine flushed a word — commit it and clear state
-            // The flush char (space/period/etc) was NOT in history, so we need to
-            // type whatever was on screen + the flush char
-            if !self.screen_output.is_empty() {
+            // Engine flushed a word. Only backspace + retype when auto-restore
+            // actually CHANGES the word; otherwise the composed word is already
+            // correct on screen and retyping it eats spacing and shifts the
+            // finished word left.
+            let to_commit = self.word_to_commit();
+            if !self.screen_output.is_empty() && to_commit != self.screen_output {
                 let backspaces = self.screen_output.chars().count();
                 commands.push(OutputCommand::Backspace(backspaces));
-                commands.push(OutputCommand::Type(self.word_to_commit()));
+                commands.push(OutputCommand::Type(to_commit));
             }
             self.keystroke_history.clear();
             self.screen_output.clear();
