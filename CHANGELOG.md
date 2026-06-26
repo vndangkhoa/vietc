@@ -2,52 +2,52 @@
 
 ## v0.1.2 (2026-06-26)
 
+### Telex & Spacing Fixes
+- **ua-horn cluster fix** — Correct tone placement for `ưa` clusters (mưa, lửa).
+- **Word-spacing fix** — Clipboard operations now properly preserve user's clipboard content during injection by saving and restoring via `clipboard_context`.
+- **Control-key consumption fix** — VNI/Telex control keys properly consumed across all code paths.
+- **Clipboard preservation** — User's clipboard is saved before daemon injection and restored after, preventing Ctrl+C/V conflicts.
+
 ### Flush & Spacing
-- **Flush char forwarded as raw key** — Engine no longer includes flush char (space, enter, punctuation) in Replace insert text. Daemon forwards it as a raw keycode after injection, preventing clipboard paste from trimming trailing spaces.
-- **Stop retyping finished word on flush** — Flush no longer erases and retypes the entire word. Characters already on screen stay, only the flush key is typed.
-- **Auto-restore English words** — Recognizes common English words and invalid Vietnamese syllables. When typing `hello` followed by space, the word is restored if the engine incorrectly applied Vietnamese marks.
+- **Flush char forwarded as raw key** — Engine no longer includes flush char in Replace insert. Daemon forwards it as raw keycode after injection.
+- **Stop retyping finished word on flush** — Characters already on screen stay, only the flush key is typed.
+- **Auto-restore English words** — Common English words and invalid Vietnamese syllables are restored on space.
 
 ### Tone Placement
-- **qu/gi onset glides** — Correct tone placement for `qu` (quý, quả) and `gi` (gió, giờ) clusters.
-- **uê/uơ clusters** — Correct tone on second vowel for `uê` (thuế) and `uơ` (thuở).
+- **qu/gi onset glides** — Correct tone for `qu` (quý), `gi` (gió) clusters.
+- **uê/uơ clusters** — Correct tone on second vowel for `uê` (thuế), `uơ` (thuở).
 
-### Injection Fixes
-- **Skip auto-repeat pile-up** — After each injection, skip 3 auto-repeat events (value=2) to prevent `rrrrrrrr` from flooding the output during injection delay.
-- **Enter key support** — `\n` character now sent as `KEY_ENTER` via uinput. Fixes Enter requiring double-press.
-- **Removed clipboard save/restore** — The `xclip -o` read was leaking content into text. Simple clipboard write+paste is sufficient.
-- **Removed xdotool approach** — xdotool type depends on keyboard layout and fails on US layout. Reverted to clipboard paste which is layout-independent.
+### Injection
+- **Skip auto-repeat** — Skip 3 auto-repeat events after injection to prevent key flood.
+- **Enter key** — `\n` sent as KEY_ENTER via uinput.
+- **Removed xdotool** — Layout-dependent; reverted to clipboard paste.
+- **Uinput daemon** improvements for clipboard-aware injection.
 
 ### AppImage
-- **`--quit` / `--restart` / `--update` flags** — CLI control over daemon lifecycle and self-updating from GitHub releases.
-- **xdotool bundling** — Bundled in AppImage for future use (not active yet).
+- `--quit`, `--restart`, `--update` flags.
+- xdotool bundled for future use.
 
-### Engine Tests
-- **102 total tests** — 71 engine + 13 CLI + 12 protocol + 5 auto-restore + 1 tone placement.
-- New: `tone_placement.rs` (qu/gi/gio/uê/uơ clusters), `auto_restore.rs` (5 tests).
+### Tests
+- **106 tests** (72 engine + 16 CLI + 12 protocol + 5 auto-restore + 1 tone placement).
 
-### DEB & AppImage
-- `vietc_0.1.2-1_amd64.deb` (975K), `Viet+-0.1.2-x86_64.AppImage` (2.2M) published on GitHub and Forgejo.
+### Releases
+- `vietc_0.1.2-1_amd64.deb` (975K), `Viet+-0.1.2-x86_64.AppImage` (2.2M) on GitHub + Forgejo.
 
 ---
 
 ## v0.1.1 (2026-06-26)
 
 ### Telex fixes
-- **Fix `r` consumed as tone key** — Telex tone keys (`f`,`s`,`r`,`x`,`j`) now only activate when the composition has a vowel.
-- **Fix normal letters consumed** — `is_vn_control_key` was consuming `a`,`e`,`o`,`d`,`u` in Telex mode.
-- **Tone key context check** — Tone keys check `has_vowel` before applying.
+- Fix `r` consumed as tone key — tone keys check `has_vowel` before applying.
+- Fix normal letters consumed — `is_vn_control_key` was eating `a`,`e`,`o`,`d`,`u`.
+- 67 engine tests.
 
 ### Injection
-- **15ms delay** between clipboard paste and trailing uinput ASCII.
-- **Persistent X11 connection** for Ctrl+V via `std::sync::Once`.
-- **Enter key** sends `KEY_ENTER` via uinput.
-
-### AppImage
-- `--quit`, `--restart`, `--update` flags. GUI quit dialog.
-- 67 engine tests.
+- 15ms delay, persistent X11 connection, Enter key support.
+- `--quit`, `--restart`, `--update` flags.
 
 ---
 
 ## v0.1.0 (2026-06-26)
 
-Initial release and major overhaul.
+Initial release — bamboo engine port, evdev capture, uinput injection.
