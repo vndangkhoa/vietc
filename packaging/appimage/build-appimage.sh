@@ -53,6 +53,18 @@ else
     echo "  xclip not found on system, skipping"
 fi
 
+# Bundle xdotool for reliable Unicode text injection
+echo "  Bundling xdotool..."
+if command -v xdotool &>/dev/null; then
+    cp "$(which xdotool)" "$APPDIR/usr/bin/"
+    echo "  xdotool bundled"
+elif [ -f /tmp/xdotool-extract/usr/bin/xdotool ]; then
+    cp /tmp/xdotool-extract/usr/bin/xdotool "$APPDIR/usr/bin/"
+    echo "  xdotool bundled (from extract)"
+else
+    echo "  xdotool not found, Unicode falls back to clipboard"
+fi
+
 # Compile and bundle vietc-xrecord (C helper for XRecord keyboard capture)
 echo "  Compiling vietc-xrecord..."
 if command -v gcc &>/dev/null; then
