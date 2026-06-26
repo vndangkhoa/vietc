@@ -349,7 +349,7 @@ impl UinputInjector {
     /// best available method: ydotool (uinput) for ASCII, xdotool (X11) or
     /// clipboard for Unicode.
     fn inject_replacement_atomic(&self, backspaces: usize, text: &str) -> InjectResult {
-        // If all ASCII, send keycodes directly — fast and reliable
+        // If all ASCII, send keycodes directly
         if text.chars().all(|c| char_to_linux_keycode(c).is_some() || c == '\n') {
             if backspaces > 0 {
                 for _ in 0..backspaces { let _ = self.send_backspace(); }
@@ -361,23 +361,11 @@ impl UinputInjector {
             return InjectResult::Success;
         }
 
-        // Unicode text: try xdotool first (reliable, no clipboard)
-        if !std::env::var("WAYLAND_DISPLAY").is_ok() {
-            let result = std::process::Command::new("xdotool")
-                .args(["type", "--clearmodifiers", "--delay", "1", text])
-                .output();
-            if result.map(|o| o.status.success()).unwrap_or(false) {
-                if backspaces > 0 {
-                    for _ in 0..backspaces { let _ = self.send_backspace(); }
-                }
-                return InjectResult::Success;
-            }
-        }
-
-        // Fallback: clipboard paste
+        // Unicode: clipboard paste. Backspaces FIRST, then paste everything at once.
         if backspaces > 0 {
             for _ in 0..backspaces { let _ = self.send_backspace(); }
         }
+
         if self.copy_to_clipboard(text) {
             self.send_ctrl_v_x11();
         }
