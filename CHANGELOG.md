@@ -1,72 +1,53 @@
 # Changelog
 
+## v0.1.2 (2026-06-26)
+
+### Flush & Spacing
+- **Flush char forwarded as raw key** — Engine no longer includes flush char (space, enter, punctuation) in Replace insert text. Daemon forwards it as a raw keycode after injection, preventing clipboard paste from trimming trailing spaces.
+- **Stop retyping finished word on flush** — Flush no longer erases and retypes the entire word. Characters already on screen stay, only the flush key is typed.
+- **Auto-restore English words** — Recognizes common English words and invalid Vietnamese syllables. When typing `hello` followed by space, the word is restored if the engine incorrectly applied Vietnamese marks.
+
+### Tone Placement
+- **qu/gi onset glides** — Correct tone placement for `qu` (quý, quả) and `gi` (gió, giờ) clusters.
+- **uê/uơ clusters** — Correct tone on second vowel for `uê` (thuế) and `uơ` (thuở).
+
+### Injection Fixes
+- **Skip auto-repeat pile-up** — After each injection, skip 3 auto-repeat events (value=2) to prevent `rrrrrrrr` from flooding the output during injection delay.
+- **Enter key support** — `\n` character now sent as `KEY_ENTER` via uinput. Fixes Enter requiring double-press.
+- **Removed clipboard save/restore** — The `xclip -o` read was leaking content into text. Simple clipboard write+paste is sufficient.
+- **Removed xdotool approach** — xdotool type depends on keyboard layout and fails on US layout. Reverted to clipboard paste which is layout-independent.
+
+### AppImage
+- **`--quit` / `--restart` / `--update` flags** — CLI control over daemon lifecycle and self-updating from GitHub releases.
+- **xdotool bundling** — Bundled in AppImage for future use (not active yet).
+
+### Engine Tests
+- **102 total tests** — 71 engine + 13 CLI + 12 protocol + 5 auto-restore + 1 tone placement.
+- New: `tone_placement.rs` (qu/gi/gio/uê/uơ clusters), `auto_restore.rs` (5 tests).
+
+### DEB & AppImage
+- `vietc_0.1.2-1_amd64.deb` (975K), `Viet+-0.1.2-x86_64.AppImage` (2.2M) published on GitHub and Forgejo.
+
+---
+
 ## v0.1.1 (2026-06-26)
 
 ### Telex fixes
-- **Fix `r` consumed as tone key** — Telex tone keys (`f`,`s`,`r`,`x`,`j`) now only activate when the composition has a vowel. Without a vowel (e.g., `tr` in `trời`), they fall through as normal letters instead of being silently consumed.
-- **Fix normal letters consumed** — `is_vn_control_key` was consuming `a`,`e`,`o`,`d`,`u` in Telex mode (the base letters for double-letter marks). These are normal typing keys and must be forwarded when no mark triggers.
-- **Tone key context check** — Tone keys check `has_vowel` before applying. Prevents spurious consumption on consonant-only compositions like `ng` + tone.
+- **Fix `r` consumed as tone key** — Telex tone keys (`f`,`s`,`r`,`x`,`j`) now only activate when the composition has a vowel.
+- **Fix normal letters consumed** — `is_vn_control_key` was consuming `a`,`e`,`o`,`d`,`u` in Telex mode.
+- **Tone key context check** — Tone keys check `has_vowel` before applying.
 
-### Injection reliability
-- **15ms delay** between clipboard paste and trailing uinput ASCII characters — fixes space arriving before Vietnamese text finishes pasting.
-- **Persistent X11 connection** for Ctrl+V — opened once via `std::sync::Once` and reused for all paste operations. Eliminates per-call `dlopen`/`dlclose` overhead.
+### Injection
+- **15ms delay** between clipboard paste and trailing uinput ASCII.
+- **Persistent X11 connection** for Ctrl+V via `std::sync::Once`.
+- **Enter key** sends `KEY_ENTER` via uinput.
 
-### AppImage improvements
-- **`--quit` flag** — stops daemon, uinputd, xrecord, and tray processes.
-- **`--restart` flag** — stops all then re-launches.
-- **`--update` flag** — downloads latest AppImage from GitHub releases via curl/wget.
-- **GUI quit dialog** — shows zenity info box with quit instructions when launched without tray.
-
-### Engine tests
-- **4 new Telex tests** — `Tuaans→Tuấn`, `nguyeenx→nguyễn`, `gios→gió`, and `test_telex_r_as_normal_char` covering `tr`, `traf`, `tar`, `tramr`.
-- Total: **67 engine tests** (Telex, VNI, tone placement, marks, macros, casing).
-
-### DEB packaging
-- DEB package `vietc_0.1.1-1_amd64.deb` (961K) published on both GitHub and Forgejo releases.
+### AppImage
+- `--quit`, `--restart`, `--update` flags. GUI quit dialog.
+- 67 engine tests.
 
 ---
 
 ## v0.1.0 (2026-06-26)
 
 Initial release and major overhaul.
-
-### Engine (major rewrite)
-
-- **Bamboo engine port** — Replaced custom Telex/VNI state machines with a Rust port of bamboo-core's transformation model. Marks and tones are applied to characters in a composition buffer, with proper tone placement for all Vietnamese diphthongs.
-- **Flexible backtracking** — Mark/tone keys scan up to 5 characters backward to find the target vowel. Type the full syllable, then add marks at the end: `nguye6n4` → `nguyễn`.
-- **Smart uo→ươ cluster** — Single `w`/`7` key after a `uo` pair converts both to `ươ`, even through consonants: `chuong7` → `chương`.
-- **Correct tone placement** — Fixed tone positioning for `io` (gió), `uâ` (xuất), `yê` (nguyễn), `oa`/`oe`, `uy`, `iê`, `uô`, `ươ` clusters.
-- **Consume stale marks** — VNI/Telex control keys (digits, `f`/`s`/`r`/`x`/`j`/`w`) are consumed silently when they produce no change (e.g., pressing `5` on an already-toned `ạ`).
-- **63 focused unit tests** covering Telex, VNI, tone placement, marks, macros, and uppercase.
-
-### Injection (major overhaul)
-
-- **Uinput injection** — ASCII and backspace via Linux evdev keycodes (`/dev/uinput`). Correct keycodes per keyboard hardware, no X11 keycode mismatches.
-- **Vietnamese Unicode** — Clipboard paste via persistent X11 connection + XTest Ctrl+V. Text is split only at trailing whitespace/punctuation boundary (no mid-word splitting). Persistent X11 display opened once and reused.
-- **Uinput daemon** (`vietc-uinputd`) — Privileged Unix socket server for `/dev/uinput` injection. VMK-style architecture with capability separation. The main daemon communicates via socket, falling back to in-process uinput.
-- **X11Injector** uses `XKeysymToKeycode` for Ctrl+V keycodes, adapting to the actual keyboard layout.
-
-### Capture
-
-- **Evdev preferred** — Keyboard capture via `/dev/input/event*` with device grab is now the primary path. More reliable than X11 XRecord.
-- **X11 XRecord fallback** — X11 passive monitoring via C helper (`vietc-xrecord`) as fallback when evdev is unavailable.
-
-### Bug Fixes
-
-- **Fix `Xutf8LookupString` signature** — Missing `XIC` parameter caused all keycodes to map to `\0`. Fixed by adding `*mut c_void` as first argument and passing `NULL`.
-- **Fix `execute_commands` backspace count** — The X11 path incorrectly passed `grabbed=true`, subtracting 1 from every backspace. Changed to `false` so full backspace count is used.
-- **Fix flush backspace overcount** — `prev_len + 1` erased one character beyond the word. Fixed to `prev_len`.
-- **Fix `apply_mark` char removal** — Removed `pattern.len()` chars from composition, but the current key hadn't been appended yet. Fixed to `pattern.len() - 1`.
-- **Fix mark backtrack position** — Marks were applied at the end of composition instead of at the found position. Added position-aware `apply_mark_at`.
-
-### Packaging
-
-- AppImage bundles `vietc-uinputd`, `vietc-xrecord`, `xclip`.
-- AppRun preserves `LD_LIBRARY_PATH` with system library paths for `dlopen`.
-- AppRun auto-starts `vietc-uinputd` via `pkexec`/`sudo` when available.
-- Cleaned up `vietc-xrecord` compilation flags (only `-lX11 -lXtst` needed).
-
-### Testing
-
-- 63 focused engine tests covering Telex, VNI, marks, tones, macros, casing.
-- Removed old auto-generated bulk tests (850+ tests for deprecated engine).
