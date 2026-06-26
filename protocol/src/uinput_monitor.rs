@@ -352,9 +352,7 @@ impl UinputInjector {
         // If all ASCII, send keycodes directly — fast and reliable
         if text.chars().all(|c| char_to_linux_keycode(c).is_some() || c == '\n') {
             if backspaces > 0 {
-                for _ in 0..backspaces {
-                    let _ = self.send_backspace();
-                }
+                for _ in 0..backspaces { let _ = self.send_backspace(); }
             }
             for ch in text.chars() {
                 if ch == '\n' { self.send_enter(); }
@@ -363,22 +361,25 @@ impl UinputInjector {
             return InjectResult::Success;
         }
 
-        // Unicode text: paste entire text via clipboard (includes spaces).
-        // Don't split — splitting causes space to arrive after next keystrokes.
-        // Send backspaces first, then clipboard paste everything at once.
-        if backspaces > 0 {
-            for _ in 0..backspaces {
-                let _ = self.send_backspace();
+        // Unicode text: try xdotool first (reliable, no clipboard)
+        if !std::env::var("WAYLAND_DISPLAY").is_ok() {
+            let result = std::process::Command::new("xdotool")
+                .args(["type", "--clearmodifiers", "--delay", "1", text])
+                .output();
+            if result.map(|o| o.status.success()).unwrap_or(false) {
+                if backspaces > 0 {
+                    for _ in 0..backspaces { let _ = self.send_backspace(); }
+                }
+                return InjectResult::Success;
             }
         }
 
+        // Fallback: clipboard paste
+        if backspaces > 0 {
+            for _ in 0..backspaces { let _ = self.send_backspace(); }
+        }
         if self.copy_to_clipboard(text) {
             self.send_ctrl_v_x11();
-        } else {
-            // Fallback: send base ASCII chars via uinput
-            for ch in text.chars() {
-                let _ = self.send_char(ch);
-            }
         }
 
         InjectResult::Success
