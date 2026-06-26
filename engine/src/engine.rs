@@ -172,13 +172,11 @@ impl Engine {
             }
 
             self.reset();
-            if prev_len > 0 {
-                // Don't include flush char in insert — daemon forwards it separately
-                return Some(EngineEvent::Replace {
-                    backspaces: prev_len,
-                    insert: previous,
-                });
-            }
+            // The composed word is already correctly on screen — re-typing it
+            // here would trigger a redundant backspace + clipboard-paste cycle
+            // that races against the separately-forwarded flush char, eating
+            // spaces and merging words. Just finalize and let the flush char
+            // through untouched.
             return None;
         }
 
