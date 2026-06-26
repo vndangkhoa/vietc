@@ -743,21 +743,12 @@ fn run_with_x11(
             capture.focus_lost = false;
         }
 
-        // Wait for events with 100ms timeout, then re-grab if needed
+        // Wait for events with 100ms timeout
         let got_data = capture.wait_for_event(100);
         let evt = capture.next_event();
         if evt.is_none() {
-            static mut LOOP_COUNT: u64 = 0;
-            unsafe { LOOP_COUNT += 1; }
             if got_data {
-                eprintln!("[vietc] DEBUG: select said data but no event in queue (loop={})", unsafe { LOOP_COUNT });
-            }
-            if unsafe { LOOP_COUNT } <= 3 || unsafe { LOOP_COUNT } % 50 == 0 {
-                eprintln!("[vietc] DEBUG: no event, grabbed={}, got_data={}", capture.is_grabbed(), got_data);
-            }
-            if !capture.is_grabbed() {
-                eprintln!("[vietc] Keyboard grab lost — re-grabbing");
-                capture.grab_keyboard();
+                eprintln!("[vietc] DEBUG: select said data but no event in queue");
             }
             continue;
         }

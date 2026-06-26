@@ -18,6 +18,9 @@ const MOD4_MASK: c_int = 64;
 // Grab modes
 const GRAB_MODE_ASYNC: c_int = 1;
 
+// XRecord categories
+const XRECORD_FROM_SERVER: c_int = 1;
+
 extern "C" {
     fn dlopen(filename: *const c_char, flag: c_int) -> *mut c_void;
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
@@ -56,14 +59,18 @@ struct XRecordRange {
 
 type XRecordCallback = unsafe extern "C" fn(*mut c_void, *mut XRecordInterceptData);
 
+// XRecordInterceptData: matches C layout exactly
+// C: { XID id_base; Time server_time; unsigned long client_seq;
+//      int category; Bool client_swapped; unsigned char *data; unsigned long data_len; }
 #[repr(C)]
 struct XRecordInterceptData {
-    id: u64,
-    server_time: u64,
+    id_base: u64,        // XID
+    server_time: u64,    // Time
+    client_seq: u64,     // unsigned long
+    category: c_int,
     client_swapped: c_int,
-    _pad: c_int,
-    data_len: c_int,
     data: *mut u8,
+    data_len: u64,       // unsigned long
 }
 
 #[repr(C)]
@@ -248,8 +255,11 @@ unsafe extern "C" fn record_callback(_closure: *mut c_void, data: *mut XRecordIn
     if data.is_null() {
         return;
     }
-    let data_len = (*data).data_len;
-    if data_len < 2 {
+    if (*data).category != XRECORD_FROM_SERVER {
+        return;
+    }
+    let data_len_bytes = (*data).data_len * 4; // data_len is in 4-byte units
+    if data_len_bytes < 2 {
         return;
     }
     let data_bytes = (*data).data;
@@ -264,7 +274,7 @@ unsafe extern "C" fn record_callback(_closure: *mut c_void, data: *mut XRecordIn
     }
 
     // XRecord data layout for keyboard events: type(1) + keycode(1) + state(2)
-    let state: c_int = if data_len >= 4 {
+    let state: c_int = if data_len_bytes >= 4 {
         *(data_bytes.add(2) as *const u16) as c_int
     } else {
         0
