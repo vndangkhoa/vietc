@@ -4,6 +4,16 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::Command;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
+
+/// How long to wait after the last Unicode paste before restoring the user's
+/// real clipboard. Each paste pushes this deadline back, so a burst of typing
+/// only triggers a single restore once the user pauses. This is what keeps the
+/// user's clipboard from being pasted into the text mid-typing: we never
+/// overwrite our just-pasted word with the user's clipboard while the target
+/// app might still be reading it.
+const RESTORE_DEBOUNCE: Duration = Duration::from_millis(600);
 
 const UINPUT_MAX_NAME_SIZE: usize = 80;
 const UI_SET_EVBIT: u64 = 0x40045564;
@@ -45,14 +55,31 @@ struct input_id {
     version: u16,
 }
 
-struct UinputDevice {
-    fd: i32,
+/// Shared clipboard bookkeeping between the command handler and the background
+/// restorer thread.
+struct ClipInner {
     /// The user's real clipboard contents, saved before we overwrite the
     /// clipboard to paste Unicode text, so we can restore it afterwards.
-    saved_clipboard: std::sync::Mutex<Option<String>>,
-    /// The last text we injected via the clipboard, used to distinguish our
-    /// own paste content from text the user copied with Ctrl+C.
-    last_injected: std::sync::Mutex<Option<String>>,
+    saved_clipboard: Option<String>,
+    /// The last text we wrote to the clipboard ourselves (an injected word or
+    /// the restored user content). Used to distinguish our own writes from
+    /// text the user copied with Ctrl+C.
+    last_injected: Option<String>,
+    /// When set, the restorer thread should rewrite the user's clipboard at
+    /// this instant. `None` means no restore is pending.
+    restore_due: Option<Instant>,
+    /// Set on shutdown so the restorer thread can exit.
+    shutdown: bool,
+}
+
+struct ClipState {
+    inner: Mutex<ClipInner>,
+    cv: Condvar,
+}
+
+struct UinputDevice {
+    fd: i32,
+    clip: Arc<ClipState>,
 }
 
 impl UinputDevice {
@@ -88,12 +115,22 @@ impl UinputDevice {
         std::mem::forget(file);
         std::thread::sleep(std::time::Duration::from_millis(10));
 
+        let clip = Arc::new(ClipState {
+            inner: Mutex::new(ClipInner {
+                saved_clipboard: None,
+                last_injected: None,
+                restore_due: None,
+                shutdown: false,
+            }),
+            cv: Condvar::new(),
+        });
+        {
+            let clip = Arc::clone(&clip);
+            std::thread::spawn(move || run_restorer(clip));
+        }
+
         eprintln!("[vietc-uinputd] Device '{}' created", name);
-        Ok(Self {
-            fd,
-            saved_clipboard: std::sync::Mutex::new(None),
-            last_injected: std::sync::Mutex::new(None),
-        })
+        Ok(Self { fd, clip })
     }
 
     fn send_event(&self, type_: u16, code: u16, value: i32) {
@@ -163,20 +200,29 @@ impl UinputDevice {
     }
 
     fn paste_unicode(&self, text: &str) {
-        // Save the user's clipboard before we clobber it, unless what is on the
-        // clipboard is our own previously-injected text. This keeps Ctrl+C /
-        // Ctrl+V working: every Vietnamese word is pasted via the clipboard, so
-        // without restoring it the user's copied content would be lost.
-        let current = read_clipboard();
+        // Critical section: snapshot the clipboard, decide what to preserve,
+        // cancel any pending restore so the restorer cannot fire while we are
+        // pasting, and put our word on the clipboard. The read and write happen
+        // under the lock so they can never interleave with the restorer.
         {
-            let last = self.last_injected.lock().unwrap();
-            let is_our_injection = matches!((&current, &*last), (Some(c), Some(l)) if c == l);
-            if !is_our_injection {
-                *self.saved_clipboard.lock().unwrap() = current;
+            let mut st = self.clip.inner.lock().unwrap();
+            let current = read_clipboard();
+            let is_our_write =
+                matches!((&current, &st.last_injected), (Some(c), Some(l)) if c == l);
+            if !is_our_write {
+                // The user changed the clipboard themselves (a real Ctrl+C).
+                st.saved_clipboard = current;
             }
+            // Cancel any pending restore; the restorer parks until we schedule
+            // a new one after the paste.
+            st.restore_due = None;
+            copy_to_clipboard(text);
+            st.last_injected = Some(text.to_string());
         }
 
-        copy_to_clipboard(text);
+        // Give the selection owner a moment to take ownership before pasting.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
         self.send_key(29, 1);
         std::thread::sleep(std::time::Duration::from_millis(2));
         self.send_key(47, 1);
@@ -184,17 +230,56 @@ impl UinputDevice {
         self.send_key(29, 0);
         std::thread::sleep(std::time::Duration::from_millis(10));
 
-        // Restore the user's clipboard after the paste has been consumed.
-        std::thread::sleep(std::time::Duration::from_millis(30));
-        let saved = self.saved_clipboard.lock().unwrap().clone();
-        let restored = saved.unwrap_or_default();
+        // Schedule a debounced restore. While the user keeps typing this gets
+        // pushed back, so the user's clipboard is only restored once typing
+        // settles — never overwriting our freshly pasted word mid-stream.
+        {
+            let mut st = self.clip.inner.lock().unwrap();
+            st.restore_due = Some(Instant::now() + RESTORE_DEBOUNCE);
+        }
+        self.clip.cv.notify_all();
+    }
+}
+
+/// Background thread: once no Unicode paste has happened for `RESTORE_DEBOUNCE`,
+/// rewrite the user's real clipboard so Ctrl+V keeps working.
+fn run_restorer(state: Arc<ClipState>) {
+    loop {
+        let mut st = state.inner.lock().unwrap();
+        loop {
+            if st.shutdown {
+                return;
+            }
+            match st.restore_due {
+                None => {
+                    st = state.cv.wait(st).unwrap();
+                }
+                Some(due) => {
+                    let now = Instant::now();
+                    if now >= due {
+                        break;
+                    }
+                    let (guard, _) = state.cv.wait_timeout(st, due - now).unwrap();
+                    st = guard;
+                }
+            }
+        }
+        // Deadline reached. Restore under the lock so the write cannot
+        // interleave with a concurrent paste's clipboard write.
+        let restored = st.saved_clipboard.clone().unwrap_or_default();
         copy_to_clipboard(&restored);
-        *self.last_injected.lock().unwrap() = Some(restored);
+        st.last_injected = Some(restored);
+        st.restore_due = None;
     }
 }
 
 impl Drop for UinputDevice {
     fn drop(&mut self) {
+        {
+            let mut st = self.clip.inner.lock().unwrap();
+            st.shutdown = true;
+        }
+        self.clip.cv.notify_all();
         let _ = unsafe { libc::ioctl(self.fd, UI_DEV_DESTROY, 0) };
         let _ = unsafe { libc::close(self.fd) };
         eprintln!("[vietc-uinputd] Device destroyed");
