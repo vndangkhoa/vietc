@@ -179,14 +179,16 @@ else
 SVGEOF
 fi
 
-# Convert SVG to PNG for appimagetool (it prefers PNG for the root icon)
+# Convert SVG to PNG for appimagetool (it prefers PNG for the root icon).
+# This is best-effort: if no converter works, appimagetool falls back to the
+# SVG, so a conversion failure must never abort the build.
 if [ -f "$APPDIR/vietc.svg" ] && ! [ -f "$APPDIR/vietc.png" ]; then
     if command -v rsvg-convert &>/dev/null; then
-        rsvg-convert -w 256 -h 256 "$APPDIR/vietc.svg" -o "$APPDIR/vietc.png"
+        rsvg-convert -w 256 -h 256 "$APPDIR/vietc.svg" -o "$APPDIR/vietc.png" || true
     elif command -v inkscape &>/dev/null; then
-        inkscape -w 256 -h 256 "$APPDIR/vietc.svg" --export-filename="$APPDIR/vietc.png" 2>/dev/null
+        inkscape -w 256 -h 256 "$APPDIR/vietc.svg" --export-filename="$APPDIR/vietc.png" 2>/dev/null || true
     elif command -v convert &>/dev/null; then
-        convert -background none "$APPDIR/vietc.svg" -resize 256x256 "$APPDIR/vietc.png" 2>/dev/null
+        convert -background none "$APPDIR/vietc.svg" -resize 256x256 "$APPDIR/vietc.png" 2>/dev/null || true
     elif command -v python3 &>/dev/null; then
         python3 -c "
 import subprocess, sys
@@ -194,7 +196,7 @@ try:
     subprocess.check_call(['rsvg-convert', '-w', '256', '-h', '256', '$APPDIR/vietc.svg', '-o', '$APPDIR/vietc.png'])
 except Exception:
     pass
-" 2>/dev/null
+" 2>/dev/null || true
     fi
     # If no converter, appimagetool can use SVG directly
 fi

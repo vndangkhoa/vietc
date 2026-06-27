@@ -31,7 +31,18 @@ mkdir -p "$STAGING/usr/share/metainfo"
 echo "[3/5] Installing binaries..."
 cp "$PROJECT_ROOT/target/release/vietc" "$STAGING/usr/bin/"
 cp "$PROJECT_ROOT/target/release/vietc-cli" "$STAGING/usr/bin/"
+# Privileged uinput injection daemon — required for Unicode (Vietnamese) output.
+cp "$PROJECT_ROOT/target/release/vietc-uinputd" "$STAGING/usr/bin/"
 [ -f "$PROJECT_ROOT/ui/target/release/vietc-tray" ] && cp "$PROJECT_ROOT/ui/target/release/vietc-tray" "$STAGING/usr/bin/"
+
+# Compile and bundle vietc-xrecord (C helper for X11 XRecord keyboard capture)
+if command -v gcc &>/dev/null; then
+    gcc -O2 -o "$STAGING/usr/bin/vietc-xrecord" "$PROJECT_ROOT/packaging/appimage/vietc-xrecord.c" -lX11 -lXtst \
+        && echo "  vietc-xrecord compiled" \
+        || echo "  WARNING: vietc-xrecord compile failed (libX11/libXtst dev headers missing)"
+else
+    echo "  WARNING: no gcc, vietc-xrecord not bundled"
+fi
 
 # Desktop file
 cp "$PROJECT_ROOT/packaging/appimage/vietc.desktop" "$STAGING/usr/share/applications/"

@@ -1,0 +1,107 @@
+name: Build & Release
+
+# Builds the .deb and AppImage on the CI runner so artifacts are produced
+# without compiling on a local machine:
+#   - every push to main / pull request -> packages uploaded as workflow artifacts
+#   - pushing a `v*` tag                 -> a GitHub Release with the .deb + AppImage
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libdbus-1-dev libx11-dev libxtst-dev libxext-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build workspace
+        run: cargo build --release --features "x11,wayland"
+
+      - name: Run tests
+        run: cargo test --release
+
+  package:
+    name: Build packages
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libdbus-1-dev libx11-dev libxtst-dev libxext-dev \
+            fakeroot dpkg-dev xclip xdotool desktop-file-utils file curl
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            BASE=$(grep '^version' engine/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+            VERSION="$BASE"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Building version $VERSION"
+
+      - name: Fetch appimagetool
+        run: |
+          curl -fsSL -o packaging/appimage/appimagetool \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x packaging/appimage/appimagetool
+
+      - name: Build .deb
+        run: bash packaging/deb/build-deb.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Build AppImage
+        # appimagetool is invoked with --appimage-extract-and-run by the build
+        # script, so no FUSE is required on the runner.
+        run: bash packaging/appimage/build-appimage.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist
+          cp packaging/deb/*.deb dist/
+          cp packaging/appimage/*.AppImage dist/
+          ls -la dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vietc-packages-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.short_sha }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
