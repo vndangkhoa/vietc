@@ -265,13 +265,57 @@ Flexible typing: type the full syllable, then add marks/tone keys at the end. Ex
 
 ## Installation
 
-### AppImage (recommended)
+> **Safety:** Viet+ is a pure Rust project. Building from source with `cargo` never touches
+> your system's `libc` or other core libraries — everything is compiled locally in `target/`.
+> No `sudo` is needed for building. Only the optional system-wide install requires root.
+
+### Quick Start (run without installing)
+
+```bash
+# Install Rust if needed: https://rustup.rs
+git clone https://github.com/vndangkhoa/vietc.git
+cd vietc
+
+# Build everything (daemon + CLI)
+cargo build --release --features "x11,wayland"
+
+# Run the daemon directly (no install)
+sudo ./target/release/vietc
+```
+
+### Full Install (system-wide)
+
+```bash
+# 1. Build the daemon and CLI
+cargo build --release --features "x11,wayland"
+
+# 2. Build the system tray (optional)
+cd ui && cargo build --release && cd ..
+
+# 3. Install binaries
+sudo cp target/release/vietc /usr/local/bin/
+sudo cp target/release/vietc-cli /usr/local/bin/
+sudo cp target/release/vietc-uinputd /usr/local/bin/
+sudo cp ui/target/release/vietc-tray /usr/local/bin/ 2>/dev/null || true
+
+# 4. Compile X11 capture helper
+gcc -O2 -o /usr/local/bin/vietc-xrecord packaging/appimage/vietc-xrecord.c -lX11 -lXtst
+
+# 5. Install config
+mkdir -p ~/.config/vietc
+cp vietc.toml ~/.config/vietc/config.toml
+
+# 6. Start the daemon
+sudo vietc
+```
+
+### AppImage (portable)
 
 ```bash
 ./Viet+-0.1.0-x86_64.AppImage
 ```
 
-Includes daemon + tray + CLI + xclip. No special permissions needed on X11.
+Includes daemon + tray + CLI + xclip. Self-contained — no system libraries are modified.
 
 ### Debian/Ubuntu
 
@@ -279,16 +323,7 @@ Includes daemon + tray + CLI + xclip. No special permissions needed on X11.
 sudo dpkg -i vietc_0.1.0-1_amd64.deb
 ```
 
-Recommends: `libxtst6`, `xclip`
-
-### Manual
-
-```bash
-git clone https://git.khoavo.myds.me/vndangkhoa/vietc.git
-cd vietc
-make build-all
-sudo make install
-```
+Requires: `libxtst6`
 
 ---
 
@@ -320,14 +355,32 @@ lm = "làm"
 
 ---
 
-## Building
+## Building from Source
 
 ```bash
-make build-all     # Build with X11 + Wayland
-make test          # Run 255+ tests
-make deb           # Build .deb package
-make appimage      # Build AppImage
+# Build with all backends (X11 + Wayland)
+cargo build --release --features "x11,wayland"
+
+# Build only X11
+cargo build --release --features x11
+
+# Build only Wayland
+cargo build --release --features wayland
+
+# Build system tray (needs libdbus-1-dev on Debian/Ubuntu)
+cd ui && cargo build --release
+
+# Run tests
+cargo test
+
+# Build packages
+make deb           # .deb package
+make appimage      # AppImage (requires appimagetool)
+make flatpak       # Flatpak
 ```
+
+> **Note:** All builds are confined to `target/` — no system files are touched until
+> you explicitly run `sudo make install` or `sudo cp`.
 
 ---
 
