@@ -1,6 +1,15 @@
 # Changelog
 
-## v0.1.4 (2026-06-26)
+## v0.1.4 (2026-06-28)
+
+### Flatpak Packaging
+- **Flatpak bundle** with all components: daemon, CLI, system tray, uinputd, XRecord, wrapper script
+- **System tray icon** via D-Bus StatusNotifierItem (ksni)
+- **Build script** `packaging/flatpak/build-flatpak.sh` — automated build from source
+- **Permissions:** X11, Wayland, D-Bus session bus, input devices, IPC
+
+### Documentation
+- README updated with Flatpak-only install/build instructions
 
 ### Clipboard & Injection
 - **Fix clipboard-into-text race** — Eliminated race condition where clipboard content leaked into typed text during Unicode injection.

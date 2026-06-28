@@ -265,65 +265,25 @@ Flexible typing: type the full syllable, then add marks/tone keys at the end. Ex
 
 ## Installation
 
-> **Safety:** Viet+ is a pure Rust project. Building from source with `cargo` never touches
-> your system's `libc` or other core libraries — everything is compiled locally in `target/`.
-> No `sudo` is needed for building. Only the optional system-wide install requires root.
-
-### Quick Start (run without installing)
+### Flatpak (recommended)
 
 ```bash
-# Install Rust if needed: https://rustup.rs
+# Download from the release page, then:
+flatpak install --user --bundle VietPlus-x86_64.flatpak
+flatpak run io.github.vietc.VietPlus
+```
+
+Includes daemon + CLI + system tray + uinput daemon. Sandboxed — no system libraries are touched.
+
+### Build from Source (Flatpak)
+
+```bash
 git clone https://github.com/vndangkhoa/vietc.git
-cd vietc
-
-# Build everything (daemon + CLI)
-cargo build --release --features "x11,wayland"
-
-# Run the daemon directly (no install)
-sudo ./target/release/vietc
+cd vietc/packaging/flatpak
+bash build-flatpak.sh
 ```
 
-### Full Install (system-wide)
-
-```bash
-# 1. Build the daemon and CLI
-cargo build --release --features "x11,wayland"
-
-# 2. Build the system tray (optional)
-cd ui && cargo build --release && cd ..
-
-# 3. Install binaries
-sudo cp target/release/vietc /usr/local/bin/
-sudo cp target/release/vietc-cli /usr/local/bin/
-sudo cp target/release/vietc-uinputd /usr/local/bin/
-sudo cp ui/target/release/vietc-tray /usr/local/bin/ 2>/dev/null || true
-
-# 4. Compile X11 capture helper
-gcc -O2 -o /usr/local/bin/vietc-xrecord packaging/appimage/vietc-xrecord.c -lX11 -lXtst
-
-# 5. Install config
-mkdir -p ~/.config/vietc
-cp vietc.toml ~/.config/vietc/config.toml
-
-# 6. Start the daemon
-sudo vietc
-```
-
-### AppImage (portable)
-
-```bash
-./Viet+-0.1.0-x86_64.AppImage
-```
-
-Includes daemon + tray + CLI + xclip. Self-contained — no system libraries are modified.
-
-### Debian/Ubuntu
-
-```bash
-sudo dpkg -i vietc_0.1.0-1_amd64.deb
-```
-
-Requires: `libxtst6`
+Requires Flatpak runtime `org.gnome.Platform//50` and Rust SDK extension (installed automatically).
 
 ---
 
@@ -335,7 +295,7 @@ Config file: `~/.config/vietc/config.toml` or `./vietc.toml`
 input_method = "vni"       # "vni" or "telex"
 toggle_key = "space"       # Ctrl+Space to toggle
 start_enabled = false      # English by default
-grab = true                # grab keyboard (AppImage)
+grab = true                # grab keyboard (evdev)
 
 [auto_restore]
 enabled = true
@@ -352,35 +312,6 @@ dc = "được"
 vs = "với"
 lm = "làm"
 ```
-
----
-
-## Building from Source
-
-```bash
-# Build with all backends (X11 + Wayland)
-cargo build --release --features "x11,wayland"
-
-# Build only X11
-cargo build --release --features x11
-
-# Build only Wayland
-cargo build --release --features wayland
-
-# Build system tray (needs libdbus-1-dev on Debian/Ubuntu)
-cd ui && cargo build --release
-
-# Run tests
-cargo test
-
-# Build packages
-make deb           # .deb package
-make appimage      # AppImage (requires appimagetool)
-make flatpak       # Flatpak
-```
-
-> **Note:** All builds are confined to `target/` — no system files are touched until
-> you explicitly run `sudo make install` or `sudo cp`.
 
 ---
 
