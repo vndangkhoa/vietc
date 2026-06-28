@@ -107,6 +107,10 @@ lint:
 	cargo clippy -- -D warnings
 	cd ui && cargo clippy -- -D warnings
 
+# Flatpak build
+flatpak:
+	cd packaging/flatpak && bash build-flatpak.sh
+
 # Show project structure
 tree:
 	@find . -type f \( -name "*.rs" -o -name "*.toml" \) | grep -v target | sort

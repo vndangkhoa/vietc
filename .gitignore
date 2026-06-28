@@ -13,3 +13,6 @@ packaging/deb/vietc_*/
 packaging/appimage/appimagetool
 status
 vietc-xrecord
+packaging/flatpak/build-dir
+packaging/flatpak/vietc-repo
+packaging/flatpak/VietPlus-*
