@@ -1,40 +1,21 @@
 {
   "app-id": "io.github.vietc.VietPlus",
   "runtime": "org.gnome.Platform",
-  "runtime-version": "47",
+  "runtime-version": "50",
   "sdk": "org.gnome.Sdk",
   "sdk-extensions": [
     "org.freedesktop.Sdk.Extension.rust-stable"
   ],
-  "command": "vietc-wrapper.sh",
-  "rename-desktop-file": "vietc.desktop",
-  "rename-icon": "vietc",
+  "command": "vietc-daemon",
   "finish-args": [
     "--socket=x11",
     "--socket=wayland",
-    "--socket=session-bus",
-    "--device=all",
-    "--share=ipc"
+    "--filesystem=home",
+    "--share=ipc",
+    "--talk-name=org.freedesktop.Notifications",
+    "--talk-name=org.a11y.Bus"
   ],
   "modules": [
-    {
-      "name": "xclip",
-      "no-autogen": true,
-      "make-install-args": [
-        "install"
-      ],
-      "builddir": true,
-      "sources": [
-        {
-          "type": "archive",
-          "url": "https://github.com/astrand/xclip/archive/refs/tags/0.13.tar.gz",
-          "sha256": "ca5b8804e3c910a66423a882d79bf3c9450e8758faa5d2b9deba5342451b140e"
-        }
-      ],
-      "cleanup": [
-        "/share/man"
-      ]
-    },
     {
       "name": "vietc",
       "buildsystem": "simple",
@@ -47,57 +28,25 @@
       "build-commands": [
         "cargo build --release -p vietc-daemon -p vietc-cli -p vietc-uinputd --manifest-path /run/build/vietc/Cargo.toml",
 
-        "cd /run/build/vietc/ui && cargo build --release --manifest-path /run/build/vietc/ui/Cargo.toml || echo 'tray build skipped'",
-
-        "install -Dm755 target/release/vietc /app/bin/vietc",
+        "install -Dm755 target/release/vietc /app/bin/vietc-daemon",
         "install -Dm755 target/release/vietc-cli /app/bin/vietc-cli",
         "install -Dm755 target/release/vietc-uinputd /app/bin/vietc-uinputd",
-        "[ -f ui/target/release/vietc-tray ] && install -Dm755 ui/target/release/vietc-tray /app/bin/vietc-tray || true",
 
-        "gcc -O2 -o /app/bin/vietc-xrecord /run/build/vietc/packaging/appimage/vietc-xrecord.c -lX11 -lXtst",
+        "install -Dm644 packaging/icons/vietc.svg /app/share/icons/hicolor/scalable/apps/io.github.vietc.VietPlus.svg",
+        "install -Dm644 packaging/icons/vietc-vn.svg /app/share/icons/hicolor/scalable/apps/io.github.vietc.VietPlus.vietc-vn.svg",
+        "install -Dm644 packaging/icons/vietc-en.svg /app/share/icons/hicolor/scalable/apps/io.github.vietc.VietPlus.vietc-en.svg",
 
-        "install -Dm755 /run/build/vietc/packaging/flatpak/vietc-wrapper.sh /app/bin/vietc-wrapper.sh",
-
-        "install -Dm644 /run/build/vietc/packaging/appimage/vietc.desktop /app/share/applications/vietc.desktop",
-
-        "install -Dm644 /run/build/vietc/vietc.toml /app/etc/vietc/config.toml",
-
-        "mkdir -p /app/share/icons/hicolor/256x256/apps",
-        "cp /run/build/vietc/packaging/appimage/AppDir/vietc.svg /app/share/icons/hicolor/256x256/apps/vietc.svg || true",
-
-        "install -Dm644 /run/build/vietc/vietc.service /app/lib/systemd/user/vietc.service || true",
+        "mkdir -p /app/share/applications",
+        "cat > /app/share/applications/io.github.vietc.VietPlus.desktop << END\n[Desktop Entry]\nName=Viet+\nComment=Vietnamese Input Method\nExec=/app/bin/vietc-daemon\nIcon=io.github.vietc.VietPlus\nTerminal=false\nType=Application\nCategories=Utility;\nEND",
 
         "mkdir -p /app/share/metainfo",
-        "cat > /app/share/metainfo/io.github.vietc.VietPlus.metainfo.xml << 'XML'",
-        "<?xml version='1.0' encoding='utf-8'?>",
-        "<component type='desktop-application'>",
-        "  <id>io.github.vietc.VietPlus</id>",
-        "  <name>Viet+</name>",
-        "  <summary>Vietnamese Input Method for Linux</summary>",
-        "  <description>",
-        "    <p>Zero-configuration Vietnamese input method engine supporting Telex and VNI input methods.</p>",
-        "  </description>",
-        "  <metadata_license>MIT</metadata_license>",
-        "  <project_license>MIT</project_license>",
-        "  <url type='homepage'>https://github.com/vndangkhoa/vietc</url>",
-        "  <provides><binary>vietc</binary></provides>",
-        "  <categories><category>Utility</category></categories>",
-        "</component>",
-        "XML",
-
-        "mkdir -p /app/share/doc/vietc",
-        "cp /run/build/vietc/README.md /app/share/doc/vietc/ || true",
-        "cp /run/build/vietc/LICENSE /app/share/doc/vietc/ || true"
+        "cat > /app/share/metainfo/io.github.vietc.VietPlus.metainfo.xml << 'XML'\n<?xml version='1.0' encoding='utf-8'?>\n<component type='desktop-application'>\n  <id>io.github.vietc.VietPlus</id>\n  <name>Viet+</name>\n  <summary>Vietnamese Input Method for Linux</summary>\n  <description>\n    <p>Zero-configuration Vietnamese input method engine supporting Telex and VNI input methods.</p>\n  </description>\n  <metadata_license>MIT</metadata_license>\n  <project_license>MIT</project_license>\n  <url type='homepage'>https://github.com/vndangkhoa/vietc</url>\n  <provides><binary>vietc-daemon</binary></provides>\n  <categories><category>Utility</category></categories>\n</component>\nXML"
       ],
       "sources": [
         {
           "type": "dir",
           "path": "../.."
         }
-      ],
-      "cleanup": [
-        "/app/share/doc",
-        "/app/share/icons"
       ]
     }
   ]

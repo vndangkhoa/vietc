@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use std::io::{self, Write};
 use vietc_engine::{Engine, EngineEvent, InputMethod};
 

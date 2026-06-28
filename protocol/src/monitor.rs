@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use crate::inject::KeyEvent;
 
 pub trait KeyMonitor {

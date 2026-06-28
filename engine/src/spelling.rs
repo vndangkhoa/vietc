@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 const FIRST_CONSONANT_SEQS: &[&str] = &[
     "b d đ g gh m n nh p ph r s t tr v z",
     "c h k kh qu th",

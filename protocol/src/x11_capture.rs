@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use std::collections::VecDeque;
 use std::ffi::{c_char, c_int, c_void};
 use std::io::{Read, BufRead};

@@ -1,5 +1,10 @@
+// SPDX-License-Identifier: MIT
 use crate::config;
 use ksni::{menu::*, MenuItem, Tray};
+
+fn is_flatpak() -> bool {
+    std::path::Path::new("/app/bin/vietc-daemon").exists()
+}
 
 fn write_status(state: &str) {
     if let Some(config_dir) = dirs::config_dir() {
@@ -242,7 +247,13 @@ impl Tray for VietTray {
     }
 
     fn icon_name(&self) -> String {
-        if self.mode == "vn" {
+        if is_flatpak() {
+            if self.mode == "vn" {
+                "io.github.vietc.VietPlus.vietc-vn".into()
+            } else {
+                "io.github.vietc.VietPlus.vietc-en".into()
+            }
+        } else if self.mode == "vn" {
             "vietc-vn".into()
         } else {
             "vietc-en".into()
@@ -250,9 +261,20 @@ impl Tray for VietTray {
     }
 
     fn icon_theme_path(&self) -> String {
-        // Use XDG user theme path for icons
-        dirs::home_dir()
-            .map(|d| d.join(".local/share/icons").to_string_lossy().into_owned())
+        // Use XDG user theme path for icons (works in both native and Flatpak)
+        if let Some(home) = dirs::home_dir() {
+            let user_path = home.join(".local/share/icons");
+            if user_path.exists() {
+                return user_path.to_string_lossy().into_owned();
+            }
+        }
+        // Flatpak: icons are in /app/share/icons
+        let flatpak_path = std::path::Path::new("/app/share/icons");
+        if flatpak_path.exists() {
+            return "/app/share/icons".into();
+        }
+        dirs::data_dir()
+            .map(|d| d.join("icons").to_string_lossy().into_owned())
             .unwrap_or_else(|| "/usr/share/icons".into())
     }
 

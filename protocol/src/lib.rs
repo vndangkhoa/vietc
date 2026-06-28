@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pub mod inject;
 pub mod monitor;
 pub mod uinput_monitor;

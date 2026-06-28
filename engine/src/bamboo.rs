@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use crate::input_method::{InputMethod, InputMethodRules, get_rules};
 use std::collections::HashMap;
 

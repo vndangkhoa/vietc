@@ -1,5 +1,7 @@
+// SPDX-License-Identifier: MIT
 use crate::bamboo::BambooEngine;
 use crate::english::EnglishDict;
+use crate::event::{Command, EventStore};
 use crate::input_method::InputMethod;
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -146,6 +148,88 @@ impl Engine {
 
         let did_flush = output.is_empty() && composing.is_empty();
         (if did_flush { String::new() } else { last_output }, did_flush)
+    }
+
+    /// Replay events through a fresh engine, returning (expected_output, did_flush).
+    /// This is the Event Sourcing equivalent of replay_keystrokes.
+    pub fn replay_events(
+        method: InputMethod,
+        macros: &HashMap<String, String>,
+        events: &EventStore,
+    ) -> (String, bool) {
+        let mut engine = Engine::new(method);
+        for (shortcut, expansion) in macros {
+            engine.add_macro(shortcut.clone(), expansion.clone());
+        }
+
+        let mut last_output = String::new();
+        let mut composing = String::new();
+
+        for event in events.iter() {
+            match event {
+                crate::event::InputEvent::KeyTyped(ch) => {
+                    if let Some(out) = engine.bamboo.process_key(*ch) {
+                        composing = out.clone();
+                        last_output = out;
+                    } else {
+                        composing = engine.bamboo.get_output();
+                        last_output = composing.clone();
+                    }
+                }
+                crate::event::InputEvent::Backspace => {
+                    let _ = engine.bamboo.pop_last();
+                    composing = engine.bamboo.get_output();
+                    last_output = composing.clone();
+                }
+                crate::event::InputEvent::Flush(_) => {
+                    if !composing.is_empty() {
+                        last_output = composing.clone();
+                    }
+                    composing.clear();
+                    engine.bamboo.reset();
+                }
+                crate::event::InputEvent::Paste(text) => {
+                    for ch in text.chars() {
+                        if let Some(out) = engine.bamboo.process_key(ch) {
+                            composing = out;
+                        }
+                    }
+                    last_output = composing.clone();
+                }
+            }
+        }
+
+        let output = engine.bamboo.get_output();
+        let output_is_empty = output.is_empty();
+        if !output.is_empty() {
+            last_output = output;
+        }
+
+        let did_flush = output_is_empty && composing.is_empty();
+        (if did_flush { String::new() } else { last_output }, did_flush)
+    }
+
+    /// Event Sourcing + Command Pattern: replay events and return diff commands.
+    /// Compares expected output against screen_output and generates backspace/type commands.
+    pub fn replay_events_to_commands(
+        method: InputMethod,
+        macros: &HashMap<String, String>,
+        events: &EventStore,
+        screen_output: &str,
+    ) -> Vec<Command> {
+        let (new_output, _) = Engine::replay_events(method, macros, events);
+
+        let mut commands = Vec::new();
+        if new_output != screen_output {
+            let backspaces = screen_output.chars().count();
+            if backspaces > 0 {
+                commands.push(Command::Backspace(backspaces));
+            }
+            if !new_output.is_empty() {
+                commands.push(Command::Type(new_output));
+            }
+        }
+        commands
     }
 
     pub fn update_with_pasted_text(&mut self, text: &str) {

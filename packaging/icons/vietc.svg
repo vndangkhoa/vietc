@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="kb-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3a3a3a"/>
+      <stop offset="100%" stop-color="#1a1a1a"/>
+    </linearGradient>
+    <linearGradient id="vn-badge" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e74c3c"/>
+      <stop offset="100%" stop-color="#c0392b"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="56" width="224" height="156" rx="18" fill="url(#kb-bg)" stroke="#555" stroke-width="3"/>
+  <rect x="32" y="72" width="192" height="124" rx="10" fill="#2a2a2a"/>
+  <rect x="44" y="84" width="26" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="76" y="84" width="26" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="108" y="84" width="26" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="140" y="84" width="26" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="172" y="84" width="26" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="50" y="112" width="26" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="82" y="112" width="26" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="114" y="112" width="26" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="146" y="112" width="26" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="178" y="112" width="26" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="56" y="140" width="26" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="88" y="140" width="26" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="120" y="140" width="26" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="152" y="140" width="26" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="184" y="140" width="30" height="22" rx="4" fill="#e0e0e0"/>
+  <rect x="68" y="168" width="120" height="16" rx="4" fill="#e0e0e0"/>
+  <circle cx="224" cy="44" r="30" fill="url(#vn-badge)"/>
+  <text x="224" y="52" text-anchor="middle" fill="#fff" font-size="20" font-weight="bold" font-family="sans-serif">VN</text>
+</svg>

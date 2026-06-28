@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use std::collections::HashMap;
 
 use crate::inject::{InjectResult, KeyInjector};

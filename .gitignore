@@ -15,4 +15,5 @@ status
 vietc-xrecord
 packaging/flatpak/build-dir
 packaging/flatpak/vietc-repo
+packaging/flatpak/repo
 packaging/flatpak/VietPlus-*

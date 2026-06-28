@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

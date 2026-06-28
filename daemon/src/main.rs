@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
@@ -6,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use vietc_engine::{Engine, EngineEvent, InputMethod};
+use vietc_engine::{Engine, EngineEvent, EventStore, InputEvent, InputMethod};
 
 /// Pin current thread to performance cores (0-3) and boost priority.
 /// Inspired by VMK's approach to minimize input latency on Intel hybrid CPUs.
@@ -110,10 +111,11 @@ struct Daemon {
     app_state: AppStateManager,
     engine_enabled: Arc<AtomicBool>,
     grab_enabled: bool,
-    /// Backspace-Replay: all keystrokes in the current word being composed.
-    /// On each keypress, we replay the entire history through a fresh engine
-    /// to compute the correct screen output, eliminating state desync.
-    keystroke_history: Vec<char>,
+    /// Event Store: append-only log of typed input events.
+    /// On each input, we replay the entire event log through a fresh engine
+    /// to compute the expected screen output, eliminating state desync.
+    /// KHÔNG lưu nội dung nhạy cảm — chỉ lưu event sequence.
+    event_store: EventStore,
     /// What's currently displayed on screen for the current word.
     /// Used to calculate how many backspaces we need before retyping.
     screen_output: String,
@@ -154,7 +156,7 @@ impl Daemon {
             config_modified,
             app_state,
             engine_enabled,
-            keystroke_history: Vec::new(),
+            event_store: EventStore::new(),
             screen_output: String::new(),
         }
     }
@@ -279,11 +281,16 @@ impl Daemon {
         self.app_state.is_current_app_bypassed()
     }
 
-    /// Backspace-Replay: replay the entire keystroke history through a fresh
-    /// engine, compute what should be on screen, and return the commands
+    /// Event Sourcing: replay the entire event store through a fresh engine,
+    /// compute what should be on screen, and return the commands
     /// (backspaces to erase old + new text to type).
+    /// KHÔNG đọc DOM, chỉ dựa trên event sequence.
     fn replay_and_inject(&mut self, ch: char) -> Vec<OutputCommand> {
         let mut commands = Vec::new();
+        let method = match self.config.input_method.as_str() {
+            "vni" => InputMethod::Vni,
+            _ => InputMethod::Telex,
+        };
 
         // Flush characters: commit the current word and type the flush char.
         // Only backspace + retype when auto-restore actually CHANGES the word
@@ -291,6 +298,7 @@ impl Daemon {
         // already correctly on screen, so retyping it would eat the spacing and
         // shift the finished word left.
         if is_flush_char(ch) {
+            self.event_store.push(InputEvent::Flush(ch));
             let to_commit = self.word_to_commit();
             if !self.screen_output.is_empty() && to_commit != self.screen_output {
                 let backspaces = self.screen_output.chars().count();
@@ -299,37 +307,29 @@ impl Daemon {
             }
             // Type the flush character itself
             commands.push(OutputCommand::Type(ch.to_string()));
-            self.keystroke_history.clear();
+            self.event_store.clear();
             self.screen_output.clear();
             return commands;
         }
 
-        // Add the new keystroke to history
-        self.keystroke_history.push(ch);
+        // Record the typed key as an event
+        self.event_store.push(InputEvent::KeyTyped(ch));
 
-        // Replay through fresh engine
-        let method = match self.config.input_method.as_str() {
-            "vni" => InputMethod::Vni,
-            _ => InputMethod::Telex,
-        };
-        let (new_output, did_flush) = Engine::replay_keystrokes(
+        // Replay entire event log through fresh engine
+        let (new_output, did_flush) = Engine::replay_events(
             method,
             &self.config.macros,
-            &self.keystroke_history,
+            &self.event_store,
         );
 
         if did_flush {
-            // Engine flushed a word. Only backspace + retype when auto-restore
-            // actually CHANGES the word; otherwise the composed word is already
-            // correct on screen and retyping it eats spacing and shifts the
-            // finished word left.
             let to_commit = self.word_to_commit();
             if !self.screen_output.is_empty() && to_commit != self.screen_output {
                 let backspaces = self.screen_output.chars().count();
                 commands.push(OutputCommand::Backspace(backspaces));
                 commands.push(OutputCommand::Type(to_commit));
             }
-            self.keystroke_history.clear();
+            self.event_store.clear();
             self.screen_output.clear();
             return commands;
         }
@@ -348,31 +348,43 @@ impl Daemon {
         commands
     }
 
-    /// Backspace-Replay: pop from history, replay, and return commands to fix screen.
+    /// Event Sourcing: pop last event, replay, and return commands to fix screen.
     fn replay_backspace(&mut self) -> Vec<OutputCommand> {
         let mut commands = Vec::new();
+        let method = match self.config.input_method.as_str() {
+            "vni" => InputMethod::Vni,
+            _ => InputMethod::Telex,
+        };
 
-        if self.keystroke_history.is_empty() {
+        if self.event_store.is_empty() {
             // Nothing in history — just forward the backspace
             commands.push(OutputCommand::Backspace(1));
             return commands;
         }
 
-        // Remove last keystroke from history
-        self.keystroke_history.pop();
+        // Record backspace event
+        self.event_store.push(InputEvent::Backspace);
+
+        // Remove the last key-typed event for replay (unless it was already a backspace)
+        match self.event_store.pop() {
+            Some(InputEvent::Backspace) => {
+                // Pop again to remove the preceding event
+                self.event_store.pop();
+            }
+            Some(_) => {
+                // Already popped the last event (KeyTyped or Flush)
+            }
+            None => {}
+        }
 
         // Replay through fresh engine
-        let method = match self.config.input_method.as_str() {
-            "vni" => InputMethod::Vni,
-            _ => InputMethod::Telex,
-        };
-        let (new_output, _) = if self.keystroke_history.is_empty() {
+        let (new_output, _) = if self.event_store.is_empty() {
             (String::new(), false)
         } else {
-            Engine::replay_keystrokes(
+            Engine::replay_events(
                 method,
                 &self.config.macros,
-                &self.keystroke_history,
+                &self.event_store,
             )
         };
 
@@ -394,7 +406,7 @@ impl Daemon {
     /// word is English / not valid Vietnamese — the raw keystrokes typed.
     fn word_to_commit(&self) -> String {
         if self.config.auto_restore.enabled {
-            let raw: String = self.keystroke_history.iter().collect();
+            let raw = self.event_store.raw_keystrokes();
             if Engine::should_restore_word(&self.screen_output, &raw) {
                 return raw;
             }
@@ -404,7 +416,7 @@ impl Daemon {
 
     /// Reset the replay state (on flush, focus loss, modifier key, etc.)
     fn replay_reset(&mut self) {
-        self.keystroke_history.clear();
+        self.event_store.clear();
         self.screen_output.clear();
     }
 
@@ -731,7 +743,7 @@ fn run_with_x11(
                             pressed_keys.remove(&event.keycode);
                             SKIP_RECORD_EVENTS.store(true, Ordering::Relaxed);
                             execute_commands(&*injector, &commands, true);
-                            if daemon.keystroke_history.is_empty() && commands.is_empty() {
+                            if daemon.event_store.is_empty() && commands.is_empty() {
                                 let _ = injector.send_backspace();
                             }
                         }

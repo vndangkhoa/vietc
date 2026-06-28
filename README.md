@@ -2,8 +2,9 @@
   <img src="https://img.shields.io/badge/Platform-Linux-blue?style=for-the-badge" alt="Platform">
   <img src="https://img.shields.io/badge/Language-Rust-orange?style=for-the-badge" alt="Rust">
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/Version-0.1.4-purple?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.5-purple?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/Tests-106_passing-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/Event_Sourcing-✓-blueviolet?style=for-the-badge" alt="Event Sourcing">
 </p>
 
 <h1 align="center">
@@ -94,31 +95,32 @@ Physical Keyboard
    and renders Vietnamese text on screen
 ```
 
-### The Backspace-Replay Pattern
+### Event Sourcing + Backspace-Replay
 
 This is Viet+'s core innovation. Traditional IMEs track state incrementally — each keystroke updates an internal buffer. But this buffer can **desync** from what's actually on screen (due to focus changes, external pastes, etc.).
 
-Viet+ solves this by **never tracking incremental state**:
+Viet+ uses **Event Sourcing**: every input action is recorded as a typed `InputEvent` (`KeyTyped`, `Backspace`, `Flush`, `Paste`) in an `EventStore`. On every keystroke, the entire event history is **replayed from scratch** through a fresh engine to compute the correct diff — no incremental state to desync.
 
 ```
 Traditional IME:
   keystroke → update buffer → emit event → hope it matches screen
   
-Viet+ (Backspace-Replay):
-  keystroke → add to history → replay ALL history in fresh engine → compute diff
+Viet+ (Event Sourcing):
+  keystroke → append InputEvent → replay ALL events in fresh engine → compute diff
 ```
 
 On every keystroke:
 
-1. The keystroke is appended to `keystroke_history`
+1. The keystroke is appended as an `InputEvent` to the `EventStore`
 2. A **brand new** `Engine` is created
-3. The **entire** history is replayed through it
+3. The **entire** event history is replayed through it via `Engine::replay_events()`
 4. The engine's buffer is the **correct** screen output
-5. Viet+ computes the diff: how many backspaces to erase old text, what new text to type
+5. Viet+ computes the diff: `Engine::replay_events_to_commands()` returns Type/Backspace commands
 
 This means:
 - **Zero state desync** — always recomputed from scratch
 - **Self-healing** — if anything goes wrong, the next keystroke fixes it
+- **Privacy-safe** — `EventStore::pattern_hash()` provides a sha256 of the event type sequence for pattern detection without any ability to recover original text
 - **Simple** — no complex state tracking or synchronization
 
 ---
@@ -128,7 +130,8 @@ This means:
 ```
 vietc/
 ├── engine/                  # Vietnamese composition engine (bamboo-core Rust port)
-│   ├── engine.rs            # Orchestrator + replay_keystrokes()
+│   ├── engine.rs            # Orchestrator + replay_events(), replay_events_to_commands()
+│   ├── event.rs             # Event Sourcing: InputEvent, EventStore, Command
 │   ├── bamboo.rs            # Bamboo engine: transformation model, composition, tone placement
 │   ├── input_method.rs      # Telex/VNI rule definitions
 │   └── spelling.rs          # Vietnamese syllable validation
@@ -280,10 +283,18 @@ Includes daemon + CLI + system tray + uinput daemon. Sandboxed — no system lib
 ```bash
 git clone https://github.com/vndangkhoa/vietc.git
 cd vietc/packaging/flatpak
-bash build-flatpak.sh
+bash build-flatpak.sh [version]
 ```
 
-Requires Flatpak runtime `org.gnome.Platform//50` and Rust SDK extension (installed automatically).
+Requires Flatpak runtimes: `org.gnome.Platform//50`, `org.gnome.Sdk//50`, `org.freedesktop.Sdk.Extension.rust-stable//25.08`
+
+```bash
+flatpak install --user flathub org.gnome.Platform//50
+flatpak install --user flathub org.gnome.Sdk//50
+flatpak install --user flathub org.freedesktop.Sdk.Extension.rust-stable//25.08
+```
+
+See `packaging/flatpak/FLATPAK_BUILD.md` for detailed build instructions.
 
 ---
 

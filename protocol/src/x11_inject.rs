@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use super::inject::{InjectResult, KeyInjector};
 use std::cell::RefCell;
 use std::ffi::{c_char, c_int, c_void};

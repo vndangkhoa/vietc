@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use std::collections::HashSet;
 
 pub struct EnglishDict {

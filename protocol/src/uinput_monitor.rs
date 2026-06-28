@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use std::fs::{File, OpenOptions};
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Condvar, Mutex};
