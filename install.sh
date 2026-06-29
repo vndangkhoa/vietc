@@ -255,7 +255,6 @@ if [ -n "$INSTALLING_USER" ] && [ "$INSTALLING_USER" != "root" ]; then
     fi
     
     # Remove any old conflicting configurations in user home
-    local user_home
     user_home="$(getent passwd "$INSTALLING_USER" 2>/dev/null | cut -d: -f6 || true)"
     if [ -n "$user_home" ]; then
         rm -f "$user_home/.config/vietc/config.toml" 2>/dev/null || true
