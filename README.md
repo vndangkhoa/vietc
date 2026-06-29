@@ -82,10 +82,10 @@ Physical Keyboard
 │  Stage 4: KEY INJECTION                                      │
 │                                                              │
 │  ASCII: direct Linux keycodes via /dev/uinput                │
-│  Backspace: Linux keycode 14 via uinput                      │
-│  Vietnamese Unicode: clipboard paste + trailing ASCII via    │
-│    uinput (split only at whitespace/punctuation boundary)    │
-│  Persistent X11 connection for Ctrl+V (no per-call overhead) │
+  │  Backspace: Linux keycode 14 via uinput                      │
+  │  Vietnamese Unicode: clipboard paste + trailing ASCII via    │
+  │    uinput (split only at whitespace/punctuation boundary)    │
+  │  uinput Ctrl+V via /dev/uinput (no X11 dependency)           │
 │                                                              │
 │  Fallback: vietc-uinputd Unix socket daemon (privileged)     │
 └──────────────────────────────────────────────────────────────┘
@@ -260,7 +260,7 @@ Flexible typing: type the full syllable, then add marks/tone keys at the end. Ex
 | **Casing Preservation** | `Tieengs` → `Tiếng`, `TIEENGS` → `TIẾNG` |
 | **App Memory** | Per-app Vietnamese/English state, saved to `overrides.toml` |
 | **Hot Reload** | Config changes apply without restart (polls mtime every 1.5s) |
-| **Focus Reset** | Focus change clears engine state — no stale injection on window switch |
+| **Window-Switch Reset** | Alt+Tab clears engine state — no stale composition across apps, even when focus events are missed. Uses `xdotool` or `xprop` fallback to detect window changes |
 | **CPU Priority** | Pins daemon to P-cores (0-3) + nice(-10) for low-latency input |
 | **Uinput Daemon** | Privileged `vietc-uinputd` for clean backspace injection (Unix socket, VMK-style) |
 
@@ -293,6 +293,8 @@ flatpak install --user flathub org.gnome.Platform//50
 flatpak install --user flathub org.gnome.Sdk//50
 flatpak install --user flathub org.freedesktop.Sdk.Extension.rust-stable//25.08
 ```
+
+The Flatpak build now produces a warning-free bundle (~47 MB compressed). No external runtime dependencies are needed — everything is sandboxed.
 
 See `packaging/flatpak/FLATPAK_BUILD.md` for detailed build instructions.
 

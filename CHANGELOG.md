@@ -1,33 +1,22 @@
 # Changelog
 
-## v0.1.5 (2026-06-28)
+## v0.1.5 (2026-06-29)
 
-### Event Sourcing (privacy-safe architecture)
-- **EventStore** replaces `Vec<char>` keystroke history — typed `InputEvent`s (`KeyTyped`, `Backspace`, `Flush`, `Paste`) with `push/pop/clear/raw_keystrokes/pattern_hash`
-- **`Engine::replay_events()`** — stateless replay through fresh BambooEngine (replaces `replay_keystrokes()`)
-- **`Engine::replay_events_to_commands()`** — computes diff commands (`Type`, `Backspace`) comparing expected vs screen output
-- **`EventStore::pattern_hash()`** — sha256 of event type sequence; privacy-safe pattern detection without text recovery
-- **Daemon updated** — all `keystroke_history` references migrated to `event_store`; `replay_and_inject()`, `replay_backspace()`, `word_to_commit()`, `replay_reset()` use new Event Sourcing API
+### Window-Switch Engine Reset
+- **Engine state now clears on window switch** — when Alt+Tab'ing between apps, the composition buffer is properly reset before the next keystroke. Previously, keystrokes could still apply Vietnamese tone/mark rules across app boundaries, producing corrupted text.
+- **`last_key_time` only on character key presses** — modifier-only events (Alt, Ctrl, Shift) no longer update the gap timer, so the 100 ms inline xprop poll fires reliably after every window switch, regardless of held modifiers.
 
-### Flatpak Build Fixes
-- **Fixed SDK/RUNTIME swap**: `flatpak build-init` arg order is `SDK` then `RUNTIME`; previous `org.gnome.Platform` as SDK meant `/usr/lib/sdk/` was never mounted
-- **Rust SDK extension** now auto-mounts at `/usr/lib/sdk/rust-stable/` — no symlinks or file copies needed
-- **Icons**: renamed to `io.github.vietc.VietPlus.*` prefix (Flatpak export requires app ID prefix for all icon files)
-- **Desktop file**: removed unregistered `InputMethod` category
-- **Tray**: `icon_name()` returns Flatpak-prefixed names when running inside Flatpak sandbox (detected via `/app/bin/vietc-daemon`); `icon_pixmap()` programmatic fallback unchanged
-- **Bundle**: `VietPlus-0.1.5.flatpak` (46 MB, runtime `org.gnome.Platform//50`)
+### Active Window Detection
+- **xprop fallback** — `get_active_window_id()` tries `xdotool` first, falls back to `xprop -root _NET_ACTIVE_WINDOW` (preinstalled `x11-utils`). Works under sudo even when xdotool is absent.
 
-### Documentation
-- `packaging/flatpak/FLATPAK_BUILD.md` — detailed build instructions (prerequisites, manual step-by-step, installation)
-- `RELEASE_CHECKLIST.md` — step-by-step release process (bump version, build, test, push, create release)
+### Code Cleanup
+- **Removed ~400 lines of dead unsafe code** — entire X11 clipboard shared-state block (unsafe statics, manual Xlib dlopen, SelectionRequest handling) was unused and has been deleted. All related `#[warn(dead_code)]` and `#[warn(static_mut_refs)]` warnings eliminated.
+- **Engine dead code removed** — unused methods `is_empty`, `is_tone_or_mark_key`, `process_string`, `last_base_char`, `apply_cluster_mark`, `apply_mark` in `BambooEngine`; `RuleEffect` enum and `special_rules` field in `InputMethodRules`.
+- **Production logging** — per-key `eprintln!` removed from evdev loop and uinput paste path. Only startup/error/window-change messages remain (`log_info` to both stderr and file).
 
-### Licenses
-- MIT license headers (`// SPDX-License-Identifier: MIT`) on all 22 `.rs` files across 6 crates
-
-### Icons
-- `packaging/icons/vietc.svg` — app icon (keyboard + VN badge)
-- `packaging/icons/vietc-vn.svg` — tray icon (red VN)
-- `packaging/icons/vietc-en.svg` — tray icon (gray EN)
+### Flatpak Build
+- **Fixed `mkdir -p`** — `build-flatpak.sh` now creates `/app/share/applications` before installing the desktop file.
+- **Bundle**: `VietPlus-0.1.5.flatpak` (47 MB, runtime `org.gnome.Platform//50`). Warning-free build with default Rust profile (no `#![allow()]` needed).
 
 ---
 
