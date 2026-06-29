@@ -40,7 +40,7 @@ install_dependencies() {
     echo -e "Installing ${mode} dependencies..."
     
     case "$DISTRO" in
-        ubuntu|debian|raspbian|pop|mint|neon)
+        ubuntu|debian|raspbian|pop|mint|linuxmint|neon)
             apt-get update -y
             if [ "$mode" = "build" ]; then
                 apt-get install -y build-essential pkg-config libx11-dev libxtst-dev libdbus-1-dev libevdev-dev
@@ -71,6 +71,14 @@ install_dependencies() {
 
 # Check for Rust compiler (needed only for source build)
 check_rust() {
+    if [ -n "${SUDO_USER:-}" ]; then
+        local user_home
+        user_home="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || echo "/home/$SUDO_USER")"
+        export CARGO_HOME="$user_home/.cargo"
+        export RUSTUP_HOME="$user_home/.rustup"
+        export PATH="$CARGO_HOME/bin:$PATH"
+    fi
+
     if ! command -v cargo >/dev/null 2>&1; then
         echo -e "${YELLOW}Rust toolchain not found.${NC}"
         read -p "Would you like to install Rust toolchain now? [Y/n] " -n 1 -r
@@ -81,11 +89,8 @@ check_rust() {
         fi
         echo "Installing Rust via rustup.rs..."
         # Run rustup installer as the original non-root user if SUDO_USER is set
-        local user_cmd=""
         if [ -n "${SUDO_USER:-}" ]; then
             su - "$SUDO_USER" -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
-            # Add to PATH for this script session
-            export PATH="/home/$SUDO_USER/.cargo/bin:$PATH"
         else
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             export PATH="$HOME/.cargo/bin:$PATH"
