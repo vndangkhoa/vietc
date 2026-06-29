@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Platform-Linux-blue?style=for-the-badge" alt="Platform">
   <img src="https://img.shields.io/badge/Language-Rust-orange?style=for-the-badge" alt="Rust">
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/Version-0.1.5-purple?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.6-purple?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/Tests-106_passing-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/Event_Sourcing-✓-blueviolet?style=for-the-badge" alt="Event Sourcing">
 </p>
@@ -47,11 +47,11 @@ Physical Keyboard
 │  Stage 1: KEY CAPTURE                                        │
 │                                                              │
 │  evdev: /dev/input/event* grabs keyboard (primary, reliable) │
-│  X11: XRecord passive monitoring (fallback)                   │
+│  X11: XRecord passive monitoring (fallback)                  │
 │                                                              │
 │  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐   │
-│  │ evdev grab  │  │ X11Capture   │  │ FocusIn/FocusOut │   │
-│  │ (libevdev)  │  │ (XRecord)    │  │ detection        │   │
+│  │ evdev grab  │  │ X11Capture   │  │ Window switch    │   │
+│  │ (libevdev)  │  │ (XRecord)    │  │ detection (250ms)│   │
 │  └─────────────┘  └──────────────┘  └──────────────────┘   │
 └──────────────────────────────────────────────────────────────┘
        │
@@ -63,7 +63,7 @@ Physical Keyboard
 │  Ctrl+Space → toggle Vietnamese ON/OFF                       │
 │  Backspace → replay_backspace()                              │
 │  Characters → replay_and_inject(ch)                          │
-│  VNI/Telex control keys → consume when no match              │
+│  VNI control keys → consume when no match                    │
 └──────────────────────────────────────────────────────────────┘
        │
        ▼
@@ -81,13 +81,15 @@ Physical Keyboard
 ┌──────────────────────────────────────────────────────────────┐
 │  Stage 4: KEY INJECTION                                      │
 │                                                              │
+│  Primary: uinput injection (evdev keycodes, correct on all   │
+│    display servers — routed through libinput on modern X11)  │
 │  ASCII: direct Linux keycodes via /dev/uinput                │
-  │  Backspace: Linux keycode 14 via uinput                      │
-  │  Vietnamese Unicode: clipboard paste + trailing ASCII via    │
-  │    uinput (split only at whitespace/punctuation boundary)    │
-  │  uinput Ctrl+V via /dev/uinput (no X11 dependency)           │
+│  Backspace: Linux keycode 14 via uinput                      │
+│  Vietnamese Unicode: clipboard paste + trailing ASCII via    │
+│    uinput (split only at whitespace/punctuation boundary)    │
+│  uinput Ctrl+V via /dev/uinput (no X11 dependency)           │
 │                                                              │
-│  Fallback: vietc-uinputd Unix socket daemon (privileged)     │
+│  Fallback: X11 XTest injection (X11 keycodes = evdev + 8)    │
 └──────────────────────────────────────────────────────────────┘
        │
        ▼
@@ -133,14 +135,14 @@ vietc/
 │   ├── engine.rs            # Orchestrator + replay_events(), replay_events_to_commands()
 │   ├── event.rs             # Event Sourcing: InputEvent, EventStore, Command
 │   ├── bamboo.rs            # Bamboo engine: transformation model, composition, tone placement
-│   ├── input_method.rs      # Telex/VNI rule definitions
+│   ├── input_method.rs      # VNI rule definitions
 │   └── spelling.rs          # Vietnamese syllable validation
 │
 ├── protocol/                # Keyboard capture & injection
 │   ├── inject.rs            # KeyInjector trait
 │   ├── x11_capture.rs       # XRecord keyboard capture via C helper
-│   ├── x11_inject.rs        # XTest injection + direct clipboard
-│   ├── uinput_monitor.rs    # /dev/uinput injection for ASCII + Unicode
+│   ├── x11_inject.rs        # XTest injection (fallback)
+│   ├── uinput_monitor.rs    # /dev/uinput injection (primary)
 │   ├── uinput_client.rs     # Unix socket client for vietc-uinputd
 │   └── wayland_im.rs        # Wayland IM protocol
 │
@@ -157,7 +159,7 @@ vietc/
 │   └── main.rs              # Tray + daemon launcher
 │
 ├── cli/                     # Interactive test harness
-├── packaging/               # AppImage + deb build scripts
+├── packaging/               # .deb packaging scripts
 └── vietc.toml               # Default configuration
 ```
 
@@ -166,12 +168,12 @@ vietc/
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      vietc-tray                             │
-│  (System tray icon, daemon launcher, password prompt)       │
+│  (System tray icon, daemon launcher)                        │
 └───────────────────────┬─────────────────────────────────────┘
                         │ starts
                         ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                      vietc (daemon)                          │
+│                      vietc-daemon                            │
 │                                                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
 │  │ Config       │  │ App State    │  │ Display          │  │
@@ -183,7 +185,7 @@ vietc/
 │                    ┌──────▼──────┐                           │
 │                    │ Event Loop  │                           │
 │                    │             │                           │
-│                    │ X11: grab   │                           │
+│                    │ evdev: grab │                           │
 │                    │ keyboard    │                           │
 │                    │             │                           │
 │                    │ Process     │                           │
@@ -198,12 +200,12 @@ vietc/
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │                   vietc-engine                         │ │
-│  │  TelexEngine / VniEngine / EnglishDict / Spelling     │ │
+│  │  VniEngine / EnglishDict / Spelling                    │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │               vietc-protocol                           │ │
-│  │  X11Capture / X11Injector / UinputInjector / Wayland  │ │
+│  │  UinputInjector / X11Injector / X11Capture / Wayland  │ │
 │  └────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -212,24 +214,7 @@ vietc/
 
 ## Input Methods
 
-### Telex
-
-| Key | Result | Example |
-|-----|--------|---------|
-| `aa` | â | `tan` → `tân` |
-| `aw` | ă | `tan` → `tăn` |
-| `ee` | ê | `men` → `mên` |
-| `oo` | ô | `to` → `tô` |
-| `ow` | ơ | `to` → `tơ` |
-| `uw` | ư | `tu` → `tư` |
-| `s` | á (sắc) | `as` → `á` |
-| `f` | à (huyền) | `af` → `à` |
-| `r` | ả (hỏi) | `ar` → `ả` |
-| `x` | ã (ngã) | `ax` → `ã` |
-| `j` | ạ (nặng) | `aj` → `ạ` |
-| `dd` | đ | `dd` → `đ` |
-
-### VNI
+### VNI (default, Telex coming in next version)
 
 | Key | Result | Example |
 |-----|--------|---------|
@@ -251,59 +236,51 @@ Flexible typing: type the full syllable, then add marks/tone keys at the end. Ex
 
 | Feature | How It Works |
 |---------|-------------|
-| **Direct Input** | No pre-edit buffer. Keystrokes instantly become text via uinput/XTest injection |
+| **Direct Input** | No pre-edit buffer. Keystrokes instantly become text via uinput injection |
 | **Bamboo Engine** | Transformation model ported from bamboo-core — composition, marks, tones, flexible backtracking |
-| **Flexible Backtrack** | Type tone/modifier at end of syllable (`tranaf` → `trần`). Scans up to 5 chars backward |
+| **Flexible Backtrack** | Type tone/modifier at end of syllable (`tran5` → `trạn`). Scans up to 5 chars backward |
 | **Smart Clusters** | `uo` → `ươ` with backtrack (`chuong7` → `chương`) |
 | **Tone Placement** | Correct tone positioning for all Vietnamese diphthongs (io→gió, uâ→xuất, yê→nguyễn) |
 | **Macro Expansion** | `ko` → `không`, `dc` → `được`, custom shortcuts |
 | **Casing Preservation** | `Tieengs` → `Tiếng`, `TIEENGS` → `TIẾNG` |
 | **App Memory** | Per-app Vietnamese/English state, saved to `overrides.toml` |
 | **Hot Reload** | Config changes apply without restart (polls mtime every 1.5s) |
-| **Window-Switch Reset** | Alt+Tab clears engine state — no stale composition across apps, even when focus events are missed. Uses `xdotool` or `xprop` fallback to detect window changes |
+| **Window-Switch Reset** | Active window ID verified on every keystroke — Alt+Tab instantly clears engine state. No stale composition across apps |
 | **CPU Priority** | Pins daemon to P-cores (0-3) + nice(-10) for low-latency input |
-| **Uinput Daemon** | Privileged `vietc-uinputd` for clean backspace injection (Unix socket, VMK-style) |
+| **Uinput Injection** | Uses `/dev/uinput` for reliable keyboard injection without X11 dependency. Falls back to XTest on systems without uinput access |
 
 ---
 
 ## Installation
 
-### Flatpak (recommended)
+### Debian Package (recommended)
 
-System tray icon + daemon. Find **"Viet+"** in your app menu to launch, or run from terminal.
+System tray icon + daemon + desktop entry. Requires user to be in the `input` group for keyboard capture.
 
 ```bash
 # Install
-flatpak install --user --bundle VietPlus-x86_64.flatpak
+sudo dpkg -i vietc_0.1.6-1_amd64.deb
 
-# Launch via app menu, or:
-flatpak run io.github.vietc.VietPlus
-
-# Uninstall
-flatpak uninstall --user io.github.vietc.VietPlus
+# Log out and log back in (for input group membership to take effect)
+# Then launch "Viet+" from your application menu
 ```
 
-Includes daemon + CLI + system tray + uinput daemon. Sandboxed — no system libraries are touched.
+The post-install script will:
+- Kill any running tray/daemon processes
+- Remove stale binaries from `/usr/local/bin/`
+- Add your user to the `input` group
+- Prompt you to log out and back in
 
-### Build from Source (Flatpak)
+### Build from Source
 
 ```bash
 git clone https://github.com/vndangkhoa/vietc.git
-cd vietc/packaging/flatpak
-bash build-flatpak.sh [version]
+cd vietc
+make deb
+sudo dpkg -i packaging/deb/vietc_0.1.6-1_amd64.deb
 ```
 
-Requires Flatpak runtimes: `org.gnome.Platform//50`, `org.gnome.Sdk//50`, `org.freedesktop.Sdk.Extension.rust-stable//25.08`
-
-```bash
-flatpak install --user flathub org.gnome.Platform//50
-flatpak install --user flathub org.gnome.Sdk//50
-flatpak install --user flathub org.freedesktop.Sdk.Extension.rust-stable//25.08
-```
-
-The Flatpak bundle includes the system tray and desktop menu entry. Find **"Viet+"** in your app launcher to start it, or search for it to uninstall. Warning-free build — no `#![allow()]` needed.
-
-See `packaging/flatpak/FLATPAK_BUILD.md` for detailed build instructions.
+Requires Rust toolchain, `pkg-config`, `libx11-dev`, `libxtst-dev`, `libevdev-dev`. See `packaging/deb/build-deb.sh` for details.
 
 ---
 

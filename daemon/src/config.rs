@@ -196,7 +196,7 @@ impl Default for Config {
             auto_restore: AutoRestoreConfig::default(),
             app_state: AppStateConfig::default(),
             macros,
-            grab: false,
+            grab: false, // default false so daemon works without root (needs input group for uinput)
             debug: false,
         }
     }

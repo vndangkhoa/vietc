@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.1.6 (2026-06-29)
+
+### uinput-First Injection
+
+- **Injection priority reversed**: uinput (`/dev/uinput`) is now the primary injection backend on X11, with X11 XTest as fallback. uinput sends evdev keycodes that route correctly through libinput — no X11 keycode offset needed.
+- **X11 XTest keycode fix**: X11 injector was sending evdev keycodes directly to `XTestFakeKeyEvent`, which expects X11 keycodes (evdev + 8). Backspace sent keycode 14 (evdev) = X11 keycode 14 = "5" key. Fixed by adding +8 offset in all `send_keycode` paths.
+- **`paste_via_clipboard()` backspace fixed**: was hardcoded to X11 keycode 14 (actually "5"), now uses evdev 14 + 8 = 22 (correct X11 backspace).
+
+### Window-Switch Detection
+
+- **Active window ID verified on every keystroke**: removed the `gap > 100ms` guard — the daemon now polls `xdotool`/`xprop` directly for every character keypress. This catches window switches that complete in under 100ms, preventing old engine buffer from leaking into the new window.
+
+### Input Method
+
+- **Telex disabled in tray**: greyed out with "(next version)" label and `Disposition::Informative`. Only VNI is functional.
+- **Default input method changed** from `"telex"` to `"vni"` in config fallback.
+
+### Packaging
+
+- **Flatpak and AppImage removed**: only `.deb` packaging is maintained. `packaging/flatpak/` and `packaging/appimage/` directories deleted.
+- **Postinst improvements**: removes stale `/usr/local/bin/vietc*` binaries, deletes old `~/.config/vietc/config.toml` + `overrides.toml` + `.first-launch-done`, shows logout popup (notify-send + zenity).
+- **CI workflow**: only `.deb` artifact collected (no AppImage).
+
+---
+
 ## v0.1.5 (2026-06-29)
 
 ### Window-Switch Engine Reset

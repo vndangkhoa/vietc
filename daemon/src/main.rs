@@ -1027,14 +1027,13 @@ fn run_with_evdev(
 
                             if active_window_id != last_active_window {
                                 new_window = Some(active_window_id.clone());
-                            } else if gap > std::time::Duration::from_millis(100) {
-                                // Background thread hasn't caught up yet — poll xdotool directly
+                            } else {
+                                // Always verify active window on every keypress — window
+                                // switches under 100ms can leak the old engine buffer.
                                 if let Some(id) = app_state::get_active_window_id() {
                                     if id != active_window_id {
                                         new_window = Some(id);
                                     }
-                                } else {
-                                    log_info(&format!("[vietc] gap poll: window ID query failed (gap={:?}, shared='{}')", gap, active_window_id));
                                 }
                             }
 
@@ -1264,22 +1263,15 @@ fn execute_commands(
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
-
 fn create_injector(
     display: display::DisplayServer,
 ) -> Result<Box<dyn vietc_protocol::KeyInjector>, Box<dyn std::error::Error>> {
-    // Try uinputd socket first
-    if vietc_protocol::uinput_client::UinputClient::is_available() {
-        log_info("[vietc] Using uinputd socket injection");
-        return Ok(Box::new(vietc_protocol::uinput_client::UinputClient));
-    }
-
-    // Use uinput as primary — correct Linux keycodes for backspace + ASCII.
-    // For Unicode (Vietnamese diacritics), falls back to X11 clipboard via
-    // direct X11 API (not subprocesses), making it work in Flatpak sandboxes.
+    // Prefer uinput injection — uses correct Linux keycodes for backspace
+    // and ASCII, works on both X11 and Wayland (uinput devices are routed
+    // through libinput on modern X11).
     match vietc_protocol::uinput_monitor::UinputInjector::new("vietc") {
         Ok(injector) => {
-            log_info("[vietc] Using uinput injection (primary)");
+            log_info("[vietc] Using uinput injection");
             return Ok(Box::new(injector));
         }
         Err(e) => {
@@ -1287,18 +1279,23 @@ fn create_injector(
         }
     }
 
-    // Fall back to X11 injection (only if uinput fails)
+    // Try uinputd socket
+    if vietc_protocol::uinput_client::UinputClient::is_available() {
+        log_info("[vietc] Using uinputd socket injection");
+        return Ok(Box::new(vietc_protocol::uinput_client::UinputClient));
+    }
+
+    // Fall back to X11 injection (XTest) — uses X11 keycodes, only for
+    // systems where uinput/unix socket injection is unavailable.
     #[cfg(feature = "x11")]
-    {
-        if display != display::DisplayServer::Wayland {
-            match vietc_protocol::x11_inject::X11Injector::new() {
-                Ok(injector) => {
-                    log_info("[vietc] Using X11 injection (fallback)");
-                    return Ok(Box::new(injector));
-                }
-                Err(e) => {
-                    log_info(&format!("[vietc] X11 not available: {}", e));
-                }
+    if display != display::DisplayServer::Wayland {
+        match vietc_protocol::x11_inject::X11Injector::new() {
+            Ok(injector) => {
+                log_info("[vietc] Using X11 injection (fallback)");
+                return Ok(Box::new(injector));
+            }
+            Err(e) => {
+                log_info(&format!("[vietc] X11 not available: {}", e));
             }
         }
     }

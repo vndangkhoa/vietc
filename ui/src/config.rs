@@ -71,7 +71,7 @@ pub struct Config {
 }
 
 fn default_input_method() -> String {
-    "telex".into()
+    "vni".into()
 }
 fn default_toggle_key() -> String {
     "space".into()
@@ -80,7 +80,7 @@ fn default_start_enabled() -> bool {
     true
 }
 fn default_grab() -> bool {
-    true
+    false
 }
 fn default_true() -> bool {
     true
@@ -150,6 +150,7 @@ fn config_paths() -> Vec<PathBuf> {
     }
 
     paths.push(PathBuf::from("vietc.toml"));
+    paths.push(PathBuf::from("/etc/vietc/config.toml"));
 
     paths
 }

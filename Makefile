@@ -1,4 +1,4 @@
-.PHONY: build build-x11 build-wayland build-all build-ui test test-cli run run-x11 run-wayland clean install install-x11 install-wayland install-ui install-config appimage deb fmt lint tree
+.PHONY: build build-x11 build-wayland build-all build-ui test test-cli run run-x11 run-wayland clean install install-x11 install-wayland install-ui install-config deb fmt lint tree
 
 # Build core crates
 build:
@@ -76,26 +76,15 @@ install-config:
 	cp vietc.toml ~/.config/vietc/config.toml
 	@echo "Config installed to ~/.config/vietc/config.toml"
 
-# Build .deb package (requires dpkg-deb)
+# Build .deb package
 deb:
 	VERSION=$$(grep '^version' engine/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/') && \
 	bash packaging/deb/build-deb.sh "$$VERSION"
-
-# Build AppImage (requires appimagetool or linuxdeploy)
-appimage:
-	VERSION=$$(grep '^version' engine/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/') && \
-	bash packaging/appimage/build-appimage.sh "$$VERSION"
-
-# Build Debian package
-deb:
-	VERSION=$$(grep '^version' engine/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/') && \
-	bash packaging/build-deb.sh "$$VERSION"
 
 # Clean build artifacts
 clean:
 	cargo clean
 	cd ui && cargo clean
-	rm -rf packaging/appimage/AppDir packaging/appimage/*.AppImage
 
 # Format code
 fmt:
@@ -106,10 +95,6 @@ fmt:
 lint:
 	cargo clippy -- -D warnings
 	cd ui && cargo clippy -- -D warnings
-
-# Flatpak build
-flatpak:
-	cd packaging/flatpak && bash build-flatpak.sh
 
 # Show project structure
 tree:

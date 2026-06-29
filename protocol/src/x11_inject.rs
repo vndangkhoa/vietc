@@ -388,20 +388,19 @@ impl X11Injector {
         // (unlikely at this point, but be safe)
         self.handle_pending_events();
 
-        // Send backspaces via XTest
+        // Send backspaces via XTest (X11 keycode 22 = backspace)
         if backspaces > 0 {
             for _ in 0..backspaces {
-                self.send_keycode(14, false); // KEY_BACKSPACE
+                self.send_keycode(22, false);
             }
         }
 
-        // Send Ctrl+V via XTest to paste
+        // Send Ctrl+V via XTest to paste (evdev codes + 8 = X11)
         unsafe {
-            // X11 keycodes: 37 = Ctrl_L, 55 = V
-            (self.lib.x_test_fake_key_event)(self.display, 37, 1, 0);
-            (self.lib.x_test_fake_key_event)(self.display, 55, 1, 0);
-            (self.lib.x_test_fake_key_event)(self.display, 55, 0, 0);
-            (self.lib.x_test_fake_key_event)(self.display, 37, 0, 0);
+            (self.lib.x_test_fake_key_event)(self.display, 29 + 8, 1, 0); // Ctrl_L press
+            (self.lib.x_test_fake_key_event)(self.display, 47 + 8, 1, 0); // V press
+            (self.lib.x_test_fake_key_event)(self.display, 47 + 8, 0, 0); // V release
+            (self.lib.x_test_fake_key_event)(self.display, 29 + 8, 0, 0); // Ctrl_L release
             (self.lib.x_flush)(self.display);
         }
 
@@ -416,15 +415,16 @@ impl X11Injector {
         true
     }
 
-    fn send_keycode(&self, keycode: u32, shift: bool) {
+    fn send_keycode(&self, evdev_keycode: u32, shift: bool) {
+        let x11 = evdev_keycode + 8;
         unsafe {
             if shift {
-                (self.lib.x_test_fake_key_event)(self.display, 50, 1, 0);
+                (self.lib.x_test_fake_key_event)(self.display, 42 + 8, 1, 0); // Shift_L
             }
-            (self.lib.x_test_fake_key_event)(self.display, keycode, 1, 0);
-            (self.lib.x_test_fake_key_event)(self.display, keycode, 0, 0);
+            (self.lib.x_test_fake_key_event)(self.display, x11, 1, 0);
+            (self.lib.x_test_fake_key_event)(self.display, x11, 0, 0);
             if shift {
-                (self.lib.x_test_fake_key_event)(self.display, 50, 0, 0);
+                (self.lib.x_test_fake_key_event)(self.display, 42 + 8, 0, 0);
             }
             (self.lib.x_flush)(self.display);
         }
@@ -484,15 +484,17 @@ struct XSelectionNotifyEvent {
 
 impl KeyInjector for X11Injector {
     fn send_key_event(&self, keycode: u16, value: i32) -> InjectResult {
+        // X11 keycodes = Linux evdev keycodes + 8
+        let x11_keycode = keycode as u32 + 8;
         unsafe {
-            (self.lib.x_test_fake_key_event)(self.display, keycode as u32, value, 0);
+            (self.lib.x_test_fake_key_event)(self.display, x11_keycode, value, 0);
             (self.lib.x_flush)(self.display);
         }
         InjectResult::Success
     }
 
     fn send_backspace(&self) -> InjectResult {
-        self.send_keycode(14, false);
+        self.send_keycode(22, false); // X11 keycode 22 = backspace
         InjectResult::Success
     }
 

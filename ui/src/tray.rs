@@ -413,7 +413,9 @@ impl Tray for VietTray {
                     }),
                     options: vec![
                         RadioItem {
-                            label: "Telex".into(),
+                            label: "Telex (next version)".into(),
+                            enabled: false,
+                            disposition: Disposition::Informative,
                             ..Default::default()
                         },
                         RadioItem {

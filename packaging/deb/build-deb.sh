@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-VERSION="${1:-0.1.0}"
+VERSION="${1:-0.1.6}"
 PACKAGE="vietc_${VERSION}-1_amd64"
 STAGING="$SCRIPT_DIR/$PACKAGE"
 
@@ -12,7 +12,7 @@ echo "=== Building Viet+ .deb package v${VERSION} ==="
 # Build binaries (all features: x11 + wayland)
 echo "[1/5] Building binaries..."
 cargo build --release --features "x11,wayland" --manifest-path "$PROJECT_ROOT/Cargo.toml"
-(cd "$PROJECT_ROOT/ui" && export PKG_CONFIG_PATH="/tmp/dbus-dev/extracted/usr/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH:-}" && export RUSTFLAGS="-L /tmp/dbus-dev/lib" && cargo build --release) || echo "  Warning: UI tray not built (libdbus-1-dev may be missing)"
+(cd "$PROJECT_ROOT/ui" && cargo build --release)
 echo "  Done."
 
 # Clean and create staging
@@ -26,54 +26,39 @@ mkdir -p "$STAGING/usr/share/applications"
 mkdir -p "$STAGING/usr/share/icons/hicolor/256x256/apps"
 mkdir -p "$STAGING/usr/share/doc/vietc"
 mkdir -p "$STAGING/usr/share/metainfo"
+mkdir -p "$STAGING/etc/xdg/autostart"
 
 # Copy binaries
 echo "[3/5] Installing binaries..."
-cp "$PROJECT_ROOT/target/release/vietc" "$STAGING/usr/bin/"
+cp "$PROJECT_ROOT/target/release/vietc" "$STAGING/usr/bin/vietc-daemon"
 cp "$PROJECT_ROOT/target/release/vietc-cli" "$STAGING/usr/bin/"
-# Privileged uinput injection daemon — required for Unicode (Vietnamese) output.
 cp "$PROJECT_ROOT/target/release/vietc-uinputd" "$STAGING/usr/bin/"
-[ -f "$PROJECT_ROOT/ui/target/release/vietc-tray" ] && cp "$PROJECT_ROOT/ui/target/release/vietc-tray" "$STAGING/usr/bin/"
+cp "$PROJECT_ROOT/ui/target/release/vietc-tray" "$STAGING/usr/bin/"
 
 # Compile and bundle vietc-xrecord (C helper for X11 XRecord keyboard capture)
-if command -v gcc &>/dev/null; then
-    gcc -O2 -o "$STAGING/usr/bin/vietc-xrecord" "$PROJECT_ROOT/packaging/appimage/vietc-xrecord.c" -lX11 -lXtst \
-        && echo "  vietc-xrecord compiled" \
-        || echo "  WARNING: vietc-xrecord compile failed (libX11/libXtst dev headers missing)"
-else
-    echo "  WARNING: no gcc, vietc-xrecord not bundled"
-fi
+gcc -O2 -o "$STAGING/usr/bin/vietc-xrecord" "$SCRIPT_DIR/vietc-xrecord.c" -lX11 -lXtst
+
+# Icons (main app icon + tray status icons)
+cp "$PROJECT_ROOT/packaging/icons/vietc.svg" "$STAGING/usr/share/icons/hicolor/256x256/apps/"
+cp "$PROJECT_ROOT/packaging/icons/vietc-vn.svg" "$STAGING/usr/share/icons/hicolor/256x256/apps/"
+cp "$PROJECT_ROOT/packaging/icons/vietc-en.svg" "$STAGING/usr/share/icons/hicolor/256x256/apps/"
 
 # Desktop file
-cp "$PROJECT_ROOT/packaging/appimage/vietc.desktop" "$STAGING/usr/share/applications/"
+cp "$SCRIPT_DIR/vietc.desktop" "$STAGING/usr/share/applications/"
 
-# Icon (SVG from AppImage build script)
-cat > "$STAGING/usr/share/icons/hicolor/256x256/apps/vietc.svg" << 'SVGEOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
-  <rect x="20" y="60" width="216" height="140" rx="16" fill="#2d2d2d" stroke="#1a1a1a" stroke-width="4"/>
-  <rect x="36" y="76" width="184" height="108" rx="8" fill="#3d3d3d"/>
-  <rect x="48" y="88" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="78" y="88" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="108" y="88" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="138" y="88" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="168" y="88" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="198" y="88" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="54" y="114" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="84" y="114" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="114" y="114" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="144" y="114" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="174" y="114" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="60" y="140" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="90" y="140" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="120" y="140" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="150" y="140" width="24" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="180" y="140" width="42" height="20" rx="3" fill="#f0f0f0"/>
-  <rect x="72" y="166" width="112" height="16" rx="3" fill="#f0f0f0"/>
-  <circle cx="216" cy="48" r="28" fill="#da251d"/>
-  <text x="216" y="56" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="sans-serif">VN</text>
-</svg>
-SVGEOF
+# XDG autostart — launches tray on every login for all users
+cat > "$STAGING/etc/xdg/autostart/vietc-tray.desktop" << 'AUTOSTART'
+[Desktop Entry]
+Type=Application
+Name=Viet+ Tray
+Comment=Vietnamese Input Method Tray
+Exec=vietc-tray
+Icon=vietc
+Terminal=false
+Categories=Utility;
+StartupNotify=false
+NoDisplay=true
+AUTOSTART
 
 # Documentation
 cp "$PROJECT_ROOT/README.md" "$STAGING/usr/share/doc/vietc/"
@@ -82,8 +67,21 @@ cp "$PROJECT_ROOT/LICENSE" "$STAGING/usr/share/doc/vietc/"
 # Config
 cp "$PROJECT_ROOT/vietc.toml" "$STAGING/etc/vietc/config.toml"
 
-# Systemd user service
-cp "$PROJECT_ROOT/vietc.service" "$STAGING/usr/lib/systemd/user/"
+# Systemd user service — tray spawns the daemon internally
+cat > "$STAGING/usr/lib/systemd/user/vietc.service" << 'SERVICE'
+[Unit]
+Description=Viet+ Vietnamese IME Tray
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/vietc-tray
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+SERVICE
 
 # AppStream metadata
 cat > "$STAGING/usr/share/metainfo/io.github.anomalyco.vietc.appdata.xml" << 'XML'
@@ -124,7 +122,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Depends: libc6 (>= 2.31), libevdev2 (>= 1.9.0)
-Recommends: libwayland-client0 (>= 1.20), libx11-6, libxtst6, xclip
+Recommends: libwayland-client0 (>= 1.20), libx11-6, libxtst6, libdbus-1-3, xclip
 Maintainer: Khoa Vo <vndangkhoa@gmail.com>
 Description: Viet+ — Vietnamese Input Method for Linux
  Zero-configuration Vietnamese input method engine supporting
@@ -140,10 +138,73 @@ echo "/etc/vietc/config.toml" > "$STAGING/DEBIAN/conffiles"
 cat > "$STAGING/DEBIAN/postinst" << 'POSTINST'
 #!/bin/sh
 set -e
+
+show_popup() {
+  local user="$1" msg="$2"
+  local display="${DISPLAY:-:0}"
+  local xauth=""
+  if [ -n "$user" ]; then
+    local home
+    home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"
+    if [ -n "$home" ]; then
+      xauth="$home/.Xauthority"
+    fi
+  fi
+  # Try zenity (modal dialog)
+  if command -v zenity >/dev/null 2>&1 && [ -n "$user" ]; then
+    su "$user" -c "DISPLAY='$display' XAUTHORITY='$xauth' \
+      zenity --info --title='Viet+' --text='$msg' --width=400" 2>/dev/null || true
+  fi
+  # Also try notify-send (desktop notification)
+  if command -v notify-send >/dev/null 2>&1 && [ -n "$user" ]; then
+    su "$user" -c "DISPLAY='$display' XAUTHORITY='$xauth' \
+      notify-send 'Viet+' '$msg' -t 10000 -i vietc" 2>/dev/null || true
+  fi
+}
+
+cleanup_old_install() {
+  # Remove old binaries from /usr/local/bin/ (shadowed the new /usr/bin/ ones)
+  rm -f /usr/local/bin/vietc-tray /usr/local/bin/vietc /usr/local/bin/vietc-daemon \
+        /usr/local/bin/vietc-cli /usr/local/bin/vietc-uinputd /usr/local/bin/vietc-xrecord 2>/dev/null || true
+}
+
 case "$1" in
   configure)
+    # Kill old running daemon/tray so new binaries take effect
+    pkill -x vietc-tray 2>/dev/null || true
+    pkill -x vietc-daemon 2>/dev/null || true
+    pkill -x vietc 2>/dev/null || true
+
+    # Remove old /usr/local/bin/ binaries that shadowed the new ones
+    cleanup_old_install
+
+    # Reload systemd
     if command -v systemctl >/dev/null 2>&1; then
-      systemctl --system daemon-reload >/dev/null 2>&1 || true
+      systemctl --global daemon-reload >/dev/null 2>&1 || true
+    fi
+
+    # Add installing user to input group (needed for /dev/uinput access)
+    INSTALLING_USER="${SUDO_USER:-${USER:-}}"
+    if [ -n "$INSTALLING_USER" ] && [ "$INSTALLING_USER" != "root" ]; then
+      if ! groups "$INSTALLING_USER" 2>/dev/null | grep -qw input; then
+        adduser "$INSTALLING_USER" input 2>/dev/null || true
+      fi
+      # Remove stale user config from previous installs
+      USER_HOME="$(getent passwd "$INSTALLING_USER" 2>/dev/null | cut -d: -f6 || true)"
+      if [ -n "$USER_HOME" ]; then
+        rm -f "$USER_HOME/.config/vietc/config.toml" 2>/dev/null || true
+        rm -f "$USER_HOME/.config/vietc/overrides.toml" 2>/dev/null || true
+        rm -f "$USER_HOME/.config/vietc/.first-launch-done" 2>/dev/null || true
+      fi
+
+      # Show popup
+      show_popup "$INSTALLING_USER" \
+        "Viet+ installed! Please LOG OUT and LOG BACK IN to start typing Vietnamese."
+    fi
+
+    # Update icon cache so the app icon appears in the menu
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+      gtk-update-icon-cache -f /usr/share/icons/hicolor/ >/dev/null 2>&1 || true
     fi
     ;;
 esac
@@ -156,7 +217,7 @@ set -e
 case "$1" in
   remove|upgrade|deconfigure)
     if command -v systemctl >/dev/null 2>&1; then
-      systemctl --system daemon-reload >/dev/null 2>&1 || true
+      systemctl --global daemon-reload >/dev/null 2>&1 || true
     fi
     ;;
 esac

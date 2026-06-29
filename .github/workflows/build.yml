@@ -1,9 +1,9 @@
 name: Build & Release
 
-# Builds the .deb and AppImage on the CI runner so artifacts are produced
+# Builds the .deb on the CI runner so artifacts are produced
 # without compiling on a local machine:
 #   - every push to main / pull request -> packages uploaded as workflow artifacts
-#   - pushing a `v*` tag                 -> a GitHub Release with the .deb + AppImage
+#   - pushing a `v*` tag                 -> a GitHub Release with the .deb
 on:
   push:
     branches: [main]
@@ -40,7 +40,7 @@ jobs:
         run: cargo test --release
 
   package:
-    name: Build packages
+    name: Build .deb
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -71,31 +71,19 @@ jobs:
           echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "Building version $VERSION"
 
-      - name: Fetch appimagetool
-        run: |
-          curl -fsSL -o packaging/appimage/appimagetool \
-            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x packaging/appimage/appimagetool
-
       - name: Build .deb
         run: bash packaging/deb/build-deb.sh "${{ steps.ver.outputs.version }}"
-
-      - name: Build AppImage
-        # appimagetool is invoked with --appimage-extract-and-run by the build
-        # script, so no FUSE is required on the runner.
-        run: bash packaging/appimage/build-appimage.sh "${{ steps.ver.outputs.version }}"
 
       - name: Collect artifacts
         run: |
           mkdir -p dist
           cp packaging/deb/*.deb dist/
-          cp packaging/appimage/*.AppImage dist/
           ls -la dist
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vietc-packages-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.short_sha }}
+          name: vietc-deb-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.short_sha }}
           path: dist/*
           if-no-files-found: error
 

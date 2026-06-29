@@ -49,6 +49,14 @@ fn needs_root() -> bool {
         // Inside Flatpak the sandbox already has device access; sudo won't work.
         return false;
     }
+    // Check if we can access /dev/uinput directly (user in input group or has ACL)
+    let uinput = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/uinput");
+    if uinput.is_ok() {
+        return false; // Can grab + inject without root
+    }
     let cfg = config::Config::load();
     cfg.grab
 }

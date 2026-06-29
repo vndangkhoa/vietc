@@ -3,7 +3,7 @@
 ## When to release
 
 - New feature or bugfix that should be distributed to users
-- Flatpak build changes validated
+- .deb packaging changes validated
 - All tests passing (`cargo test`)
 
 ---
@@ -38,24 +38,28 @@ Add a new entry under the version heading:
 - behavior changes...
 ```
 
-### 3. Build the Flatpak
+### 3. Build the .deb
 
 ```bash
-cd packaging/flatpak
-bash build-flatpak.sh X.Y.Z
+make deb
 ```
 
-Verify the bundle was created:
-```bash
-ls -lh VietPlus-X.Y.Z.flatpak
-```
-
-### 4. Test the Flatpak
+Verify the package was created:
 
 ```bash
-flatpak install --user --bundle VietPlus-X.Y.Z.flatpak
-flatpak run io.github.vietc.VietPlus
+ls -lh packaging/deb/vietc_*.deb
 ```
+
+### 4. Install & test
+
+```bash
+sudo dpkg -i packaging/deb/vietc_X.Y.Z-1_amd64.deb
+```
+
+Test:
+- Search "Viet+" in the application menu — the tray icon entry should appear
+- Launch from menu — tray icon should show, Vietnamese input should work (VNI, Ctrl+Space to toggle)
+- The tray should autostart on next login (XDG autostart installed)
 
 ### 5. Commit and push
 
@@ -67,12 +71,7 @@ git push origin main
 
 ### 6. Create a release on Forgejo/GitHub
 
-Attach the Flatpak bundle (`VietPlus-X.Y.Z.flatpak`) as a release asset.
-
-```bash
-# Using forgejo-release (if configured)
-# Or manually upload via the web UI
-```
+Attach the .deb package (`vietc_X.Y.Z-1_amd64.deb`) as a release asset.
 
 ---
 
