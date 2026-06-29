@@ -504,15 +504,25 @@ fn recover_display_env() {
     }
 }
 
+fn ensure_single_instance(name: &str) {
+    let uid = unsafe { libc::getuid() };
+    let path = format!("/tmp/{}-{}.lock", name, uid);
+    let path_c = std::ffi::CString::new(path).unwrap();
+    let fd = unsafe { libc::open(path_c.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600) };
+    if fd < 0 {
+        eprintln!("[{}] Failed to open lock file", name);
+        std::process::exit(1);
+    }
+    let res = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
+    if res < 0 {
+        eprintln!("[{}] Another instance is already running. Exiting.", name);
+        std::process::exit(0);
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Ensure single instance to avoid duplicate daemon processes
-    let _listener = match std::os::unix::net::UnixListener::bind("\0vietc-daemon-lock") {
-        Ok(l) => l,
-        Err(_) => {
-            eprintln!("[vietc] Another instance is already running. Exiting.");
-            std::process::exit(0);
-        }
-    };
+    ensure_single_instance("vietc-daemon");
 
     recover_display_env();
     let config_path = config::find_config_path();
