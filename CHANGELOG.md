@@ -14,9 +14,16 @@
 - **Engine dead code removed** — unused methods `is_empty`, `is_tone_or_mark_key`, `process_string`, `last_base_char`, `apply_cluster_mark`, `apply_mark` in `BambooEngine`; `RuleEffect` enum and `special_rules` field in `InputMethodRules`.
 - **Production logging** — per-key `eprintln!` removed from evdev loop and uinput paste path. Only startup/error/window-change messages remain (`log_info` to both stderr and file).
 
-### Flatpak Build
+### Flatpak Build & System Tray
+- **System tray** (`vietc-tray` using ksni/DBus StatusNotifier) is now built and included in the Flatpak bundle. The tray launches the daemon and shows Vietnamese/English mode.
+- **Desktop menu entry** — the app now appears when searching **"Viet+"** in the application menu. Search, launch, or uninstall from there.
+- **Flatpak command** changed from `vietc-daemon` to `vietc-tray` (the tray spawns the daemon).
+- **Tray fixes for Flatpak** — `find_sibling_binary()` now tries `{name}-daemon` fallback; `is_daemon_running()` checks both `vietc` and `vietc-daemon` process names.
 - **Fixed `mkdir -p`** — `build-flatpak.sh` now creates `/app/share/applications` before installing the desktop file.
-- **Bundle**: `VietPlus-0.1.5.flatpak` (47 MB, runtime `org.gnome.Platform//50`). Warning-free build with default Rust profile (no `#![allow()]` needed).
+
+### Active Window Detection (Flatpak fix)
+- **Native X11 `_NET_ACTIVE_WINDOW` query** via `dlopen("libX11.so.6")` — added as third fallback in `get_active_window_id()`. Works inside the Flatpak sandbox where `xdotool`/`xprop` are unavailable. No subprocess, no external dependencies.
+- **Bundle**: `VietPlus-0.1.5.flatpak` (66 MB with tray, runtime `org.gnome.Platform//50`). Warning-free build.
 
 ---
 

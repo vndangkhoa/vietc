@@ -12,20 +12,31 @@ fn exe_dir() -> PathBuf {
 }
 
 fn find_sibling_binary(name: &str) -> String {
-    let sibling = exe_dir().join(name);
+    let dir = exe_dir();
+    // Try exact name (e.g. "vietc" outside Flatpak)
+    let sibling = dir.join(name);
     if sibling.exists() {
         return sibling.to_string_lossy().into_owned();
+    }
+    // Try name-daemon (e.g. "vietc-daemon" inside Flatpak)
+    let daemon = dir.join(format!("{}-daemon", name));
+    if daemon.exists() {
+        return daemon.to_string_lossy().into_owned();
     }
     name.to_string()
 }
 
 fn is_daemon_running() -> bool {
-    std::process::Command::new("pgrep")
-        .arg("-x")
-        .arg("vietc")
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    // Check both "vietc" (outside Flatpak) and "vietc-daemon" (inside Flatpak)
+    let check = |name: &str| -> bool {
+        std::process::Command::new("pgrep")
+            .arg("-x")
+            .arg(name)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    check("vietc") || check("vietc-daemon")
 }
 
 fn needs_root() -> bool {

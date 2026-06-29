@@ -3,6 +3,114 @@ use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
 
+/// Query _NET_ACTIVE_WINDOW directly via X11 client library (dlopen).
+/// Works inside the Flatpak sandbox where xdotool/xprop are unavailable
+/// but libX11.so.6 is present in the GNOME runtime.  No external process
+/// or subclassing needed — open display, query property, return hex ID.
+fn get_active_window_x11_dlopen() -> Option<String> {
+    unsafe {
+        let lib = libc::dlopen(
+            b"libX11.so.6\0".as_ptr() as *const libc::c_char,
+            libc::RTLD_LAZY,
+        );
+        if lib.is_null() {
+            return None;
+        }
+
+        type FnOpenDisplay =
+            unsafe extern "C" fn(*const libc::c_char) -> *mut libc::c_void;
+        type FnDefaultRoot =
+            unsafe extern "C" fn(*mut libc::c_void) -> u64;
+        type FnInternAtom = unsafe extern "C" fn(
+            *mut libc::c_void, *const libc::c_char, libc::c_int,
+        ) -> u64;
+        type FnGetProperty = unsafe extern "C" fn(
+            *mut libc::c_void, u64, u64, u64, u64, u64, libc::c_int,
+            *mut u64, *mut libc::c_int, *mut u64, *mut u64,
+            *mut *mut u8,
+        ) -> libc::c_int;
+        type FnFree = unsafe extern "C" fn(*mut libc::c_void) -> libc::c_int;
+        type FnCloseDisplay =
+            unsafe extern "C" fn(*mut libc::c_void) -> libc::c_int;
+
+        macro_rules! dlsym_fn {
+            ($lib:expr, $name:literal) => {
+                std::mem::transmute::<*mut libc::c_void, _>(libc::dlsym(
+                    $lib,
+                    concat!($name, "\0").as_ptr() as *const libc::c_char,
+                ))
+            };
+        }
+
+        let xopen: FnOpenDisplay = dlsym_fn!(lib, "XOpenDisplay");
+        let xroot: FnDefaultRoot = dlsym_fn!(lib, "XDefaultRootWindow");
+        let xatom: FnInternAtom = dlsym_fn!(lib, "XInternAtom");
+        let xgetprop: FnGetProperty = dlsym_fn!(lib, "XGetProperty");
+        let xfree: FnFree = dlsym_fn!(lib, "XFree");
+        let xclosedpy: FnCloseDisplay = dlsym_fn!(lib, "XCloseDisplay");
+
+        let dpy = xopen(std::ptr::null());
+        if dpy.is_null() {
+            libc::dlclose(lib);
+            return None;
+        }
+
+        let root = xroot(dpy);
+        let net_active = xatom(
+            dpy,
+            b"_NET_ACTIVE_WINDOW\0".as_ptr() as *const libc::c_char,
+            0,
+        );
+
+        // XA_WINDOW = 33 (the standard X11 atom for Window type)
+        let xa_window: u64 = 33;
+        let mut actual_type: u64 = 0;
+        let mut actual_format: libc::c_int = 0;
+        let mut nitems: u64 = 0;
+        let mut bytes_after: u64 = 0;
+        let mut data: *mut u8 = std::ptr::null_mut();
+
+        let status = xgetprop(
+            dpy,
+            root,
+            net_active,
+            xa_window,
+            0,    // offset
+            1,    // length
+            0,    // delete
+            &mut actual_type,
+            &mut actual_format,
+            &mut nitems,
+            &mut bytes_after,
+            &mut data,
+        );
+
+        let result = if status != 0
+            && !data.is_null()
+            && nitems > 0
+            && actual_format == 32
+        {
+            // Format=32 elements are returned as unsigned long arrays
+            let id = *(data as *const u64);
+            if id != 0 {
+                Some(format!("0x{:x}", id))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if !data.is_null() {
+            xfree(data as *mut libc::c_void);
+        }
+        xclosedpy(dpy);
+        libc::dlclose(lib);
+
+        result
+    }
+}
+
 /// Get the active window's X11 ID (unique per window — even within the same
 /// application).  Returns a unique window-identifier string.
 pub fn get_active_window_id() -> Option<String> {
@@ -34,6 +142,11 @@ pub fn get_active_window_id() -> Option<String> {
                 }
             }
         }
+    }
+
+    // Final fallback: direct X11 client library query (works in Flatpak sandbox)
+    if let Some(id) = get_active_window_x11_dlopen() {
+        return Some(id);
     }
 
     None

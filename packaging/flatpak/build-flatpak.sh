@@ -24,10 +24,10 @@ BUILD='export PATH=/usr/lib/sdk/rust-stable/bin:$PATH
 export CARGO_HOME=/app/cargo
 cd /app/src/vietc'
 
-# Build daemon + CLI + uinputd
+# Build daemon + CLI + uinputd + tray
 echo ""
-echo "=== Compiling daemon, CLI, uinputd... ==="
-flatpak build --share=network build-dir sh -c "$BUILD && cargo build --release -p vietc-daemon -p vietc-cli -p vietc-uinputd"
+echo "=== Compiling daemon, CLI, uinputd, tray... ==="
+flatpak build --share=network build-dir sh -c "$BUILD && cargo build --release -p vietc-daemon -p vietc-cli -p vietc-uinputd && cargo build --release --manifest-path ui/Cargo.toml"
 
 # Install files
 echo ""
@@ -37,6 +37,7 @@ set -e
 install -Dm755 /app/src/vietc/target/release/vietc /app/bin/vietc-daemon
 install -Dm755 /app/src/vietc/target/release/vietc-cli /app/bin/vietc-cli
 install -Dm755 /app/src/vietc/target/release/vietc-uinputd /app/bin/vietc-uinputd
+install -Dm755 /app/src/vietc/ui/target/release/vietc-tray /app/bin/vietc-tray
 
 install -Dm644 /app/src/vietc/packaging/icons/vietc.svg /app/share/icons/hicolor/scalable/apps/io.github.vietc.VietPlus.svg
 install -Dm644 /app/src/vietc/packaging/icons/vietc-vn.svg /app/share/icons/hicolor/scalable/apps/io.github.vietc.VietPlus.vietc-vn.svg
@@ -47,7 +48,7 @@ install -Dm644 /app/src/vietc/packaging/icons/vietc-vn.svg /app/share/icons/hico
 [Desktop Entry]
 Name=Viet+
 Comment=Vietnamese Input Method
-Exec=/app/bin/vietc-daemon
+Exec=/app/bin/vietc-tray
 Icon=io.github.vietc.VietPlus
 Terminal=false
 Type=Application
@@ -85,7 +86,7 @@ flatpak build-finish build-dir \
   --talk-name=org.freedesktop.Notifications \
   --talk-name=org.a11y.Bus \
   --talk-name=org.freedesktop.portal.Clipboard \
-  --command=vietc-daemon
+  --command=vietc-tray
 
 # Export
 echo ""
@@ -104,3 +105,4 @@ echo "Size: $(du -h "$SCRIPT_DIR/VietPlus-${VERSION}.flatpak" | cut -f1)"
 echo ""
 echo "Install: flatpak install --user --bundle VietPlus-${VERSION}.flatpak"
 echo "Run:     flatpak run io.github.vietc.VietPlus"
+echo "Search:  'Viet+' in app menu"

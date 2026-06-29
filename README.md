@@ -270,10 +270,17 @@ Flexible typing: type the full syllable, then add marks/tone keys at the end. Ex
 
 ### Flatpak (recommended)
 
+System tray icon + daemon. Find **"Viet+"** in your app menu to launch, or run from terminal.
+
 ```bash
-# Download from the release page, then:
+# Install
 flatpak install --user --bundle VietPlus-x86_64.flatpak
+
+# Launch via app menu, or:
 flatpak run io.github.vietc.VietPlus
+
+# Uninstall
+flatpak uninstall --user io.github.vietc.VietPlus
 ```
 
 Includes daemon + CLI + system tray + uinput daemon. Sandboxed — no system libraries are touched.
@@ -294,7 +301,7 @@ flatpak install --user flathub org.gnome.Sdk//50
 flatpak install --user flathub org.freedesktop.Sdk.Extension.rust-stable//25.08
 ```
 
-The Flatpak build now produces a warning-free bundle (~47 MB compressed). No external runtime dependencies are needed — everything is sandboxed.
+The Flatpak bundle includes the system tray and desktop menu entry. Find **"Viet+"** in your app launcher to start it, or search for it to uninstall. Warning-free build — no `#![allow()]` needed.
 
 See `packaging/flatpak/FLATPAK_BUILD.md` for detailed build instructions.
 
