@@ -40,9 +40,10 @@ install -Dm755 /app/src/vietc/target/release/vietc-uinputd /app/bin/vietc-uinput
 
 install -Dm644 /app/src/vietc/packaging/icons/vietc.svg /app/share/icons/hicolor/scalable/apps/io.github.vietc.VietPlus.svg
 install -Dm644 /app/src/vietc/packaging/icons/vietc-vn.svg /app/share/icons/hicolor/scalable/apps/io.github.vietc.VietPlus.vietc-vn.svg
-install -Dm644 /app/src/vietc/packaging/icons/vietc-en.svg /app/share/icons/hicolor/scalable/apps/io.github.vietc.VietPlus.vietc-en.svg
+                    install -Dm644 /app/src/vietc/packaging/icons/vietc-en.svg /app/share/icons/hicolor/scalable/apps/io.github.vietc.VietPlus.vietc-en.svg
 
-cat > /app/share/applications/io.github.vietc.VietPlus.desktop << END
+                    mkdir -p /app/share/applications
+                    cat > /app/share/applications/io.github.vietc.VietPlus.desktop << END
 [Desktop Entry]
 Name=Viet+
 Comment=Vietnamese Input Method
@@ -78,10 +79,12 @@ echo "=== Finalizing build... ==="
 flatpak build-finish build-dir \
   --socket=x11 \
   --socket=wayland \
-  --filesystem=home \
+  --socket=session-bus \
+  --device=all \
   --share=ipc \
   --talk-name=org.freedesktop.Notifications \
   --talk-name=org.a11y.Bus \
+  --talk-name=org.freedesktop.portal.Clipboard \
   --command=vietc-daemon
 
 # Export

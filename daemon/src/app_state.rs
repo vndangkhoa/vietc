@@ -3,6 +3,42 @@ use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
 
+/// Get the active window's X11 ID (unique per window — even within the same
+/// application).  Returns a unique window-identifier string.
+pub fn get_active_window_id() -> Option<String> {
+    // Try xdotool first (fast, direct)
+    if let Ok(output) = Command::new("xdotool")
+        .args(["getactivewindow"])
+        .output()
+    {
+        if output.status.success() {
+            let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !id.is_empty() {
+                return Some(id);
+            }
+        }
+    }
+
+    // Fallback: xprop -root _NET_ACTIVE_WINDOW (x11-utils, preinstalled on most distros)
+    if let Ok(output) = Command::new("xprop")
+        .args(["-root", "_NET_ACTIVE_WINDOW"])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // Format: "_NET_ACTIVE_WINDOW(WINDOW): window id # 0x3a00004"
+            if let Some(hex) = stdout.split("window id # ").nth(1) {
+                let hex = hex.trim();
+                if !hex.is_empty() {
+                    return Some(hex.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
 /// Detect the currently focused window's class name
 pub fn get_focused_window_class() -> Option<String> {
     // Try Wayland first (wlr-foreign-toplevel)

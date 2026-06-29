@@ -66,10 +66,6 @@ impl BambooEngine {
         self.macro_buf.clear();
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.composition.is_empty()
-    }
-
     pub fn process_key(&mut self, ch: char) -> Option<String> {
         if !self.mode.is_vn() {
             return Some(ch.to_string());
@@ -181,11 +177,6 @@ impl BambooEngine {
         None
     }
 
-    fn is_tone_or_mark_key(&self, lower: char) -> bool {
-        self.rules.tone_keys.contains_key(&lower)
-            || self.rules.mark_rules.iter().any(|(p, _)| p.ends_with(lower))
-    }
-
     fn apply_mark_at(&mut self, idx: usize, _pattern: &str, result: &str) {
         let result_chars: Vec<char> = result.chars().collect();
         let was_upper = self.composition[idx].is_upper;
@@ -201,16 +192,6 @@ impl BambooEngine {
                 is_upper: was_upper && i == 0,
             });
         }
-    }
-
-    pub fn process_string(&mut self, s: &str) -> String {
-        let mut last = String::new();
-        for ch in s.chars() {
-            if let Some(out) = self.process_key(ch) {
-                last = out;
-            }
-        }
-        last
     }
 
     #[allow(dead_code)]
@@ -237,50 +218,6 @@ impl BambooEngine {
             tone_applied: None,
             is_upper: ch.is_uppercase(),
         });
-    }
-
-    fn last_base_char(&self) -> char {
-        self.composition.last().map(|t| t.base_char).unwrap_or(' ')
-    }
-
-    fn apply_cluster_mark(&mut self, pattern: &str, result: &str) {
-        let result_chars: Vec<char> = result.chars().collect();
-        // For cluster marks, all pattern chars are already in composition
-        let to_remove = pattern.chars().count();
-        let remove_start = self.composition.len().saturating_sub(to_remove);
-        let removed: Vec<_> = self.composition.drain(remove_start..).collect();
-
-        let was_upper = removed.first().map(|t| t.is_upper).unwrap_or(false);
-
-        for &ch in &result_chars {
-            self.composition.push(Transformation {
-                base_char: ch,
-                mark_applied: Some(ch),
-                tone_applied: removed.last().and_then(|t| t.tone_applied),
-                is_upper: was_upper && ch == result_chars[0],
-            });
-        }
-    }
-
-    fn apply_mark(&mut self, pattern: &str, result: &str) {
-        let result_chars: Vec<char> = result.chars().collect();
-        // Remove (pattern.len() - 1) chars from composition:
-        // the current key being processed is NOT yet in composition,
-        // so we only remove the chars from composition that form the mark pattern
-        let to_remove = pattern.chars().count().saturating_sub(1);
-        let remove_start = self.composition.len().saturating_sub(to_remove);
-        let removed: Vec<_> = self.composition.drain(remove_start..).collect();
-
-        let was_upper = removed.first().map(|t| t.is_upper).unwrap_or(false);
-
-        for &ch in &result_chars {
-            self.composition.push(Transformation {
-                base_char: ch,
-                mark_applied: Some(ch),
-                tone_applied: removed.last().and_then(|t| t.tone_applied),
-                is_upper: was_upper && ch == result_chars[0],
-            });
-        }
     }
 
     fn apply_tone(&mut self, tone_char: char) -> Option<String> {

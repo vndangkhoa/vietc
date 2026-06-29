@@ -36,6 +36,10 @@ struct ClipInner {
     /// the restored user content). Used to tell our own writes apart from text
     /// the user copied with Ctrl+C.
     last_injected: Option<String>,
+    /// Whether we have already snapshot the user's clipboard this session.
+    /// After the first snapshot, subsequent pastes skip the read_clipboard
+    /// call (saving ~10-50ms per paste).
+    clipboard_saved: bool,
     /// When set, the restorer thread should rewrite the user's clipboard at
     /// this instant. `None` means no restore is pending.
     restore_due: Option<Instant>,
@@ -60,10 +64,11 @@ impl UinputInjector {
     fn send_enter(&self) {
         self.send_uinput_event(EV_KEY, 28, 1);
         self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        std::thread::sleep(std::time::Duration::from_micros(100));
+
         self.send_uinput_event(EV_KEY, 28, 0);
         self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        std::thread::sleep(std::time::Duration::from_micros(100));
     }
 
     pub fn new(name: &str) -> Result<Self, Box<dyn std::error::Error>> {
@@ -109,6 +114,7 @@ impl UinputInjector {
             inner: Mutex::new(ClipInner {
                 saved_clipboard: None,
                 last_injected: None,
+                clipboard_saved: false,
                 restore_due: None,
                 shutdown: false,
             }),
@@ -146,36 +152,36 @@ impl UinputInjector {
 
     fn send_key_stroke(&self, keycode: u16, shift: bool) {
         if shift {
-            self.send_uinput_event(EV_KEY, 42, 1); // Shift press
-            self.send_uinput_event(0, 0, 0); // SYN
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            self.send_uinput_event(EV_KEY, 42, 1);
+            self.send_uinput_event(0, 0, 0);
+            std::thread::sleep(std::time::Duration::from_micros(100));
         }
 
-        self.send_uinput_event(EV_KEY, keycode, 1); // Key press
-        self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        self.send_uinput_event(EV_KEY, keycode, 1);
+        self.send_uinput_event(0, 0, 0);
+        std::thread::sleep(std::time::Duration::from_micros(100));
 
-        self.send_uinput_event(EV_KEY, keycode, 0); // Key release
-        self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        self.send_uinput_event(EV_KEY, keycode, 0);
+        self.send_uinput_event(0, 0, 0);
+        std::thread::sleep(std::time::Duration::from_micros(100));
 
         if shift {
-            self.send_uinput_event(EV_KEY, 42, 0); // Shift release
-            self.send_uinput_event(0, 0, 0); // SYN
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            self.send_uinput_event(EV_KEY, 42, 0);
+            self.send_uinput_event(0, 0, 0);
+            std::thread::sleep(std::time::Duration::from_micros(100));
         }
     }
 }
 
 impl KeyInjector for UinputInjector {
     fn send_backspace(&self) -> InjectResult {
-        self.send_uinput_event(EV_KEY, 14, 1); // KEY_BACKSPACE press
-        self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        self.send_uinput_event(EV_KEY, 14, 1);
+        self.send_uinput_event(0, 0, 0);
+        std::thread::sleep(std::time::Duration::from_micros(100));
 
-        self.send_uinput_event(EV_KEY, 14, 0); // KEY_BACKSPACE release
-        self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        self.send_uinput_event(EV_KEY, 14, 0);
+        self.send_uinput_event(0, 0, 0);
+        std::thread::sleep(std::time::Duration::from_micros(100));
 
         InjectResult::Success
     }
@@ -183,7 +189,6 @@ impl KeyInjector for UinputInjector {
     fn send_key_event(&self, keycode: u16, value: i32) -> InjectResult {
         self.send_uinput_event(EV_KEY, keycode, value);
         self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_millis(2));
         InjectResult::Success
     }
 
@@ -205,39 +210,20 @@ impl KeyInjector for UinputInjector {
     fn send_string(&self, s: &str) -> InjectResult {
         // ASCII characters: inject directly via uinput keycodes
         let is_ascii = s.chars().all(|c| char_to_linux_keycode(c).is_some());
-        eprintln!(
-            "[vietc] send_string: len={}, is_ascii={}",
-            s.len(),
-            is_ascii
-        );
 
         if is_ascii {
-            eprintln!(
-                "[vietc] send_string: ASCII '{}' via uinput",
-                s.escape_default()
-            );
             for ch in s.chars() {
                 self.send_char(ch);
             }
             return InjectResult::Success;
         }
 
-        // Unicode text: single clipboard copy + paste (reliable method)
-        eprintln!(
-            "[vietc] send_string: Unicode '{}' - using clipboard",
-            s.escape_default()
-        );
-        let copied = self.paste_via_clipboard(s, false);
-        if copied {
-            eprintln!("[vietc] send_string complete (clipboard)");
-            return InjectResult::Success;
-        } else {
+        // Unicode text: clipboard copy + paste (reliable method)
+        if !self.paste_via_clipboard(s) {
             eprintln!(
                 "[vietc] send_string failed for '{}' (clipboard unavailable)",
                 s.escape_default()
             );
-            // Last resort: try paste_string (will try clipboard internally)
-            self.paste_string(s);
         }
         InjectResult::Success
     }
@@ -370,30 +356,13 @@ impl UinputInjector {
         None
     }
 
-    /// Run an external command as the original user if we're root.
-    /// Uses native OS setuid/setgid to avoid slow PAM/logging/sudo startup overhead.
-    fn run_as_user(program: &str, args: &[&str]) -> std::process::Output {
-        let mut cmd = Self::user_cmd(program);
-        cmd.args(args);
-        match cmd.output() {
-            Ok(output) => output,
-            Err(e) => {
-                eprintln!("[vietc] Failed to run {}: {}", program, e);
-                std::process::Output {
-                    status: std::process::ExitStatus::default(),
-                    stdout: vec![],
-                    stderr: format!("{}\n", e).into_bytes(),
-                }
-            }
-        }
-    }
-
     /// Send backspaces and text through a single injection channel to avoid
     /// reordering between input methods. Backspaces always go through uinput
     /// (kernel device, no display server dependency). Text is typed via the
     /// best available method: ydotool (uinput) for ASCII, xdotool (X11) or
     /// clipboard for Unicode.
     fn inject_replacement_atomic(&self, backspaces: usize, text: &str) -> InjectResult {
+        let t0 = std::time::Instant::now();
         // If all ASCII, send keycodes directly
         if text.chars().all(|c| char_to_linux_keycode(c).is_some() || c == '\n') {
             if backspaces > 0 {
@@ -403,15 +372,15 @@ impl UinputInjector {
                 if ch == '\n' { self.send_enter(); }
                 else { let _ = self.send_char(ch); }
             }
+            eprintln!("[vietc] inject: ASCII backspaces={} text='{}' took {}ms", backspaces, text.escape_default(), (std::time::Instant::now() - t0).as_millis());
             return InjectResult::Success;
         }
 
-        // Unicode: clipboard paste. Backspaces FIRST, then paste.
+        // Unicode: backspaces via uinput, then delegate to send_string()
         if backspaces > 0 {
             for _ in 0..backspaces { let _ = self.send_backspace(); }
         }
-        self.paste_via_clipboard(text, true);
-
+        self.send_string(text);
         InjectResult::Success
     }
 
@@ -439,33 +408,38 @@ impl UinputInjector {
     /// with Ctrl+C, so a subsequent Ctrl+V would paste the wrong thing.
     ///
     /// Returns whether the text was successfully copied to the clipboard.
-    fn paste_via_clipboard(&self, text: &str, use_x11_paste: bool) -> bool {
+    fn paste_via_clipboard(&self, text: &str) -> bool {
+        let t_total = std::time::Instant::now();
         // Critical section: snapshot the clipboard, decide what to preserve,
         // cancel any pending restore so the restorer cannot fire while we
         // paste, and put our word on the clipboard. The read and write happen
         // under the lock so they can never interleave with the restorer.
         {
             let mut st = self.clip.inner.lock().unwrap();
-            let current = Self::read_clipboard();
-            let is_our_write =
-                matches!((&current, &st.last_injected), (Some(c), Some(l)) if c == l);
-            if !is_our_write {
-                st.saved_clipboard = current;
+            if !st.clipboard_saved {
+                let current = Self::read_clipboard();
+                let is_our_write =
+                    matches!((&current, &st.last_injected), (Some(c), Some(l)) if c == l);
+                if !is_our_write {
+                    st.saved_clipboard = current;
+                }
+                st.clipboard_saved = true;
             }
             st.restore_due = None;
-            if !Self::copy_to_clipboard(text) {
+            let copied = Self::copy_to_clipboard(text);
+            if !copied {
                 return false;
             }
             st.last_injected = Some(text.to_string());
         }
 
         // Give the selection owner a moment to take ownership before pasting.
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(std::time::Duration::from_micros(200));
 
-        if use_x11_paste {
-            self.send_ctrl_v_x11();
-        } else {
-            self.send_ctrl_v();
+        self.send_ctrl_v();
+        let elapsed = (std::time::Instant::now() - t_total).as_millis();
+        if elapsed > 20 {
+            eprintln!("[vietc] paste took {}ms", elapsed);
         }
 
         // Schedule a debounced restore. While the user keeps typing this gets
@@ -477,46 +451,6 @@ impl UinputInjector {
         }
         self.clip.cv.notify_all();
         true
-    }
-
-    /// Copy text to clipboard and paste via Ctrl+V through our uinput device.
-    /// Only used as a last resort if Wayland/X11 direct typing tools are unavailable.
-    /// Tries xdotool first (X11/XWayland), then clipboard fallback.
-    fn paste_string(&self, s: &str) {
-        let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
-        if is_wayland {
-            eprintln!("[vietc] paste_string: trying wtype...");
-            let output = Self::run_as_user("wtype", &["--", s]);
-            if output.status.success() {
-                eprintln!("[vietc] paste_string: wtype success");
-                return;
-            }
-            eprintln!("[vietc] paste_string: wtype failed, trying clipboard...");
-        } else {
-            // Try xdotool first (works on X11 and XWayland for UTF-8)
-            eprintln!("[vietc] paste_string: trying xdotool...");
-            let output = Self::run_as_user("xdotool", &["type", s]);
-            if output.status.success() {
-                eprintln!("[vietc] paste_string: xdotool success");
-                // Record pasted text for future delete/backspace operations
-                let _ = Self::run_as_user("vietc", &["update-pasted", "-text", s]);
-                return;
-            }
-            eprintln!("[vietc] paste_string: xdotool failed, trying clipboard...");
-        }
-
-        // Clipboard fallback: copy + paste via our uinput device
-        let copied = Self::copy_to_clipboard(s);
-        if copied {
-            eprintln!("[vietc] paste_string: clipboard OK, sending Ctrl+V");
-            self.send_ctrl_v();
-            return;
-        }
-
-        eprintln!(
-            "[vietc] WARNING: No injection method works for '{}'!",
-            s.escape_default()
-        );
     }
 
     /// Build a command to run as the original user with display environment.
@@ -554,45 +488,33 @@ impl UinputInjector {
         std::process::Command::new(program)
     }
 
-    /// Copy text to clipboard using wl-copy (Wayland) or xclip (X11).
+    /// Copy text to clipboard using xclip (X11) or wl-copy (Wayland).
+    /// NOTE: direct X11 API is avoided here because it can interact badly with
+    /// the evdev keyboard grab and/or focus — xclip is simpler and works reliably
+    /// on the host.
     fn copy_to_clipboard(s: &str) -> bool {
-        // Try wl-copy (Wayland) via user_cmd
-        {
-            let mut cmd = Self::user_cmd("wl-copy");
-            let result = cmd
-                .stdin(std::process::Stdio::piped())
-                .spawn()
-                .and_then(|mut child| {
-                    use std::io::Write;
-                    child.stdin.take().unwrap().write_all(s.as_bytes())?;
-                    child.wait()
-                });
-            if let Ok(status) = result {
-                if status.success() {
-                    return true;
-                }
-            }
-        }
-
-        // Try xclip (X11) via user_cmd
-        {
-            let mut cmd = Self::user_cmd("xclip");
-            cmd.args(["-selection", "clipboard"]);
-            let result = cmd
-                .stdin(std::process::Stdio::piped())
-                .spawn()
-                .and_then(|mut child| {
-                    use std::io::Write;
-                    child.stdin.take().unwrap().write_all(s.as_bytes())?;
-                    child.wait()
-                })
-                .map(|status| status.success())
-                .unwrap_or(false);
-            if result {
+        let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
+        let (prog, args): (&str, &[&str]) = if is_wayland {
+            ("wl-copy", &[])
+        } else {
+            ("xclip", &["-selection", "clipboard", "-i"])
+        };
+        let mut cmd = Self::user_cmd(prog);
+        cmd.args(args);
+        let result = cmd
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write;
+                child.stdin.take().unwrap().write_all(s.as_bytes())?;
+                child.wait()
+            });
+        if let Ok(status) = result {
+            if status.success() {
                 return true;
             }
         }
-
+        eprintln!("[vietc] copy_to_clipboard: {} failed", prog);
         false
     }
 
@@ -600,70 +522,21 @@ impl UinputInjector {
     fn send_ctrl_v(&self) {
         self.send_uinput_event(EV_KEY, 29, 1); // KEY_LEFTCTRL press
         self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(std::time::Duration::from_micros(100));
 
         self.send_uinput_event(EV_KEY, 47, 1); // KEY_V press
         self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(std::time::Duration::from_micros(100));
 
         self.send_uinput_event(EV_KEY, 47, 0); // KEY_V release
         self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(std::time::Duration::from_micros(100));
 
         self.send_uinput_event(EV_KEY, 29, 0); // KEY_LEFTCTRL release
         self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(std::time::Duration::from_micros(100));
     }
 
-    /// Send Ctrl+V via X11 XTest (avoids uinput kernel feedback loop).
-    /// Uses a lazily-opened persistent X11 connection.
-    fn send_ctrl_v_x11(&self) {
-        if std::env::var("WAYLAND_DISPLAY").is_ok() {
-            self.send_ctrl_v();
-            return;
-        }
-        // Persistent X11 state (raw pointers, only used from injection thread)
-        static mut X11_DPY: *mut libc::c_void = std::ptr::null_mut();
-        static mut X11_KEY: Option<unsafe extern "C" fn(*mut libc::c_void, u32, libc::c_int, u64) -> libc::c_int> = None;
-        static mut X11_FLUSH: Option<unsafe extern "C" fn(*mut libc::c_void) -> libc::c_int> = None;
-        static mut X11_KEYCODE: Option<unsafe extern "C" fn(*mut libc::c_void, u64) -> u32> = None;
-        static X11_INIT: std::sync::Once = std::sync::Once::new();
-
-        X11_INIT.call_once(|| {
-            unsafe {
-                let lib = libc::dlopen(b"libX11.so.6\0".as_ptr() as *const libc::c_char, 1);
-                if lib.is_null() { return; }
-                let xtst = libc::dlopen(b"libXtst.so.6\0".as_ptr() as *const libc::c_char, 1);
-                if xtst.is_null() { libc::dlclose(lib); return; }
-
-                type FnOpen = unsafe extern "C" fn(*const libc::c_char) -> *mut libc::c_void;
-                let xopen: FnOpen = std::mem::transmute(libc::dlsym(lib, b"XOpenDisplay\0".as_ptr() as *const libc::c_char));
-                let dpy = xopen(std::ptr::null());
-                if dpy.is_null() { libc::dlclose(xtst); libc::dlclose(lib); return; }
-
-                X11_DPY = dpy;
-                X11_KEY = Some(std::mem::transmute(libc::dlsym(xtst, b"XTestFakeKeyEvent\0".as_ptr() as *const libc::c_char)));
-                X11_FLUSH = Some(std::mem::transmute(libc::dlsym(lib, b"XFlush\0".as_ptr() as *const libc::c_char)));
-                X11_KEYCODE = Some(std::mem::transmute(libc::dlsym(lib, b"XKeysymToKeycode\0".as_ptr() as *const libc::c_char)));
-            }
-        });
-
-        unsafe {
-            if X11_DPY.is_null() || X11_KEY.is_none() { self.send_ctrl_v(); return; }
-            let dpy = X11_DPY;
-            let xkey = X11_KEY.unwrap();
-            let xflush = X11_FLUSH.unwrap();
-            let xkeycode = X11_KEYCODE.unwrap();
-            let ctrl_kc = xkeycode(dpy, 0xFFE3);
-            let v_kc = xkeycode(dpy, 0x0076);
-            xkey(dpy, ctrl_kc, 1, 0);
-            xkey(dpy, v_kc, 1, 0);
-            xkey(dpy, v_kc, 0, 0);
-            xkey(dpy, ctrl_kc, 0, 0);
-            xflush(dpy);
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-    }
 }
 
 impl Drop for UinputInjector {
@@ -702,9 +575,10 @@ fn run_restorer(state: Arc<ClipState>) {
         }
         // Deadline reached. Restore under the lock so the write cannot
         // interleave with a concurrent paste's clipboard write.
-        let restored = st.saved_clipboard.clone().unwrap_or_default();
-        let _ = UinputInjector::copy_to_clipboard(&restored);
-        st.last_injected = Some(restored);
+        if let Some(restored) = st.saved_clipboard.clone() {
+            let _ = UinputInjector::copy_to_clipboard(&restored);
+            st.last_injected = Some(restored);
+        }
         st.restore_due = None;
     }
 }

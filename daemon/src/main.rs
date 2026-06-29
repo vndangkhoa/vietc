@@ -439,7 +439,73 @@ fn is_flush_char(ch: char) -> bool {
     matches!(ch, ' ' | '.' | ',' | '!' | '?' | ';' | ':' | '\t' | '\n')
 }
 
+/// When running as root via `sudo`, the DISPLAY and XAUTHORITY env vars are
+/// typically stripped.  This function recovers them from the original user's
+/// X11 session by scanning /proc/<pid>/environ for processes owned by
+/// SUDO_UID.  Must be called before any xdotool / xclip invocations.
+fn recover_display_env() {
+    if unsafe { libc::getuid() } != 0 {
+        return;
+    }
+    if let Ok(d) = std::env::var("DISPLAY") {
+        if !d.is_empty() {
+            return;
+        }
+    }
+    let target_uid: u32 = match std::env::var("SUDO_UID") {
+        Ok(s) => match s.parse() {
+            Ok(v) => v,
+            Err(_) => return,
+        },
+        Err(_) => return,
+    };
+    if let Ok(entries) = fs::read_dir("/proc") {
+        'outer: for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_s = name.to_string_lossy();
+            if !name_s.chars().all(|c| c.is_ascii_digit()) {
+                continue;
+            }
+            #[cfg(target_os = "linux")]
+            {
+                use std::os::linux::fs::MetadataExt;
+                if let Ok(meta) = entry.metadata() {
+                    if meta.st_uid() != target_uid {
+                        continue;
+                    }
+                }
+            }
+            let environ_path = entry.path().join("environ");
+            if let Ok(content) = fs::read(&environ_path) {
+                let mut display = None;
+                let mut xauth = None;
+                for chunk in content.split(|&b| b == 0) {
+                    if let Ok(s) = std::str::from_utf8(chunk) {
+                        if let Some(v) = s.strip_prefix("DISPLAY=") {
+                            if !v.is_empty() {
+                                display = Some(v.to_string());
+                            }
+                        }
+                        if let Some(v) = s.strip_prefix("XAUTHORITY=") {
+                            xauth = Some(v.to_string());
+                        }
+                    }
+                }
+                if let Some(d) = display {
+                    std::env::set_var("DISPLAY", &d);
+                    if let Some(x) = xauth {
+                        std::env::set_var("XAUTHORITY", x);
+                    }
+                    log_info(&format!("[vietc] Recovered DISPLAY={} from /proc", d));
+                    break 'outer;
+                }
+            }
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    recover_display_env();
     let config_path = config::find_config_path();
     let config = Config::load()?;
     let engine_enabled = Arc::new(AtomicBool::new(config.start_enabled));
@@ -471,16 +537,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     ));
 
+    // Startup diagnostics: check DISPLAY and xdotool
+    let display_var = std::env::var("DISPLAY").unwrap_or_default();
+    let xauth_var = std::env::var("XAUTHORITY").unwrap_or_default();
+    log_info(&format!("[vietc] DISPLAY='{}'  XAUTHORITY='{}'", display_var, xauth_var));
+    match std::process::Command::new("xdotool")
+        .args(["getactivewindow"])
+        .output()
+    {
+        Ok(output) => {
+            if output.status.success() {
+                let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                log_info(&format!("[vietc] xdotool OK: active window = {}", id));
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                log_info(&format!("[vietc] xdotool FAILED: {}", stderr.trim()));
+            }
+        }
+        Err(e) => {
+            log_info(&format!("[vietc] xdotool NOT AVAILABLE: {}", e));
+        }
+    }
+
     // Boost thread priority for low-latency input (VMK technique)
     boost_thread_priority();
 
     // Spawn background monitor for active window, config changes, and status changes
     let shared_active_window = Arc::new(Mutex::new(String::new()));
+    let shared_window_class = Arc::new(Mutex::new(String::new()));
     let config_changed = Arc::new(AtomicBool::new(false));
     let status_changed = Arc::new(AtomicBool::new(false));
 
     {
         let shared_active_window = shared_active_window.clone();
+        let shared_window_class = shared_window_class.clone();
         let config_changed = config_changed.clone();
         let config_path = config_path.clone();
         let status_changed = status_changed.clone();
@@ -493,9 +583,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut window_check_counter = 0;
             let status_path = config_path.parent().unwrap().join("status");
             loop {
-                // Check active window class every 250ms
-                if let Some(class) = app_state::get_focused_window_class() {
+                // Check active window ID every 250ms (window ID is unique per
+                // window — unlike the class name, which is the same for all
+                // windows of the same application).
+                if let Some(id) = app_state::get_active_window_id() {
                     let mut lock = shared_active_window.lock().unwrap();
+                    if *lock != id {
+                        log_info(&format!("[vietc] bg: window ID '{}' -> '{}'", *lock, id));
+                        *lock = id;
+                    }
+                } else {
+                    log_info("[vietc] bg: window ID poll failed");
+                }
+                // Also keep window class for app-bypass logic
+                if let Some(class) = app_state::get_focused_window_class() {
+                    let mut lock = shared_window_class.lock().unwrap();
                     if *lock != class {
                         *lock = class;
                     }
@@ -537,6 +639,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 device,
                 &mut daemon,
                 shared_active_window,
+                shared_window_class,
                 config_changed,
                 status_changed,
                 engine_enabled,
@@ -569,6 +672,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     run_stdin_mode(
         &mut daemon,
         shared_active_window,
+        shared_window_class,
         config_changed,
         status_changed,
         engine_enabled,
@@ -777,6 +881,7 @@ fn run_with_evdev(
     mut device: evdev::Device,
     daemon: &mut Daemon,
     shared_active_window: Arc<Mutex<String>>,
+    shared_window_class: Arc<Mutex<String>>,
     config_changed: Arc<AtomicBool>,
     status_changed: Arc<AtomicBool>,
     _engine_enabled: Arc<AtomicBool>,
@@ -814,6 +919,7 @@ fn run_with_evdev(
     // Safety: if grab is active and no events arrive for 30 seconds,
     // release the grab so the user isn't locked out.
     let mut last_event_time = std::time::Instant::now();
+    let mut last_key_time = std::time::Instant::now();
 
     loop {
         // Check for event timeout (grab safety)
@@ -837,26 +943,6 @@ fn run_with_evdev(
         if status_changed.load(Ordering::SeqCst) {
             daemon.sync_status_file();
             status_changed.store(false, Ordering::SeqCst);
-        }
-
-        // Track window changes and reset engine buffer
-        {
-            let active_window = shared_active_window.lock().unwrap().clone();
-            if active_window != last_active_window {
-                log_info(&format!(
-                    "[vietc] Window changed: '{}' -> '{}'",
-                    last_active_window, active_window
-                ));
-                last_active_window = active_window.clone();
-                daemon.engine.reset();
-                log_info("[vietc] Reset engine buffer due to window change");
-            }
-        }
-
-        // Check for app changes instantly using the cached state from background thread
-        if daemon.config.app_state.enabled {
-            let active_window = shared_active_window.lock().unwrap().clone();
-            daemon.check_app_change_with(active_window);
         }
 
         // Check for config reload instantly
@@ -929,6 +1015,54 @@ fn run_with_evdev(
                             consumed_keys.remove(&keycode);
                         }
                         if let Some(mut ch) = key_to_char(key) {
+                            // Window change detection: only on character key presses.
+                            // Modifier keys (Ctrl, Alt, Super) skip this block, so
+                            // last_key_time is preserved across Alt+Tab sequences.
+                            let gap = last_key_time.elapsed();
+                            last_key_time = std::time::Instant::now();
+
+                            // Fast path: check shared window ID from background thread (250ms polling)
+                            let active_window_id = shared_active_window.lock().unwrap().clone();
+                            let mut new_window = None;
+
+                            if active_window_id != last_active_window {
+                                new_window = Some(active_window_id.clone());
+                            } else if gap > std::time::Duration::from_millis(100) {
+                                // Background thread hasn't caught up yet — poll xdotool directly
+                                if let Some(id) = app_state::get_active_window_id() {
+                                    if id != active_window_id {
+                                        new_window = Some(id);
+                                    }
+                                } else {
+                                    log_info(&format!("[vietc] gap poll: window ID query failed (gap={:?}, shared='{}')", gap, active_window_id));
+                                }
+                            }
+
+                            if let Some(id) = new_window {
+                                log_info(&format!(
+                                    "[vietc] Window changed: '{}' -> '{}' (gap={:?})",
+                                    last_active_window, id, gap
+                                ));
+                                last_active_window = id;
+                                daemon.engine.reset();
+                                daemon.replay_reset();
+
+                                if daemon.config.app_state.enabled {
+                                    let class = shared_window_class.lock().unwrap().clone();
+                                    let class = if class.is_empty() {
+                                        app_state::get_focused_window_class().unwrap_or_default()
+                                    } else {
+                                        class
+                                    };
+                                    daemon.check_app_change_with(class);
+                                }
+                            } else if daemon.config.app_state.enabled {
+                                let class = shared_window_class.lock().unwrap().clone();
+                                if !class.is_empty() {
+                                    daemon.check_app_change_with(class);
+                                }
+                            }
+
                             let shift = is_modifier_held_shift(&key_state);
                             if ch.is_ascii_alphabetic() && (shift ^ caps) {
                                 ch = ch.to_ascii_uppercase();
@@ -986,6 +1120,7 @@ fn run_with_evdev(
 fn run_stdin_mode(
     daemon: &mut Daemon,
     shared_active_window: Arc<Mutex<String>>,
+    shared_window_class: Arc<Mutex<String>>,
     config_changed: Arc<AtomicBool>,
     status_changed: Arc<AtomicBool>,
     _engine_enabled: Arc<AtomicBool>,
@@ -1020,6 +1155,7 @@ fn run_stdin_mode(
                     device,
                     daemon,
                     shared_active_window,
+                    shared_window_class,
                     config_changed,
                     status_changed,
                     _engine_enabled,
@@ -1138,9 +1274,9 @@ fn create_injector(
         return Ok(Box::new(vietc_protocol::uinput_client::UinputClient));
     }
 
-    // Use uinput as primary — correct Linux keycodes for ASCII + backspace.
-    // For Unicode (Vietnamese diacritics), falls back to xclip via subprocess
-    // or direct X11 clipboard via X11Injector.
+    // Use uinput as primary — correct Linux keycodes for backspace + ASCII.
+    // For Unicode (Vietnamese diacritics), falls back to X11 clipboard via
+    // direct X11 API (not subprocesses), making it work in Flatpak sandboxes.
     match vietc_protocol::uinput_monitor::UinputInjector::new("vietc") {
         Ok(injector) => {
             log_info("[vietc] Using uinput injection (primary)");

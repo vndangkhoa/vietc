@@ -7,19 +7,11 @@ pub enum InputMethod {
     Vni,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RuleEffect {
-    Appending(char),
-    MarkTransformation { base: char, marked: char },
-    ToneTransformation { tone: char, name: &'static str },
-}
-
 #[derive(Debug, Clone)]
 pub struct InputMethodRules {
     pub method: InputMethod,
     pub tone_keys: HashMap<char, (char, &'static str)>,
     pub mark_rules: Vec<(String, String)>,
-    pub special_rules: Vec<RuleEffect>,
 }
 
 fn tone_map(entries: &[(char, char, &'static str)]) -> HashMap<char, (char, &'static str)> {
@@ -46,7 +38,6 @@ pub fn get_rules(method: InputMethod) -> InputMethodRules {
                 ("uw".into(), "ư".into()),
                 ("dd".into(), "đ".into()),
             ],
-            special_rules: vec![],
         },
         InputMethod::Vni => InputMethodRules {
             method,
@@ -66,7 +57,6 @@ pub fn get_rules(method: InputMethod) -> InputMethodRules {
                 ("a8".into(), "ă".into()),
                 ("d9".into(), "đ".into()),
             ],
-            special_rules: vec![],
         },
     }
 }

@@ -10,10 +10,12 @@
   "finish-args": [
     "--socket=x11",
     "--socket=wayland",
-    "--filesystem=home",
+    "--socket=session-bus",
+    "--device=all",
     "--share=ipc",
     "--talk-name=org.freedesktop.Notifications",
-    "--talk-name=org.a11y.Bus"
+    "--talk-name=org.a11y.Bus",
+    "--talk-name=org.freedesktop.portal.Clipboard"
   ],
   "modules": [
     {

@@ -507,9 +507,18 @@ impl KeyInjector for X11Injector {
     }
 
     fn send_string(&self, s: &str) -> InjectResult {
-        for ch in s.chars() {
-            self.send_char(ch);
+        // ASCII: type individual characters via XTest (fast, no side effects)
+        let is_ascii = s.chars().all(|c| char_to_keycode(c).is_some());
+        if is_ascii {
+            for ch in s.chars() {
+                self.send_char(ch);
+            }
+            return InjectResult::Success;
         }
+
+        // Non-ASCII (Vietnamese Unicode): use clipboard paste via X11 API + XTest
+        // This avoids xdotool/ydotool subprocesses that silently drop Vietnamese.
+        self.paste_via_clipboard(0, s);
         InjectResult::Success
     }
 
