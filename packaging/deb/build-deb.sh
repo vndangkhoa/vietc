@@ -27,6 +27,8 @@ mkdir -p "$STAGING/usr/share/icons/hicolor/256x256/apps"
 mkdir -p "$STAGING/usr/share/doc/vietc"
 mkdir -p "$STAGING/usr/share/metainfo"
 mkdir -p "$STAGING/etc/xdg/autostart"
+mkdir -p "$STAGING/lib/udev/rules.d"
+
 
 # Copy binaries
 echo "[3/5] Installing binaries..."
@@ -45,6 +47,10 @@ cp "$PROJECT_ROOT/packaging/icons/vietc-en.svg" "$STAGING/usr/share/icons/hicolo
 
 # Desktop file
 cp "$SCRIPT_DIR/vietc.desktop" "$STAGING/usr/share/applications/"
+
+# Udev rules
+cp "$PROJECT_ROOT/packaging/99-vietc.rules" "$STAGING/lib/udev/rules.d/"
+
 
 # XDG autostart — launches tray on every login for all users
 cat > "$STAGING/etc/xdg/autostart/vietc-tray.desktop" << 'AUTOSTART'
@@ -122,7 +128,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Depends: libc6 (>= 2.31), libevdev2 (>= 1.9.0)
-Recommends: libwayland-client0 (>= 1.20), libx11-6, libxtst6, libdbus-1-3, xclip
+Recommends: libwayland-client0 (>= 1.20), libx11-6, libxtst6, libdbus-1-3, xclip, wl-clipboard
 Maintainer: Khoa Vo <vndangkhoa@gmail.com>
 Description: Viet+ — Vietnamese Input Method for Linux
  Zero-configuration Vietnamese input method engine supporting
@@ -206,6 +212,13 @@ case "$1" in
     if command -v gtk-update-icon-cache >/dev/null 2>&1; then
       gtk-update-icon-cache -f /usr/share/icons/hicolor/ >/dev/null 2>&1 || true
     fi
+
+    # Reload udev rules to apply the new uinput rule
+    if command -v udevadm >/dev/null 2>&1; then
+      udevadm control --reload-rules >/dev/null 2>&1 || true
+      udevadm trigger --subsystem-match=misc >/dev/null 2>&1 || true
+    fi
+
     ;;
 esac
 POSTINST

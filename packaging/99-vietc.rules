@@ -1,0 +1,3 @@
+# Udev rule for Viet+ input method
+# Allows non-root users in the 'input' group to write to /dev/uinput
+KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
