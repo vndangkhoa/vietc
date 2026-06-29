@@ -86,7 +86,7 @@ fn default_toggle_key() -> String {
     "space".into()
 }
 fn default_start_enabled() -> bool {
-    false
+    true
 }
 fn default_true() -> bool {
     true
@@ -262,7 +262,7 @@ vs = "với"
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.input_method, "vni");
         assert_eq!(config.toggle_key, "shift");
-        assert!(!config.start_enabled);
+        assert!(!config.start_enabled); // explicitly set to false in test toml
         assert!(!config.auto_restore.enabled);
         assert!(config.app_state.enabled);
         assert_eq!(config.app_state.english_apps, vec!["code", "vim"]);
@@ -281,7 +281,7 @@ vs = "với"
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.input_method, "vni");
         assert_eq!(config.toggle_key, "space");
-        assert!(!config.start_enabled);
+        assert!(config.start_enabled); // default changed to true
         assert!(config.auto_restore.enabled);
         assert!(config.app_state.enabled);
         assert!(!config.app_state.english_apps.is_empty());
@@ -296,7 +296,7 @@ input_method = "vni"
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.input_method, "vni");
         assert_eq!(config.toggle_key, "space"); // default
-        assert!(!config.start_enabled); // default
+        assert!(config.start_enabled); // default changed to true
     }
 
     #[test]

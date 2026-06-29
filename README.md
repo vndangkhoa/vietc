@@ -314,7 +314,7 @@ Config file: `~/.config/vietc/config.toml` or `./vietc.toml`
 ```toml
 input_method = "vni"       # "vni" or "telex"
 toggle_key = "space"       # Ctrl+Space to toggle
-start_enabled = false      # English by default
+start_enabled = true       # Vietnamese by default
 grab = true                # grab keyboard (evdev)
 
 [auto_restore]

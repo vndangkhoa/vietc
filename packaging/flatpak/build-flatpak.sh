@@ -52,7 +52,8 @@ Exec=/app/bin/vietc-tray
 Icon=io.github.vietc.VietPlus
 Terminal=false
 Type=Application
-Categories=Utility;
+StartupNotify=true
+Categories=Utility;TextTools;X-GNOME-Utilities;
 END
 
 mkdir -p /app/share/metainfo

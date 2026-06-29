@@ -23,6 +23,14 @@
 
 ### Active Window Detection (Flatpak fix)
 - **Native X11 `_NET_ACTIVE_WINDOW` query** via `dlopen("libX11.so.6")` — added as third fallback in `get_active_window_id()`. Works inside the Flatpak sandbox where `xdotool`/`xprop` are unavailable. No subprocess, no external dependencies.
+### Default Mode
+- **`start_enabled` now defaults to `true`** — Vietnamese mode is active immediately after launch. Press Ctrl+Space to toggle to English.  
+  *(Existing users with a custom config.toml are unaffected — the explicit setting overrides the default.)*
+
+### Tray & Desktop Entry
+- **No password prompt inside Flatpak** — `needs_root()` detects Flatpak sandbox (`FLATPAK_ID` or `/app/bin` presence) and skips sudo entirely; the sandbox already has device access via `--device=all`.
+- **First-launch flag always written** — the `.first-launch-done` marker is created even when the password prompt is dismissed, preventing repeated prompts.
+- **Desktop categories** widened to `Utility;TextTools;X-GNOME-Utilities;` for better visibility in Cinnamon/Mint app menu.
 - **Bundle**: `VietPlus-0.1.5.flatpak` (66 MB with tray, runtime `org.gnome.Platform//50`). Warning-free build.
 
 ---

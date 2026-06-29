@@ -39,7 +39,16 @@ fn is_daemon_running() -> bool {
     check("vietc") || check("vietc-daemon")
 }
 
+fn is_flatpak() -> bool {
+    std::env::var("FLATPAK_ID").is_ok()
+        || std::path::Path::new("/app/bin").exists()
+}
+
 fn needs_root() -> bool {
+    if is_flatpak() {
+        // Inside Flatpak the sandbox already has device access; sudo won't work.
+        return false;
+    }
     let cfg = config::Config::load();
     cfg.grab
 }
@@ -114,18 +123,14 @@ fn prompt_password() -> String {
 fn start_daemon() {
     let daemon_bin = find_sibling_binary("vietc");
 
-    if needs_root() && !is_daemon_running() {
-        // Mark that we've attempted first launch
-        let flag_path = config_path().join(".first-launch-done");
+    let flag_path = config_path().join(".first-launch-done");
 
-        if !flag_path.exists() {
-            let password = prompt_password();
-            if password.is_empty() {
-                eprintln!("[vietc-tray] No password provided, starting daemon without root");
-                let _ = std::process::Command::new(&daemon_bin).spawn();
-                return;
-            }
-
+    if needs_root() && !is_daemon_running() && !flag_path.exists() {
+        let password = prompt_password();
+        if password.is_empty() {
+            eprintln!("[vietc-tray] No password provided, starting daemon without root");
+            let _ = std::process::Command::new(&daemon_bin).spawn();
+        } else {
             // Start daemon with sudo
             let mut child = match std::process::Command::new("sudo")
                 .args(["-S", &daemon_bin])
@@ -138,6 +143,7 @@ fn start_daemon() {
                 Err(e) => {
                     eprintln!("[vietc-tray] Failed to start daemon with sudo: {}", e);
                     let _ = std::process::Command::new(&daemon_bin).spawn();
+                    let _ = std::fs::write(&flag_path, "1");
                     return;
                 }
             };
@@ -147,11 +153,10 @@ fn start_daemon() {
                 let _ = stdin.write_all(format!("{}\n", password).as_bytes());
             }
             let _ = child.wait();
-
-            // Mark first launch as done
-            let _ = std::fs::write(&flag_path, "1");
-            return;
         }
+
+        let _ = std::fs::write(&flag_path, "1");
+        return;
     }
 
     if !is_daemon_running() {
