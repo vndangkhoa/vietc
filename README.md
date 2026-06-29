@@ -255,14 +255,28 @@ Flexible typing: type the full syllable, then add marks/tone keys at the end. Ex
 
 ### Single Command (from Source)
 
-To install or update Viet+ from the latest source in a single command, run:
+Depending on which repository you prefer to clone from, you can use one of the following commands to install or update Viet+ in a single step:
 
+#### From GitHub (Recommended)
+
+**Install / Update:**
+```bash
+git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc && cd /tmp/vietc && sudo ./install.sh
+```
+
+**Uninstall:**
+```bash
+curl -sSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/uninstall.sh | sudo bash
+```
+
+#### From Forgejo (Self-Hosted)
+
+**Install / Update:**
 ```bash
 git clone https://git.khoavo.myds.me/vndangkhoa/vietc.git /tmp/vietc && cd /tmp/vietc && sudo ./install.sh
 ```
 
-To **uninstall** in a single command, run:
-
+**Uninstall:**
 ```bash
 curl -sSL https://git.khoavo.myds.me/vndangkhoa/vietc/raw/branch/main/uninstall.sh | sudo bash
 ```
