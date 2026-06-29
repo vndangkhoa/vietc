@@ -253,6 +253,20 @@ Flexible typing: type the full syllable, then add marks/tone keys at the end. Ex
 
 ## Installation
 
+### Single Command (from Source)
+
+To install or update Viet+ from the latest source in a single command, run:
+
+```bash
+git clone https://git.khoavo.myds.me/vndangkhoa/vietc.git /tmp/vietc && cd /tmp/vietc && sudo ./install.sh
+```
+
+To **uninstall** in a single command, run:
+
+```bash
+curl -sSL https://git.khoavo.myds.me/vndangkhoa/vietc/raw/branch/main/uninstall.sh | sudo bash
+```
+
 ### Debian Package (recommended)
 
 System tray icon + daemon + desktop entry. Requires user to be in the `input` group for keyboard capture.
