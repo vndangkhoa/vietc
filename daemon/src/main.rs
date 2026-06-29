@@ -505,6 +505,15 @@ fn recover_display_env() {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Ensure single instance to avoid duplicate daemon processes
+    let _listener = match std::os::unix::net::UnixListener::bind("\0vietc-daemon-lock") {
+        Ok(l) => l,
+        Err(_) => {
+            eprintln!("[vietc] Another instance is already running. Exiting.");
+            std::process::exit(0);
+        }
+    };
+
     recover_display_env();
     let config_path = config::find_config_path();
     let config = Config::load()?;

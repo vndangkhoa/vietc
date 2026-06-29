@@ -180,6 +180,15 @@ fn config_path() -> PathBuf {
 }
 
 fn main() {
+    // Ensure single instance to avoid duplicate tray icons
+    let _listener = match std::os::unix::net::UnixListener::bind("\0vietc-tray-lock") {
+        Ok(l) => l,
+        Err(_) => {
+            eprintln!("[vietc-tray] Another instance is already running. Exiting.");
+            std::process::exit(0);
+        }
+    };
+
     eprintln!("[vietc-tray] Starting");
 
     // Start daemon (with password prompt if first launch)
