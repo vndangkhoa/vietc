@@ -33,6 +33,11 @@
 
 - **Engine state correctly reset between input lines** in CLI test harness.
 - **Flush characters forwarded** after macro expansion / auto-restore replacement to preserve spacing.
+- **AT-SPI2 connected to wrong D-Bus bus**: Was connecting to session bus instead of the private accessibility bus. Now queries `org.a11y.Bus.GetAddress` to find the correct bus.
+- **Password detection now periodic**: Re-checks every 30 keystrokes even without window change (catches in-terminal sudo prompts).
+- **Double space on Ctrl+Space toggle**: Raw key forwarding now checks if engine is enabled before forwarding flush chars.
+- **xprop/wmctrl fallbacks**: Window class, title, and ID detection now work without `xdotool` installed (uses `xprop` + `wmctrl`).
+- **Single-instance lock improved**: Writes PID to lock file; detects and cleans up stale locks automatically.
 
 ---
 

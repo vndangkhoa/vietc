@@ -3,7 +3,7 @@
   <img src="https://img.shields.io/badge/Language-Rust-orange?style=for-the-badge" alt="Rust">
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/Version-0.1.7-purple?style=for-the-badge" alt="Version">
-  <img src="https://img.shields.io/badge/Tests-118_passing-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-108_passing-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/Event_Sourcing-✓-blueviolet?style=for-the-badge" alt="Event Sourcing">
 </p>
 
