@@ -488,6 +488,8 @@ fn recover_display_env() {
     }
     if let Ok(d) = std::env::var("DISPLAY") {
         if !d.is_empty() {
+            // Already have DISPLAY, but still recover D-Bus env for AT-SPI2
+            recover_dbus_env();
             return;
         }
     }
@@ -539,6 +541,71 @@ fn recover_display_env() {
                     break 'outer;
                 }
             }
+        }
+    }
+    recover_dbus_env();
+}
+
+/// Recover D-Bus session bus address and XDG_RUNTIME_DIR for AT-SPI2
+/// when running as root.  The accessibility bus only lives on the
+/// original user's session bus, not root's.
+fn recover_dbus_env() {
+    if unsafe { libc::getuid() } != 0 {
+        return;
+    }
+    let target_uid: u32 = match std::env::var("SUDO_UID") {
+        Ok(s) => match s.parse() {
+            Ok(v) => v,
+            Err(_) => return,
+        },
+        Err(_) => return,
+    };
+
+    // First try: read DBUS_SESSION_BUS_ADDRESS from the original user's /proc/*/environ
+    if let Ok(entries) = fs::read_dir("/proc") {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_s = name.to_string_lossy();
+            if !name_s.chars().all(|c| c.is_ascii_digit()) {
+                continue;
+            }
+            #[cfg(target_os = "linux")]
+            {
+                use std::os::linux::fs::MetadataExt;
+                if let Ok(meta) = entry.metadata() {
+                    if meta.st_uid() != target_uid {
+                        continue;
+                    }
+                }
+            }
+            let environ_path = entry.path().join("environ");
+            if let Ok(content) = fs::read(&environ_path) {
+                if let Ok(dbus_env) = std::str::from_utf8(&content) {
+                    for var in dbus_env.split('\0') {
+                        if let Some(val) = var.strip_prefix("DBUS_SESSION_BUS_ADDRESS=") {
+                            if !val.is_empty() {
+                                std::env::set_var("DBUS_SESSION_BUS_ADDRESS", val);
+                                log_info("[vietc] Recovered DBUS_SESSION_BUS_ADDRESS");
+                                return;
+                            }
+                        }
+                        if let Some(val) = var.strip_prefix("XDG_RUNTIME_DIR=") {
+                            if !val.is_empty() {
+                                std::env::set_var("XDG_RUNTIME_DIR", val);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Second try: if XDG_RUNTIME_DIR is set, check for the standard bus socket
+    if let Ok(xdg_dir) = std::env::var("XDG_RUNTIME_DIR") {
+        let bus_path = std::path::Path::new(&xdg_dir).join("bus");
+        if bus_path.exists() {
+            let addr = format!("unix:path={}", bus_path.display());
+            std::env::set_var("DBUS_SESSION_BUS_ADDRESS", &addr);
+            log_info("[vietc] Set DBUS_SESSION_BUS_ADDRESS from XDG_RUNTIME_DIR/bus");
         }
     }
 }
