@@ -495,27 +495,43 @@ impl UinputInjector {
     fn copy_to_clipboard(s: &str) -> bool {
         let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
         let (prog, args): (&str, &[&str]) = if is_wayland {
-            ("wl-copy", &[])
+            // On Wayland/GNOME, wl-copy exits before the compositor reads
+            // the clipboard data.  --paste-once keeps it alive until pasted,
+            // eliminating the 300–900 ms compositor lookup delay.  We spawn
+            // it detached (no .wait()) — the child lives until Ctrl+V lands.
+            ("wl-copy", &["--paste-once"])
         } else {
             ("xclip", &["-selection", "clipboard", "-i"])
         };
         let mut cmd = Self::user_cmd(prog);
         cmd.args(args);
-        let result = cmd
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
+        cmd.stdin(std::process::Stdio::piped());
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::null());
+
+        match cmd.spawn() {
+            Ok(mut child) => {
                 use std::io::Write;
-                child.stdin.take().unwrap().write_all(s.as_bytes())?;
-                child.wait()
-            });
-        if let Ok(status) = result {
-            if status.success() {
-                return true;
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(s.as_bytes());
+                }
+                if is_wayland {
+                    // --paste-once: don't wait — child stays alive until the
+                    // compositor reads the data (Ctrl+V arrives later).
+                    // Detach the wait so we don't block.
+                    std::thread::spawn(move || {
+                        let _ = child.wait();
+                    });
+                    return true;
+                }
+                // X11: wait for xclip to finish writing
+                child.wait().map(|s| s.success()).unwrap_or(false)
+            }
+            Err(e) => {
+                eprintln!("[vietc] copy_to_clipboard: {} spawn failed: {}", prog, e);
+                false
             }
         }
-        eprintln!("[vietc] copy_to_clipboard: {} failed", prog);
-        false
     }
 
     /// Send Ctrl+V through our uinput device.
