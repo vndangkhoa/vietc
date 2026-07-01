@@ -282,18 +282,59 @@ fn get_gnome_focused_wm_class() -> Option<String> {
 
 /// Execute JavaScript in GNOME Shell and return (success, output)
 fn gnome_shell_eval(js: &str) -> Option<(bool, String)> {
-    use std::time::Duration;
-    let conn = dbus::blocking::Connection::new_session().ok()?;
-    let proxy = dbus::blocking::Proxy::new(
-        "org.gnome.Shell",
-        "/org/gnome/Shell",
-        Duration::from_secs(1),
-        &conn,
-    );
-    let (success, output): (bool, String) = proxy
-        .method_call("org.gnome.Shell", "Eval", (js,))
+    // Use gdbus as a subprocess running as the original user.
+    // Direct D-Bus from a root process gets rejected by GNOME Shell.
+    let output = run_as_user("gdbus")
+        .args([
+            "call",
+            "--session",
+            "--dest", "org.gnome.Shell",
+            "--object-path", "/org/gnome/Shell",
+            "--method", "org.gnome.Shell.Eval",
+            js,
+        ])
+        .output()
         .ok()?;
-    Some((success, output))
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    // Output format: (true, 'result_string')  or  (false, 'error_message')
+    if let Some(rest) = stdout.strip_prefix("(true, ") {
+        let result = rest.trim_end_matches(')');
+        // Remove surrounding quotes: "'value'" -> "value"
+        let result = result.trim_matches('\'');
+        Some((true, result.to_string()))
+    } else if let Some(rest) = stdout.strip_prefix("(false, ") {
+        let error = rest.trim_end_matches(')');
+        let error = error.trim_matches('\'');
+        Some((false, error.to_string()))
+    } else {
+        None
+    }
+}
+
+/// Build a Command that runs as the original user (not root).
+/// Sets display environment variables for the user's session.
+fn run_as_user(program: &str) -> std::process::Command {
+    let is_root = unsafe { libc::getuid() == 0 };
+    if is_root {
+        if let Ok(uid_str) = std::env::var("SUDO_UID") {
+            if let Ok(uid) = uid_str.parse::<u32>() {
+                use std::os::unix::process::CommandExt;
+                let mut cmd = std::process::Command::new(program);
+                cmd.uid(uid).gid(u32::MAX);
+                // Preserve display env vars for the user's session
+                if let Ok(v) = std::env::var("DISPLAY") { cmd.env("DISPLAY", v); }
+                if let Ok(v) = std::env::var("WAYLAND_DISPLAY") { cmd.env("WAYLAND_DISPLAY", v); }
+                if let Ok(v) = std::env::var("XDG_RUNTIME_DIR") { cmd.env("XDG_RUNTIME_DIR", v); }
+                if let Ok(v) = std::env::var("DBUS_SESSION_BUS_ADDRESS") { cmd.env("DBUS_SESSION_BUS_ADDRESS", v); }
+                if let Ok(v) = std::env::var("XAUTHORITY") { cmd.env("XAUTHORITY", v); }
+                return cmd;
+            }
+        }
+    }
+    std::process::Command::new(program)
 }
 
 fn get_x11_window_class() -> Option<String> {
