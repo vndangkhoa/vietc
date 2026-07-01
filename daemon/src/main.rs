@@ -1150,7 +1150,16 @@ fn run_with_evdev(
             .get_key_state()
             .ok()
             .unwrap_or_else(evdev::AttributeSet::new);
-        let events = device.fetch_events()?;
+        let events = match device.fetch_events() {
+            Ok(events) => events,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::Interrupted {
+                    // SIGINT/SIGTERM received — loop back to signal check
+                    continue;
+                }
+                return Err(e.into());
+            }
+        };
         last_event_time = std::time::Instant::now();
 
         // Check for status changes instantly

@@ -312,10 +312,7 @@ impl X11Injector {
     }
 
     fn handle_selection_request(&self, req: &XSelectionRequestEvent) {
-        eprintln!(
-            "[vietc] SelectionRequest: target={} requestor={}",
-            req.target, req.requestor
-        );
+        // Silently handle — SelectionRequest floods the log on X11
 
         // Determine what property to use for the response
         let property = if req.property == 0 {
