@@ -113,6 +113,43 @@ fn get_active_window_x11_dlopen() -> Option<String> {
     }
 }
 
+/// Get the active window's PID (works on Wayland GNOME via D-Bus, X11 via xprop)
+pub fn get_active_window_pid() -> Option<u32> {
+    // Try GNOME Shell D-Bus first (works on Wayland)
+    if let Some(pid) = get_gnome_focused_pid() {
+        return Some(pid);
+    }
+    // Fallback: X11 via xprop
+    get_xprop_window_pid()
+}
+
+/// Query GNOME Shell via D-Bus for the focused window's PID
+fn get_gnome_focused_pid() -> Option<u32> {
+    let js = "global.display.focus_window?.get_pid()?.toString() ?? ''";
+    let (_, pid_str) = gnome_shell_eval(js)?;
+    pid_str.parse::<u32>().ok().filter(|&p| p > 0)
+}
+
+/// Get active window PID via xprop (X11/XWayland)
+fn get_xprop_window_pid() -> Option<u32> {
+    let id = get_active_window_id_xprop()?;
+    let output = Command::new("xprop")
+        .args(["-id", &id, "_NET_WM_PID"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Some(pid_str) = stdout.split("= ").nth(1) {
+            if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                if pid > 0 {
+                    return Some(pid);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Get the active window's title (lowercase)
 pub fn get_active_window_title() -> Option<String> {
     // Try GNOME Shell D-Bus (Wayland GNOME)
@@ -658,43 +695,25 @@ fn log_password_detection(method: &str, context: &str) {
     eprintln!("[vietc] Password field detected via {}: {}", method, context);
 }
 
-/// Get the PID of the active window via xprop
-fn get_active_window_pid() -> Option<u32> {
-    let id = get_active_window_id_xprop()?;
-    // Some terminals (gnome-terminal) don't have _NET_WM_PID directly
-    // Try xprop first
-    let output = Command::new("xprop")
-        .args(["-id", &id, "_NET_WM_PID"])
-        .output()
-        .ok()?;
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        // Format: _NET_WM_PID(CARDINAL) = 12345
-        if let Some(pid_str) = stdout.split("= ").nth(1) {
-            if let Ok(pid) = pid_str.trim().parse::<u32>() {
-                if pid > 0 {
-                    return Some(pid);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Check if the given PID or any of its children is running sudo/passwd
+/// Check if the given PID or any of its descendants is running sudo/passwd.
+/// Uses pstree to scan the full process tree (handles any depth):
+///   terminal → shell → sudo → passwd
+///   gnome-terminal-server → gnome-terminal → bash → sudo
 fn is_sudo_process(pid: u32) -> bool {
-    // Check the process itself
-    if let Ok(output) = Command::new("ps")
-        .args(["-o", "comm=", "-p", &pid.to_string()])
+    if let Ok(output) = Command::new("pstree")
+        .args(["-p", &pid.to_string()])
         .output()
     {
-        let comm = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if comm == "sudo" || comm == "passwd" || comm == "pkexec" {
-            return true;
+        let tree = String::from_utf8_lossy(&output.stdout);
+        for target in &["sudo(", "passwd(", "pkexec("] {
+            if tree.contains(target) {
+                return true;
+            }
         }
+        return false;
     }
 
-    // Check child processes recursively (depth = 2)
+    // Fallback if pstree is not installed: check children directly
     if let Ok(output) = Command::new("ps")
         .args(["--ppid", &pid.to_string(), "-o", "comm="])
         .output()
@@ -704,30 +723,6 @@ fn is_sudo_process(pid: u32) -> bool {
             let comm = line.trim();
             if comm == "sudo" || comm == "passwd" || comm == "pkexec" {
                 return true;
-            }
-        }
-    }
-
-    // Check grandchild processes (depth = 3)
-    if let Ok(output) = Command::new("ps")
-        .args(["--ppid", &pid.to_string(), "-o", "pid="])
-        .output()
-    {
-        let output = String::from_utf8_lossy(&output.stdout);
-        for line in output.lines() {
-            let child_pid = line.trim();
-            if child_pid.is_empty() { continue; }
-            if let Ok(output) = Command::new("ps")
-                .args(["--ppid", child_pid, "-o", "comm="])
-                .output()
-            {
-                let output = String::from_utf8_lossy(&output.stdout);
-                for line in output.lines() {
-                    let comm = line.trim();
-                    if comm == "sudo" || comm == "passwd" || comm == "pkexec" {
-                        return true;
-                    }
-                }
             }
         }
     }
