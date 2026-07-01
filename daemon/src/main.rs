@@ -610,6 +610,12 @@ fn recover_dbus_env() {
     }
 }
 
+/// Signal handler for SIGINT/SIGTERM.  Sets the exit flag so the event
+/// loop can release the keyboard grab before the process terminates.
+extern "C" fn sigexit_handler(_signo: i32) {
+    SIGNAL_EXIT.store(true, Ordering::SeqCst);
+}
+
 fn ensure_single_instance(name: &str) {
     let uid = unsafe { libc::getuid() };
     let path_str = format!("/tmp/{}-{}.lock", name, uid);
@@ -671,7 +677,19 @@ fn ensure_single_instance(name: &str) {
     }
 }
 
+/// Signal handler flag: set to true on SIGINT/SIGTERM for a clean shutdown.
+/// The event loop checks this flag and releases the keyboard grab before exiting.
+static SIGNAL_EXIT: AtomicBool = AtomicBool::new(false);
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Set up signal handler for Ctrl+C and SIGTERM so we can release
+    // the keyboard grab before exiting — otherwise the keyboard stays
+    // locked and the user has to reboot.
+    unsafe {
+        libc::signal(libc::SIGINT, sigexit_handler as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGTERM, sigexit_handler as *const () as libc::sighandler_t);
+    }
+
     // Ensure single instance to avoid duplicate daemon processes
     ensure_single_instance("vietc-daemon");
 
@@ -1095,6 +1113,16 @@ fn run_with_evdev(
     let mut last_key_time = std::time::Instant::now();
 
     loop {
+        // Check for signal (Ctrl+C, SIGTERM) — release grab before exit
+        if SIGNAL_EXIT.load(Ordering::SeqCst) {
+            if grabbed {
+                let _ = device.ungrab();
+                log_info("[vietc] Signal received — keyboard grab released");
+            }
+            log_info("[vietc] Exiting on signal");
+            return Ok(());
+        }
+
         // Check for event timeout (grab safety)
         if grabbed && last_event_time.elapsed() > std::time::Duration::from_secs(30) {
             log_info(
