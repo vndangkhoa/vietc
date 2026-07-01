@@ -111,11 +111,27 @@ Both **VNI** and **Telex** are fully supported. Switch via **Ctrl+LeftShift** or
 
 ---
 
+## Distro Support
+
+| Tier | Distro | Install Method | Status |
+|------|--------|---------------|--------|
+| ✅ **Supported** | Ubuntu, Debian, Linux Mint, Pop!_OS, elementary OS, Zorin, Neon | `apt` (auto-detected) | Tested, one-command install |
+| ✅ **Supported** | Fedora, RHEL, CentOS | `dnf` (auto-detected) | Tested, one-command install |
+| ✅ **Supported** | Arch, Manjaro | `pacman` (auto-detected) | Tested, one-command install |
+| ⚠️ **Might support** | openSUSE, Solus, Void | `zypper`/`eopkg`/`xbps` (manual) | Package names may differ; run install.sh and install missing deps manually if it fails |
+| ❌ **Not supported** | NixOS, Alpine, Gentoo, others | N/A | No package manager entry — install deps manually, then `cargo build --release` |
+
+> **⚠️ Tray icon note:** GNOME (Ubuntu) and Cinnamon (Mint) need a StatusNotifier watcher for the tray to appear:
+> - Ubuntu: `sudo apt install gnome-shell-extension-appindicator`
+> - Mint: pre-installed; works out of the box
+
+---
+
 ## Installation
 
 ### One-Command Install
 
-Works on both **Linux Mint** and **Ubuntu** (including 24.04+ Wayland):
+Works on all ✅ **Supported** distros above. The script auto-detects your package manager:
 
 **From GitHub (recommended):**
 ```bash
@@ -150,7 +166,7 @@ curl -sSL https://git.khoavo.myds.me/vndangkhoa/vietc/raw/branch/main/uninstall.
 ```bash
 # Install dependencies
 sudo apt install git curl build-essential pkg-config \
-  libx11-dev libxtst-dev libevdev-dev libdbus-1-dev wl-clipboard
+  libx11-dev libxtst-dev libevdev-dev libdbus-1-dev libwayland-dev wl-clipboard
 
 # Enable accessibility (Ubuntu Wayland — for password detection)
 gsettings set org.gnome.desktop.a11y.applications screen-reader-enabled true
