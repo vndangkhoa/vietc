@@ -1100,6 +1100,7 @@ fn run_with_evdev(
 
     let mut consumed_keys: HashSet<u16> = HashSet::new();
     let mut last_active_window = String::new();
+    let mut last_window_class = String::new();
     // Skip counter: after Unicode injection, skip N upcoming events
     // (they're auto-repeat pile-up from the injection delay)
     let mut skip_count = 0u32;
@@ -1251,8 +1252,18 @@ fn run_with_evdev(
                             let active_window_id = shared_active_window.lock().unwrap().clone();
                             let mut new_window = None;
 
+                            // On Wayland, window ID may not change (native Wayland apps
+                            // don't have X11 IDs), so also check window class as a fallback.
+                            let active_window_class = shared_window_class.lock().unwrap().clone();
+
                             if active_window_id != last_active_window {
                                 new_window = Some(active_window_id.clone());
+                            } else if !active_window_class.is_empty()
+                                && active_window_class != last_window_class
+                            {
+                                // Window ID same but class changed — treat as window switch
+                                // (this covers Wayland native app switches)
+                                new_window = Some(active_window_class.clone());
                             } else {
                                 // Always verify active window on every keypress — window
                                 // switches under 100ms can leak the old engine buffer.
@@ -1268,7 +1279,12 @@ fn run_with_evdev(
                                     "[vietc] Window changed: '{}' -> '{}' (gap={:?})",
                                     last_active_window, id, gap
                                 ));
-                                last_active_window = id;
+                                last_active_window = id.clone();
+                                // Save the window class when it changes (covers Wayland
+                                // where IDs might be identical for different apps)
+                                if !active_window_class.is_empty() {
+                                    last_window_class = active_window_class.clone();
+                                }
                                 daemon.engine.reset();
                                 daemon.replay_reset();
 
