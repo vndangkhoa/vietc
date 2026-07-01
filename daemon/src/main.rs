@@ -545,16 +545,61 @@ fn recover_display_env() {
 
 fn ensure_single_instance(name: &str) {
     let uid = unsafe { libc::getuid() };
-    let path = format!("/tmp/{}-{}.lock", name, uid);
-    let path_c = std::ffi::CString::new(path).unwrap();
+    let path_str = format!("/tmp/{}-{}.lock", name, uid);
+    let path = std::path::Path::new(&path_str);
+    let path_c = std::ffi::CString::new(path_str.as_str()).unwrap();
     let fd = unsafe { libc::open(path_c.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600) };
     if fd < 0 {
         eprintln!("[{}] Failed to open lock file", name);
         std::process::exit(1);
     }
     let res = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
+    if res == 0 {
+        // Write PID to lock file for stale detection
+        let pid = unsafe { libc::getpid() };
+        let _ = std::fs::write(path, format!("{}", pid));
+    }
     if res < 0 {
-        eprintln!("[{}] Another instance is already running. Exiting.", name);
+        let err = unsafe { *libc::__errno_location() };
+        if err == libc::EAGAIN || err == libc::EWOULDBLOCK {
+            // Lock contention — check if the lock is stale
+            if let Ok(pid_str) = std::fs::read_to_string(path) {
+                if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                    let alive = unsafe { libc::kill(pid, 0) } == 0;
+                    if !alive {
+                        eprintln!(
+                            "[{}] Stale lock from PID {}, removing and retrying...",
+                            name, pid
+                        );
+                        unsafe { libc::close(fd) };
+                        let _ = std::fs::remove_file(path);
+                        let path_c2 = std::ffi::CString::new(path_str.as_str()).unwrap();
+                        let fd2 = unsafe {
+                            libc::open(path_c2.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600)
+                        };
+                        if fd2 >= 0 {
+                            let res2 = unsafe { libc::flock(fd2, libc::LOCK_EX | libc::LOCK_NB) };
+                            if res2 == 0 {
+                                return;
+                            }
+                            unsafe { libc::close(fd2) };
+                        }
+                    } else {
+                        eprintln!("[{}] Another instance (PID {}) is running. Exiting.", name, pid);
+                        std::process::exit(0);
+                    }
+                }
+            }
+            eprintln!(
+                "[{}] Another instance is already running (errno={}). Exiting.",
+                name, err
+            );
+        } else {
+            eprintln!(
+                "[{}] Lock error (errno={}). Exiting.",
+                name, err
+            );
+        }
         std::process::exit(0);
     }
 }
