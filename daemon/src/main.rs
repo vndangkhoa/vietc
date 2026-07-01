@@ -616,6 +616,21 @@ extern "C" fn sigexit_handler(_signo: i32) {
     SIGNAL_EXIT.store(true, Ordering::SeqCst);
 }
 
+/// Install signal handler using sigaction with SA_RESTART disabled,
+/// so blocking syscalls (read, fetch_events) return EINTR when a
+/// signal arrives, allowing the event loop to check SIGNAL_EXIT.
+fn install_signal_handlers() {
+    use std::mem;
+    unsafe {
+        let mut act: libc::sigaction = mem::zeroed();
+        libc::sigemptyset(&mut act.sa_mask);
+        act.sa_flags = 0; // No SA_RESTART — syscalls return EINTR
+        act.sa_sigaction = sigexit_handler as *const () as usize;
+        libc::sigaction(libc::SIGINT, &act, std::ptr::null_mut());
+        libc::sigaction(libc::SIGTERM, &act, std::ptr::null_mut());
+    }
+}
+
 fn ensure_single_instance(name: &str) {
     let uid = unsafe { libc::getuid() };
     let path_str = format!("/tmp/{}-{}.lock", name, uid);
@@ -682,13 +697,10 @@ fn ensure_single_instance(name: &str) {
 static SIGNAL_EXIT: AtomicBool = AtomicBool::new(false);
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Set up signal handler for Ctrl+C and SIGTERM so we can release
-    // the keyboard grab before exiting — otherwise the keyboard stays
-    // locked and the user has to reboot.
-    unsafe {
-        libc::signal(libc::SIGINT, sigexit_handler as *const () as libc::sighandler_t);
-        libc::signal(libc::SIGTERM, sigexit_handler as *const () as libc::sighandler_t);
-    }
+    // Install signal handler for Ctrl+C and SIGTERM (no SA_RESTART)
+    // so blocking syscalls return EINTR, letting the event loop check
+    // the exit flag and release the keyboard grab before terminating.
+    install_signal_handlers();
 
     // Ensure single instance to avoid duplicate daemon processes
     ensure_single_instance("vietc-daemon");
@@ -1131,26 +1143,6 @@ fn run_with_evdev(
             );
             let _ = device.ungrab();
             return Ok(());
-        }
-
-        // Poll with timeout so we can check the signal flag even when
-        // no events arrive (e.g. after Ctrl+C with a blocking fetch).
-        use std::os::unix::io::AsRawFd;
-        let mut poll_fd = libc::pollfd {
-            fd: device.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        let poll_ret = unsafe { libc::poll(&mut poll_fd, 1, 200) }; // 200ms timeout
-        if poll_ret < 0 {
-            let err = unsafe { *libc::__errno_location() };
-            if err == libc::EINTR {
-                continue; // Interrupted by signal — recheck SIGNAL_EXIT
-            }
-            return Err(format!("poll error: errno={}", err).into());
-        }
-        if poll_ret == 0 {
-            continue; // Timeout — recheck signal and grab safety
         }
 
         let caps = is_caps_lock_on(&device);
