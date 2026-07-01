@@ -72,6 +72,10 @@ impl UinputInjector {
     }
 
     pub fn new(name: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        // Ensure uinput kernel module is loaded before trying to open the device
+        let _ = std::process::Command::new("modprobe")
+            .args(["uinput"])
+            .output();
         let file = OpenOptions::new()
             .read(true)
             .write(true)
