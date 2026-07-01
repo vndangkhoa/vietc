@@ -132,6 +132,12 @@ pub fn get_active_window_title() -> Option<String> {
             }
         }
     }
+
+    // Try X11 via xprop/wmctrl (fallback when xdotool not installed)
+    if let Some(title) = get_wmctrl_window_title() {
+        return Some(title);
+    }
+
     None
 }
 
@@ -212,6 +218,16 @@ pub fn get_focused_window_class() -> Option<String> {
         return Some(class);
     }
 
+    // Try X11 via xprop (fallback when xdotool is not installed)
+    if let Some(class) = get_xprop_window_class() {
+        return Some(class);
+    }
+
+    // Try X11 via wmctrl (fallback)
+    if let Some(class) = get_wmctrl_window_class() {
+        return Some(class);
+    }
+
     // Fallback: try reading from /proc
     if let Some(class) = get_proc_window_class() {
         return Some(class);
@@ -256,6 +272,103 @@ fn get_x11_window_class() -> Option<String> {
         }
     }
 
+    None
+}
+
+/// Get WM_CLASS via xprop (works on X11 without xdotool)
+fn get_xprop_window_class() -> Option<String> {
+    // First get the active window ID
+    let id = get_active_window_id_xprop()?;
+    // Then get WM_CLASS for that window
+    let output = Command::new("xprop")
+        .args(["-id", &id, "WM_CLASS"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Format: WM_CLASS(STRING) = "gnome-terminal", "Gnome-terminal"
+        // We want the first string (application name)
+        if let Some(class_part) = stdout.split('"').nth(1) {
+            let class = class_part.trim().to_lowercase();
+            if !class.is_empty() {
+                return Some(class);
+            }
+        }
+    }
+    None
+}
+
+/// Get active window ID via xprop (X11, no xdotool needed)
+fn get_active_window_id_xprop() -> Option<String> {
+    let output = Command::new("xprop")
+        .args(["-root", "_NET_ACTIVE_WINDOW"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Format: "_NET_ACTIVE_WINDOW(WINDOW): window id # 0x3a00004"
+        if let Some(hex) = stdout.split("window id # ").nth(1) {
+            let hex = hex.trim();
+            if !hex.is_empty() {
+                return Some(hex.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Get window class via wmctrl (X11 fallback)
+fn get_wmctrl_window_class() -> Option<String> {
+    // Only try wmctrl if xdotool is unavailable
+    if Command::new("xdotool").output().is_ok() {
+        return None; // xdotool exists, prefer it
+    }
+    // wmctrl -l -x lists windows with their class (WM_CLASS)
+    let output = Command::new("wmctrl")
+        .args(["-l", "-x"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Each line format: 0x00a00001  desktop_num  class_name  title
+    // Class name format: "gnome-terminal.Gnome-terminal"
+    // We want the part before the dot
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 3 {
+            let class_part = parts[2];
+            // Get the app part before the dot if present
+            let class = class_part.split('.').next().unwrap_or(class_part).to_lowercase();
+            if !class.is_empty() && class != "nvidia-settings" {
+                // wmctrl returns ALL windows, not just focused.
+                // We check if the first listed window is focused,
+                // or if there's an active-state marker.
+                return Some(class);
+            }
+        }
+    }
+    None
+}
+
+/// Get active window title using wmctrl
+fn get_wmctrl_window_title() -> Option<String> {
+    let id = get_active_window_id_xprop()?;
+    let output = Command::new("xprop")
+        .args(["-id", &id, "WM_NAME"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Format: "WM_NAME(STRING) = "title""
+        if let Some(title) = stdout.split('"').nth(1) {
+            let title = title.trim();
+            if !title.is_empty() {
+                return Some(title.to_lowercase());
+            }
+        }
+    }
     None
 }
 
