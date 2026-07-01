@@ -113,23 +113,37 @@ Both **VNI** and **Telex** are fully supported. Switch via **Ctrl+LeftShift** or
 
 ## Installation
 
-### One-Command Install (recommended)
+### One-Command Install
 
 Works on both **Linux Mint** and **Ubuntu** (including 24.04+ Wayland):
 
+**From GitHub (recommended):**
 ```bash
 git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc \
   && cd /tmp/vietc && sudo ./install.sh
 ```
 
-The script will:
-1. Install build + runtime dependencies
-2. Compile all binaries
-3. Install to `/usr/bin/`
-4. Set up uinput udev rules
-5. Add your user to the `input` group
+**From Forgejo (self-hosted):**
+```bash
+git clone https://git.khoavo.myds.me/vndangkhoa/vietc.git /tmp/vietc \
+  && cd /tmp/vietc && sudo ./install.sh
+```
+
+The script installs dependencies, compiles, installs to `/usr/bin/`, sets up uinput udev rules, and adds your user to the `input` group.
 
 **After install:** Log out and log back in, then launch `vietc-tray` from your application menu.
+
+### One-Command Uninstall
+
+**From GitHub:**
+```bash
+curl -sSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/uninstall.sh | sudo bash
+```
+
+**From Forgejo:**
+```bash
+curl -sSL https://git.khoavo.myds.me/vndangkhoa/vietc/raw/branch/main/uninstall.sh | sudo bash
+```
 
 ### Manual Build & Run
 
@@ -151,12 +165,6 @@ cargo build --release
 
 # Run (Ubuntu — needs sudo for keyboard grab)
 sudo ./target/release/vietc
-```
-
-### Uninstall
-
-```bash
-sudo ./uninstall.sh
 ```
 
 ---
