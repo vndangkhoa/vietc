@@ -1375,15 +1375,7 @@ fn run_with_evdev(
                             }
                             let buf_before = daemon.engine.buffer().chars().count();
                             let commands = daemon.process_key(ch);
-                            if ch == ' ' {
-                                eprintln!("[space] buf_before={} flushed={}",
-                                    buf_before, commands.len());
-                            }
                             if !commands.is_empty() {
-                                if ch == ' ' {
-                                    eprintln!("[space] injected via commands, enabled={}",
-                                        daemon.engine.is_enabled());
-                                }
                                 consumed_keys.insert(keycode);
                                 execute_commands(&*injector, &commands, false);
                                 // Flush chars: forward raw key after injection.
@@ -1405,10 +1397,8 @@ fn run_with_evdev(
                                 // letter (e.g. leading "x", the "r" in "tr"), the
                                 // buffer grows and we must forward it like any
                                 // other character so it reaches the screen.
-                                if ch == ' ' { eprintln!("[space] consumed as vn_control"); }
                                 consumed_keys.insert(keycode);
                             } else {
-                                if ch == ' ' { eprintln!("[space] forwarded as raw press"); }
                                 injector.send_key_event(keycode, 1);
                             }
                         } else {
