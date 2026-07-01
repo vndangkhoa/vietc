@@ -1133,6 +1133,26 @@ fn run_with_evdev(
             return Ok(());
         }
 
+        // Poll with timeout so we can check the signal flag even when
+        // no events arrive (e.g. after Ctrl+C with a blocking fetch).
+        use std::os::unix::io::AsRawFd;
+        let mut poll_fd = libc::pollfd {
+            fd: device.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let poll_ret = unsafe { libc::poll(&mut poll_fd, 1, 200) }; // 200ms timeout
+        if poll_ret < 0 {
+            let err = unsafe { *libc::__errno_location() };
+            if err == libc::EINTR {
+                continue; // Interrupted by signal — recheck SIGNAL_EXIT
+            }
+            return Err(format!("poll error: errno={}", err).into());
+        }
+        if poll_ret == 0 {
+            continue; // Timeout — recheck signal and grab safety
+        }
+
         let caps = is_caps_lock_on(&device);
         let mut key_state = device
             .get_key_state()
@@ -1254,7 +1274,6 @@ fn run_with_evdev(
                             consumed_keys.remove(&keycode);
                         }
                         if let Some(mut ch) = key_to_char(key) {
-                            eprintln!("[debug] key={} ch='{}' val={} buf={}", keycode, ch, value, daemon.engine.buffer().chars().count());
                             // Window change detection: only on character key presses.
                             // Modifier keys (Ctrl, Alt, Super) skip this block, so
                             // last_key_time is preserved across Alt+Tab sequences.
