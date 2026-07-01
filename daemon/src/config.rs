@@ -14,11 +14,17 @@ pub struct Config {
     #[serde(default = "default_toggle_key")]
     pub toggle_key: String,
 
+    #[serde(default = "default_toggle_method_key")]
+    pub toggle_method_key: String,
+
     #[serde(default = "default_start_enabled")]
     pub start_enabled: bool,
 
     #[serde(default)]
     pub auto_restore: AutoRestoreConfig,
+
+    #[serde(default)]
+    pub password_detection: PasswordDetectionConfig,
 
     #[serde(default)]
     pub app_state: AppStateConfig,
@@ -31,6 +37,37 @@ pub struct Config {
 
     #[serde(default = "default_false")]
     pub debug: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub struct PasswordDetectionConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    #[serde(default = "default_true")]
+    pub check_atspi2: bool,
+
+    #[serde(default = "default_true")]
+    pub check_window_title: bool,
+
+    #[serde(default = "default_title_keywords")]
+    pub title_keywords: Vec<String>,
+
+    #[serde(default = "default_password_apps")]
+    pub password_apps: Vec<String>,
+}
+
+impl Default for PasswordDetectionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            check_atspi2: true,
+            check_window_title: true,
+            title_keywords: default_title_keywords(),
+            password_apps: default_password_apps(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,6 +122,9 @@ fn default_input_method() -> String {
 fn default_toggle_key() -> String {
     "space".into()
 }
+fn default_toggle_method_key() -> String {
+    "shift".into()
+}
 fn default_start_enabled() -> bool {
     true
 }
@@ -96,6 +136,30 @@ fn default_false() -> bool {
 }
 fn default_restore_keys() -> Vec<String> {
     vec!["space".into(), "escape".into()]
+}
+fn default_title_keywords() -> Vec<String> {
+    vec![
+        "password".into(),
+        "passphrase".into(),
+        "secret".into(),
+        "mật khẩu".into(),
+        "mk".into(),
+        "sudo".into(),
+    ]
+}
+fn default_password_apps() -> Vec<String> {
+    vec![
+        "pinentry".into(),
+        "pinentry-gtk-2".into(),
+        "pinentry-qt".into(),
+        "lxqt-sudo".into(),
+        "kdesudo".into(),
+        "gksudo".into(),
+        "polkit-gnome-authentication-agent-1".into(),
+        "kwallet".into(),
+        "gnome-keyring".into(),
+        "ssh-askpass".into(),
+    ]
 }
 
 fn default_english_apps() -> Vec<String> {
@@ -192,8 +256,10 @@ impl Default for Config {
         Self {
             input_method: default_input_method(),
             toggle_key: default_toggle_key(),
+            toggle_method_key: default_toggle_method_key(),
             start_enabled: default_start_enabled(),
             auto_restore: AutoRestoreConfig::default(),
+            password_detection: PasswordDetectionConfig::default(),
             app_state: AppStateConfig::default(),
             macros,
             grab: false, // default false so daemon works without root (needs input group for uinput)
@@ -400,5 +466,31 @@ unknown_field = "value"
         // serde's default deny_unknown_fields is not set, so this should work
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.input_method, "telex");
+    }
+
+    #[test]
+    fn parse_password_detection() {
+        let toml = r#"
+[password_detection]
+enabled = true
+check_atspi2 = true
+check_window_title = true
+title_keywords = ["password", "passphrase"]
+password_apps = ["pinentry", "kwallet"]
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.password_detection.enabled);
+        assert!(config.password_detection.check_atspi2);
+        assert_eq!(config.password_detection.title_keywords, vec!["password", "passphrase"]);
+        assert_eq!(config.password_detection.password_apps, vec!["pinentry", "kwallet"]);
+    }
+
+    #[test]
+    fn parse_toggle_method_key() {
+        let toml = r#"
+toggle_method_key = "shift"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.toggle_method_key, "shift");
     }
 }

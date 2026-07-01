@@ -2,8 +2,8 @@
   <img src="https://img.shields.io/badge/Platform-Linux-blue?style=for-the-badge" alt="Platform">
   <img src="https://img.shields.io/badge/Language-Rust-orange?style=for-the-badge" alt="Rust">
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/Version-0.1.6-purple?style=for-the-badge" alt="Version">
-  <img src="https://img.shields.io/badge/Tests-106_passing-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/Version-0.1.7-purple?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/Tests-118_passing-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/Event_Sourcing-✓-blueviolet?style=for-the-badge" alt="Event Sourcing">
 </p>
 
@@ -59,11 +59,13 @@ Physical Keyboard
 ┌──────────────────────────────────────────────────────────────┐
 │  Stage 2: KEY ROUTING                                        │
 │                                                              │
-│  Modifier keys (Ctrl/Alt/Super) → forward directly           │
-│  Ctrl+Space → toggle Vietnamese ON/OFF                       │
-│  Backspace → replay_backspace()                              │
-│  Characters → replay_and_inject(ch)                          │
-│  VNI control keys → consume when no match                    │
+  │  Modifier keys (Ctrl/Alt/Super) → forward directly           │
+  │  Ctrl+Space → toggle Vietnamese ON/OFF                       │
+  │  Ctrl+Shift → toggle VNI/Telex input method                  │
+  │  Password detected → auto-disable Vietnamese                 │
+  │  Backspace → replay_backspace()                              │
+  │  Characters → replay_and_inject(ch)                          │
+  │  VNI/Telex control keys → consume when no match              │
 └──────────────────────────────────────────────────────────────┘
        │
        ▼
@@ -149,14 +151,15 @@ vietc/
 ├── daemon/                  # Main daemon process
 │   ├── main.rs              # Event loops, Backspace-Replay, CPU pinning
 │   ├── config.rs            # TOML config loader + hot reload
-│   ├── app_state.rs         # Per-app Vietnamese/English memory
+│   ├── app_state.rs         # Per-app VN/EN memory + password detection
+│   ├── password_detector.rs # AT-SPI2 D-Bus password field detection
 │   └── display.rs           # X11/Wayland/compositor detection
 │
 ├── uinputd/                 # Privileged uinput backspace daemon (VMK-style)
 │   └── main.rs              # Unix socket server for /dev/uinput injection
 │
 ├── ui/                      # System tray icon
-│   └── main.rs              # Tray + daemon launcher
+│   └── tray.rs              # Tray with VN/TLX/EN mode display
 │
 ├── cli/                     # Interactive test harness
 ├── packaging/               # .deb packaging scripts
@@ -214,7 +217,12 @@ vietc/
 
 ## Input Methods
 
-### VNI (default, Telex coming in next version)
+Both **VNI** and **Telex** are fully supported. Switch between them via:
+- **Ctrl+Shift** hotkey (toggle at runtime)
+- **System tray** menu: "Input Method > Telex / VNI"
+- **Config file**: `input_method = "vni"` or `"telex"`
+
+### VNI
 
 | Key | Result | Example |
 |-----|--------|---------|
@@ -228,7 +236,25 @@ vietc/
 | `8` | ă | `a8` → `ă` |
 | `9` | đ | `d9` → `đ` |
 
-Flexible typing: type the full syllable, then add marks/tone keys at the end. Example: `nguye6n4` → `nguyễn`. The engine scans backward up to 5 characters to find the target vowel.
+### Telex
+
+| Key | Result | Example |
+|-----|--------|---------|
+| `s` | á (sắc) | `as` → `á` |
+| `f` | à (huyền) | `af` → `à` |
+| `r` | ả (hỏi) | `ar` → `ả` |
+| `x` | ã (ngã) | `ax` → `ã` |
+| `j` | ạ (nặng) | `aj` → `ạ` |
+| `aa` | â | `aa` → `â` |
+| `ee` | ê | `ee` → `ê` |
+| `oo` | ô | `oo` → `ô` |
+| `ow` | ơ | `ow` → `ơ` |
+| `aw` | ă | `aw` → `ă` |
+| `uw` | ư | `uw` → `ư` |
+| `dd` | đ | `dd` → `đ` |
+| `w` | ươ (uo cluster) | `chuongw` → `chương` |
+
+Flexible typing: type the full syllable, then add marks/tone keys at the end. Examples: `tieengs` → `tiếng`, `nguyeexn` → `nguyễn`, `chafo` → `chào`. The engine scans backward up to 5 characters to find the target vowel.
 
 ---
 
@@ -248,6 +274,10 @@ Flexible typing: type the full syllable, then add marks/tone keys at the end. Ex
 | **Window-Switch Reset** | Active window ID verified on every keystroke — Alt+Tab instantly clears engine state. No stale composition across apps |
 | **CPU Priority** | Pins daemon to P-cores (0-3) + nice(-10) for low-latency input |
 | **Uinput Injection** | Uses `/dev/uinput` for reliable keyboard injection without X11 dependency. Falls back to XTest on systems without uinput access |
+| **Password Auto-Detection** | AT-SPI2 + window-class + window-title — automatically disables Vietnamese when typing into password fields |
+| **Method Toggle** | Ctrl+Shift switches between VNI and Telex at runtime; tray icon shows current mode (VN/TLX/EN) |
+| **GNOME/Wayland Support** | Native GNOME Shell D-Bus integration for window detection, app memory, and password detection on Wayland |
+| **VNI & Telex** | Both input methods fully supported, switchable at runtime |
 
 ---
 
@@ -287,7 +317,7 @@ System tray icon + daemon + desktop entry. Requires user to be in the `input` gr
 
 ```bash
 # Install
-sudo dpkg -i vietc_0.1.6-1_amd64.deb
+sudo dpkg -i vietc_0.1.7-1_amd64.deb
 
 # Log out and log back in (for input group membership to take effect)
 # Then launch "Viet+" from your application menu
@@ -318,13 +348,24 @@ Config file: `~/.config/vietc/config.toml` or `./vietc.toml`
 
 ```toml
 input_method = "vni"       # "vni" or "telex"
-toggle_key = "space"       # Ctrl+Space to toggle
+toggle_key = "space"       # Ctrl+Space to toggle VN/EN
+toggle_method_key = "shift" # Ctrl+Shift to toggle VNI/Telex
 start_enabled = true       # Vietnamese by default
 grab = true                # grab keyboard (evdev)
 
 [auto_restore]
 enabled = true
 trigger_keys = ["space", "escape"]
+
+[password_detection]
+enabled = true
+check_atspi2 = true        # AT-SPI2 accessibility bus detection
+check_window_title = true
+title_keywords = ["password", "passphrase", "secret", "mật khẩu", "sudo"]
+password_apps = ["pinentry", "pinentry-gtk-2", "pinentry-qt",
+  "lxqt-sudo", "kdesudo", "gksudo",
+  "polkit-gnome-authentication-agent-1",
+  "kwallet", "gnome-keyring", "ssh-askpass"]
 
 [app_state]
 enabled = true

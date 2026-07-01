@@ -37,9 +37,11 @@ fn boost_thread_priority() {
 mod app_state;
 mod config;
 mod display;
+mod password_detector;
 
 use app_state::AppStateManager;
 use config::Config;
+
 
 #[cfg(feature = "x11")]
 use vietc_protocol::x11_capture::X11Capture;
@@ -143,6 +145,13 @@ impl Daemon {
             config.start_enabled,
         );
         app_state.load_overrides();
+        app_state.set_password_config(
+            config.password_detection.enabled,
+            config.password_detection.check_atspi2,
+            config.password_detection.check_window_title,
+            config.password_detection.title_keywords.clone(),
+            config.password_detection.password_apps.clone(),
+        );
 
         let config_modified = fs::metadata(&config_path)
             .and_then(|m| m.modified())
@@ -169,6 +178,28 @@ impl Daemon {
             let status_str = if enabled { "vn" } else { "en" };
             let _ = std::fs::write(status_path, status_str);
         }
+    }
+
+    fn write_method_status(&self) {
+        if let Some(parent) = self.config_path.parent() {
+            let method_path = parent.join("method");
+            let method = &self.config.input_method;
+            let _ = std::fs::write(method_path, method);
+        }
+    }
+
+    fn toggle_method(&mut self) {
+        let new_method = match self.config.input_method.as_str() {
+            "vni" => InputMethod::Telex,
+            _ => InputMethod::Vni,
+        };
+        self.config.input_method = match new_method {
+            InputMethod::Vni => "vni".into(),
+            InputMethod::Telex => "telex".into(),
+        };
+        self.engine.set_method(new_method);
+        self.write_method_status();
+        log_info(&format!("[vietc] Input method toggled to: {}", self.config.input_method));
     }
 
     fn sync_status_file(&mut self) {
@@ -212,6 +243,14 @@ impl Daemon {
                     new_config.app_state.english_apps.clone(),
                     new_config.app_state.vietnamese_apps.clone(),
                     new_config.app_state.bypass_apps.clone(),
+                );
+
+                self.app_state.set_password_config(
+                    new_config.password_detection.enabled,
+                    new_config.password_detection.check_atspi2,
+                    new_config.password_detection.check_window_title,
+                    new_config.password_detection.title_keywords.clone(),
+                    new_config.password_detection.password_apps.clone(),
                 );
 
                 self.grab_enabled = new_config.grab;
@@ -996,6 +1035,31 @@ fn run_with_evdev(
                     continue;
                 }
 
+                // Ctrl+LeftShift: toggle VNI/Telex input method
+                if value == 1 && is_method_toggle_state(&key_state)
+                {
+                    daemon.toggle_method();
+                    continue;
+                }
+
+                // Password field check: disable engine if typing into a password field
+                if value == 1 {
+                    let is_pw = daemon.app_state.is_password_field();
+                    let currently_enabled = daemon.engine.is_enabled();
+                    if is_pw && currently_enabled {
+                        daemon.engine.set_enabled(false);
+                        daemon.write_status();
+                        log_info("[vietc] Password field detected — engine disabled");
+                    } else if !is_pw && !currently_enabled && daemon.config.start_enabled {
+                        // Only re-enable if we're not in a manual toggle state
+                        let default_state = daemon.app_state.get_default_state();
+                        if default_state {
+                            daemon.engine.set_enabled(true);
+                            daemon.write_status();
+                        }
+                    }
+                }
+
                 if !grabbed {
                     // Legacy mode: only forward to engine on press events
                     if value != 1 {
@@ -1073,6 +1137,15 @@ fn run_with_evdev(
                                         class
                                     };
                                     daemon.check_app_change_with(class);
+                                }
+
+                                // Re-check password field status on window change
+                                if daemon.config.password_detection.enabled {
+                                    let is_pw = daemon.app_state.check_password_field();
+                                    if is_pw && daemon.engine.is_enabled() {
+                                        daemon.engine.set_enabled(false);
+                                        daemon.write_status();
+                                    }
                                 }
                             } else if daemon.config.app_state.enabled {
                                 let class = shared_window_class.lock().unwrap().clone();
@@ -1349,6 +1422,19 @@ fn is_caps_lock_on(device: &evdev::Device) -> bool {
     } else {
         false
     }
+}
+
+fn is_method_toggle_state(key_state: &evdev::AttributeSet<evdev::Key>) -> bool {
+    let ctrl_pressed = key_state.contains(evdev::Key::KEY_LEFTCTRL)
+        || key_state.contains(evdev::Key::KEY_RIGHTCTRL);
+    let shift_pressed = key_state.contains(evdev::Key::KEY_LEFTSHIFT);
+    // Require Ctrl + LeftShift specifically, no other modifiers
+    ctrl_pressed && shift_pressed
+        && !key_state.contains(evdev::Key::KEY_RIGHTSHIFT)
+        && !key_state.contains(evdev::Key::KEY_LEFTALT)
+        && !key_state.contains(evdev::Key::KEY_RIGHTALT)
+        && !key_state.contains(evdev::Key::KEY_LEFTMETA)
+        && !key_state.contains(evdev::Key::KEY_RIGHTMETA)
 }
 
 fn is_toggle_combination_state(key_state: &evdev::AttributeSet<evdev::Key>, key: &str) -> bool {

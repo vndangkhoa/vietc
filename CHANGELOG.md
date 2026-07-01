@@ -1,6 +1,40 @@
 # Changelog
 
-## v0.1.6 (2026-06-29)
+## v0.1.7 (2026-07-01)
+
+### Password Auto-Detection
+
+- **AT-SPI2 D-Bus integration**: Queries `org.a11y.atspi.Registry.GetFocus` + `GetRole` to detect password fields (role 62 = `PASSWORD_TEXT`). Automatically disables Vietnamese input when typing into a password field, re-enables when focus moves away.
+- **Window-class fallback**: Password dialogs (pinentry, polkit, kwallet, ssh-askpass) are detected via `password_apps` config list.
+- **Window-title fallback**: Window titles containing "password", "passphrase", "sudo", "mật khẩu" trigger automatic English mode.
+
+### Telex Input Method
+
+- **Telex now fully enabled**: Both VNI and Telex are supported. Switch via Ctrl+Shift hotkey or tray menu "Input Method > Telex / VNI".
+- **Method status file** (`~/.config/vietc/method`): Daemon writes the current method so the tray can display it.
+- **Tray indicator**: Red "VN" for VNI, Blue "TLX" for Telex, Gray "EN" for English mode.
+- **Config option**: `toggle_method_key = "shift"` configures the Ctrl+Shift method toggle combo.
+
+### GNOME/Wayland Support
+
+- **Native GNOME Shell D-Bus integration**: Queries `org.gnome.Shell.Eval` for focused window class, ID, and title — works on Wayland GNOME where xdotool/xprop are unavailable.
+- **Window detection chain**: GNOME Shell D-Bus → wlrctl → xdotool → /proc — ensures window tracking works across all environments.
+- **Compositor detection**: Added GNOME/Mutter detection via `pgrep gnome-shell` and `XDG_CURRENT_DESKTOP`.
+- **Dependencies**: `dbus` crate (0.9) added for both AT-SPI2 and GNOME Shell D-Bus queries.
+
+### CLI Enhancements
+
+- **Pass-through characters**: All characters now appear in output (not just those that emit engine events).
+- **Screen display**: Backspace characters are properly applied to show what would appear on screen.
+- **State reset**: Each input line starts with a clean engine state.
+- **New commands**: `:help`, `:status`, `:vi`, `:en`, `:ar on|off`, `:macros`, `:macro add/rm/clear`, `:events`, `:events clear`.
+
+### Bug Fixes
+
+- **Engine state correctly reset between input lines** in CLI test harness.
+- **Flush characters forwarded** after macro expansion / auto-restore replacement to preserve spacing.
+
+---
 
 ### uinput-First Injection
 

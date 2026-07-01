@@ -12,6 +12,23 @@ fn write_status(state: &str) {
     }
 }
 
+fn read_method() -> String {
+    let path = dirs::config_dir()
+        .map(|d| d.join("vietc").join("method"))
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp/vietc-method"));
+    std::fs::read_to_string(&path)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|_| {
+            config::Config::load().input_method
+        })
+}
+
+fn write_method(method: &str) {
+    if let Some(config_dir) = dirs::config_dir() {
+        let _ = std::fs::write(config_dir.join("vietc").join("method"), method);
+    }
+}
+
 fn read_status() -> String {
     let path = dirs::config_dir()
         .map(|d| d.join("vietc").join("status"))
@@ -68,6 +85,11 @@ fn ensure_icons() {
   <text x="64" y="96" text-anchor="middle" fill="#ffffff" font-size="48" font-weight="bold" font-family="system-ui, sans-serif">VN</text>
 </svg>"##;
 
+    let svg_tlx = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect x="8" y="8" width="112" height="112" rx="24" fill="#2563eb"/>
+  <text x="64" y="96" text-anchor="middle" fill="#ffffff" font-size="48" font-weight="bold" font-family="system-ui, sans-serif">TLX</text>
+</svg>"##;
+
     let svg_en = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
   <rect x="8" y="8" width="112" height="112" rx="24" fill="#4b5563"/>
   <text x="64" y="96" text-anchor="middle" fill="#ffffff" font-size="48" font-weight="bold" font-family="system-ui, sans-serif">EN</text>
@@ -78,10 +100,14 @@ fn ensure_icons() {
     if let Some(home_icons) = &home {
         let _ = std::fs::create_dir_all(&home_icons);
         let vn_path = home_icons.join("vietc-vn.svg");
+        let tlx_path = home_icons.join("vietc-tlx.svg");
         let en_path = home_icons.join("vietc-en.svg");
 
         if !vn_path.exists() {
             let _ = std::fs::write(&vn_path, svg_vn);
+        }
+        if !tlx_path.exists() {
+            let _ = std::fs::write(&tlx_path, svg_tlx);
         }
         if !en_path.exists() {
             let _ = std::fs::write(&en_path, svg_en);
@@ -95,10 +121,14 @@ fn ensure_icons() {
         let _ = std::fs::create_dir_all(&icons_dir);
 
         let vn_theme = icons_dir.join("hicolor/scalable/apps/vietc-vn.svg");
+        let tlx_theme = icons_dir.join("hicolor/scalable/apps/vietc-tlx.svg");
         let en_theme = icons_dir.join("hicolor/scalable/apps/vietc-en.svg");
 
         if !vn_theme.exists() {
             let _ = std::fs::write(&vn_theme, svg_vn);
+        }
+        if !tlx_theme.exists() {
+            let _ = std::fs::write(&tlx_theme, svg_tlx);
         }
         if !en_theme.exists() {
             let _ = std::fs::write(&en_theme, svg_en);
@@ -247,12 +277,17 @@ impl Tray for VietTray {
     }
 
     fn icon_name(&self) -> String {
+        let is_tlx = self.mode == "vn" && self.im == "telex";
         if is_flatpak() {
-            if self.mode == "vn" {
+            if is_tlx {
+                "io.github.vietc.VietPlus.vietc-tlx".into()
+            } else if self.mode == "vn" {
                 "io.github.vietc.VietPlus.vietc-vn".into()
             } else {
                 "io.github.vietc.VietPlus.vietc-en".into()
             }
+        } else if is_tlx {
+            "vietc-tlx".into()
         } else if self.mode == "vn" {
             "vietc-vn".into()
         } else {
@@ -280,10 +315,13 @@ impl Tray for VietTray {
 
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
         let is_vn = self.mode == "vn";
-        let bg_color = if is_vn {
-            [255, 224, 36, 36] // A, R, G, B
+        let is_tlx = self.mode == "vn" && self.im == "telex";
+        let bg_color = if is_vn && !is_tlx {
+            [255, 224, 36, 36] // Red for VNI
+        } else if is_tlx {
+            [255, 37, 99, 235] // Blue for Telex
         } else {
-            [255, 75, 85, 99]
+            [255, 75, 85, 99]  // Gray for English
         };
         let fg_color = [255, 255, 255, 255];
 
@@ -319,7 +357,18 @@ impl Tray for VietTray {
             }
         }
 
-        if is_vn {
+        if is_tlx {
+            // T
+            draw_line(&mut data, 6, 10, 15, 10, fg_color);
+            draw_line(&mut data, 6, 11, 15, 11, fg_color);
+            draw_line(&mut data, 10, 10, 10, 21, fg_color);
+            draw_line(&mut data, 11, 10, 11, 21, fg_color);
+            // X
+            draw_line(&mut data, 18, 10, 26, 21, fg_color);
+            draw_line(&mut data, 19, 10, 27, 21, fg_color);
+            draw_line(&mut data, 26, 10, 18, 21, fg_color);
+            draw_line(&mut data, 27, 10, 19, 21, fg_color);
+        } else if is_vn {
             // V
             draw_line(&mut data, 6, 10, 11, 21, fg_color);
             draw_line(&mut data, 7, 10, 12, 21, fg_color);
@@ -369,7 +418,7 @@ impl Tray for VietTray {
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
         let is_vn = self.mode == "vn";
-        let im_index = if self.im == "telex" { 0 } else { 1 };
+        let im_index = if self.im == "telex" { 0_usize } else { 1_usize };
 
         let mut items = vec![
             CheckmarkItem {
@@ -409,13 +458,12 @@ impl Tray for VietTray {
                         let mut cfg = config::Config::load();
                         cfg.input_method = im.into();
                         let _ = cfg.save();
+                        write_method(im);
                         this.im = im.into();
                     }),
                     options: vec![
                         RadioItem {
-                            label: "Telex (next version)".into(),
-                            enabled: false,
-                            disposition: Disposition::Informative,
+                            label: "Telex".into(),
                             ..Default::default()
                         },
                         RadioItem {
@@ -542,7 +590,7 @@ pub fn run() {
         loop {
             std::thread::sleep(std::time::Duration::from_millis(100));
             let mode = read_status();
-            let im = current_im();
+            let im = read_method();
             let autostart = config::is_autostart_installed();
             // Also check status_changed flag for immediate updates
             let _ = handle.update(move |t| {

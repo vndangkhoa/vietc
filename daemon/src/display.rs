@@ -85,5 +85,19 @@ pub fn detect_compositor() -> Option<String> {
         }
     }
 
+    // Check for GNOME/Mutter (Ubuntu default)
+    if let Ok(output) = Command::new("pgrep").arg("-x").arg("gnome-shell").output() {
+        if output.status.success() {
+            return Some("GNOME (Mutter)".into());
+        }
+    }
+
+    // Check XDG_CURRENT_DESKTOP for GNOME
+    if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
+        if desktop.to_lowercase().contains("gnome") {
+            return Some("GNOME".into());
+        }
+    }
+
     None
 }

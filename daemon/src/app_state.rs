@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
 
+use crate::password_detector::PasswordDetector;
+
 /// Query _NET_ACTIVE_WINDOW directly via X11 client library (dlopen).
 /// Works inside the Flatpak sandbox where xdotool/xprop are unavailable
 /// but libX11.so.6 is present in the GNOME runtime.  No external process
@@ -111,10 +113,44 @@ fn get_active_window_x11_dlopen() -> Option<String> {
     }
 }
 
+/// Get the active window's title (lowercase)
+pub fn get_active_window_title() -> Option<String> {
+    // Try GNOME Shell D-Bus (Wayland GNOME)
+    if let Some(title) = get_gnome_window_title() {
+        return Some(title.to_lowercase());
+    }
+
+    // Try X11 via xdotool
+    if let Ok(output) = Command::new("xdotool")
+        .args(["getactivewindow", "getwindowname"])
+        .output()
+    {
+        if output.status.success() {
+            let title = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !title.is_empty() {
+                return Some(title.to_lowercase());
+            }
+        }
+    }
+    None
+}
+
+/// Query GNOME Shell via D-Bus for the focused window's title
+fn get_gnome_window_title() -> Option<String> {
+    let js = "global.display.focus_window?.get_title() ?? ''";
+    let (_, title) = gnome_shell_eval(js)?;
+    if title.is_empty() { None } else { Some(title) }
+}
+
 /// Get the active window's X11 ID (unique per window — even within the same
 /// application).  Returns a unique window-identifier string.
 pub fn get_active_window_id() -> Option<String> {
-    // Try xdotool first (fast, direct)
+    // Try GNOME Shell D-Bus (Wayland GNOME) — returns hex window ID
+    if let Some(id) = get_gnome_active_window_id() {
+        return Some(id);
+    }
+
+    // Try xdotool first (fast, direct, X11)
     if let Ok(output) = Command::new("xdotool")
         .args(["getactivewindow"])
         .output()
@@ -152,9 +188,21 @@ pub fn get_active_window_id() -> Option<String> {
     None
 }
 
+/// Query GNOME Shell via D-Bus for the focused window's XID
+fn get_gnome_active_window_id() -> Option<String> {
+    let js = "global.display.focus_window?.get_id()?.toString(16) ?? ''";
+    let (_, id) = gnome_shell_eval(js)?;
+    if id.is_empty() { None } else { Some(format!("0x{}", id)) }
+}
+
 /// Detect the currently focused window's class name
 pub fn get_focused_window_class() -> Option<String> {
-    // Try Wayland first (wlr-foreign-toplevel)
+    // Try GNOME Shell D-Bus (Wayland GNOME)
+    if let Some(class) = get_gnome_focused_wm_class() {
+        return Some(class);
+    }
+
+    // Try Wayland via wlrctl (wlroots compositors)
     if let Some(class) = get_wayland_window_class() {
         return Some(class);
     }
@@ -170,6 +218,29 @@ pub fn get_focused_window_class() -> Option<String> {
     }
 
     None
+}
+
+/// Query GNOME Shell via D-Bus for the focused window's WM class (app ID)
+fn get_gnome_focused_wm_class() -> Option<String> {
+    let js = "global.display.focus_window?.get_wm_class() ?? ''";
+    let (_, result) = gnome_shell_eval(js)?;
+    if result.is_empty() { None } else { Some(result.to_lowercase()) }
+}
+
+/// Execute JavaScript in GNOME Shell and return (success, output)
+fn gnome_shell_eval(js: &str) -> Option<(bool, String)> {
+    use std::time::Duration;
+    let conn = dbus::blocking::Connection::new_session().ok()?;
+    let proxy = dbus::blocking::Proxy::new(
+        "org.gnome.Shell",
+        "/org/gnome/Shell",
+        Duration::from_secs(1),
+        &conn,
+    );
+    let (success, output): (bool, String) = proxy
+        .method_call("org.gnome.Shell", "Eval", (js,))
+        .ok()?;
+    Some((success, output))
 }
 
 fn get_x11_window_class() -> Option<String> {
@@ -235,6 +306,16 @@ pub struct AppStateManager {
     bypass_apps: Vec<String>,
     /// Global enabled state
     global_enabled: bool,
+    /// Password detection config
+    password_enabled: bool,
+    check_atspi2: bool,
+    check_window_title: bool,
+    title_keywords: Vec<String>,
+    password_apps: Vec<String>,
+    /// Password detector (AT-SPI2)
+    password_detector: PasswordDetector,
+    /// Cached password field state
+    is_password_field: bool,
 }
 
 impl AppStateManager {
@@ -251,7 +332,80 @@ impl AppStateManager {
             vietnamese_apps: vietnamese_apps.iter().map(|s| s.to_lowercase()).collect(),
             bypass_apps: bypass_apps.iter().map(|s| s.to_lowercase()).collect(),
             global_enabled,
+            password_enabled: false,
+            check_atspi2: true,
+            check_window_title: true,
+            title_keywords: Vec::new(),
+            password_apps: Vec::new(),
+            password_detector: PasswordDetector::new(),
+            is_password_field: false,
         }
+    }
+
+    /// Update password detection config
+    pub fn set_password_config(
+        &mut self,
+        enabled: bool,
+        check_atspi2: bool,
+        check_window_title: bool,
+        title_keywords: Vec<String>,
+        password_apps: Vec<String>,
+    ) {
+        self.password_enabled = enabled;
+        self.check_atspi2 = check_atspi2;
+        self.check_window_title = check_window_title;
+        self.title_keywords = title_keywords.iter().map(|s| s.to_lowercase()).collect();
+        self.password_apps = password_apps.iter().map(|s| s.to_lowercase()).collect();
+    }
+
+    /// Check if the current focused widget is a password field
+    /// Returns true if password detected, forcing English mode
+    pub fn check_password_field(&mut self) -> bool {
+        if !self.password_enabled {
+            self.is_password_field = false;
+            return false;
+        }
+
+        // Layer 1: AT-SPI2 (most accurate, works in terminals and dialogs)
+        if self.check_atspi2 {
+            if let Some(is_password) = self.password_detector.check() {
+                self.is_password_field = is_password;
+                if is_password {
+                    log_password_detection("AT-SPI2", &self.current_app);
+                }
+                return is_password;
+            }
+        }
+
+        // Layer 2: Window class match (for known password dialogs)
+        for pattern in &self.password_apps {
+            if self.current_app.contains(pattern.as_str()) {
+                self.is_password_field = true;
+                log_password_detection("window-class", &self.current_app);
+                return true;
+            }
+        }
+
+        // Layer 3: Window title heuristic (for sudo prompts, browser dialogs)
+        if self.check_window_title {
+            if let Some(title) = get_active_window_title() {
+                for keyword in &self.title_keywords {
+                    if title.contains(keyword.as_str()) {
+                        self.is_password_field = true;
+                        log_password_detection("window-title", &title);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        self.is_password_field = false;
+        false
+    }
+
+    /// Is the current widget a password field? (cached)
+    pub fn is_password_field(&self) -> bool {
+        self.is_password_field
     }
 
     /// Check if focused app changed with a pre-detected class and return whether engine should be enabled
@@ -270,7 +424,7 @@ impl AppStateManager {
     }
 
     /// Get the default Vietnamese state for the current app
-    fn get_default_state(&self) -> bool {
+    pub fn get_default_state(&self) -> bool {
         if !self.global_enabled {
             return false;
         }
@@ -376,6 +530,10 @@ impl AppStateManager {
     pub fn current_app(&self) -> &str {
         &self.current_app
     }
+}
+
+fn log_password_detection(method: &str, context: &str) {
+    eprintln!("[vietc] Password field detected via {}: {}", method, context);
 }
 
 fn override_path() -> std::path::PathBuf {

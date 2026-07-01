@@ -1,6 +1,6 @@
 [package]
 name = "vietc-daemon"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 description = "Viet+ background daemon"
 
@@ -21,3 +21,4 @@ serde = { version = "1", features = ["derive"] }
 evdev = "0.12"
 libc = "0.2"
 dirs = "5"
+dbus = "0.9"
