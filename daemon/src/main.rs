@@ -1018,6 +1018,9 @@ fn run_with_evdev(
     // Skip counter: after Unicode injection, skip N upcoming events
     // (they're auto-repeat pile-up from the injection delay)
     let mut skip_count = 0u32;
+    // Password detection: re-check every N key presses even without window change
+    // (catches in-terminal sudo prompts where window stays the same)
+    let mut password_check_counter: u32 = 0;
 
     // Safety: if grab is active and no events arrive for 30 seconds,
     // release the grab so the user isn't locked out.
@@ -1196,6 +1199,29 @@ fn run_with_evdev(
                                 let class = shared_window_class.lock().unwrap().clone();
                                 if !class.is_empty() {
                                     daemon.check_app_change_with(class);
+                                }
+                            }
+
+                            // Periodic password re-check (every 30 keystrokes) —
+                            // catches in-terminal sudo prompts where the window
+                            // doesn't change but the focused widget becomes a
+                            // password field (detected via AT-SPI2).
+                            if daemon.config.password_detection.enabled {
+                                password_check_counter += 1;
+                                if password_check_counter >= 30 {
+                                    password_check_counter = 0;
+                                    let is_pw = daemon.app_state.check_password_field();
+                                    let currently_enabled = daemon.engine.is_enabled();
+                                    if is_pw && currently_enabled {
+                                        daemon.engine.set_enabled(false);
+                                        daemon.write_status();
+                                        log_info("[vietc] Password field detected (periodic) — engine disabled");
+                                    } else if !is_pw && !currently_enabled {
+                                        if daemon.app_state.get_default_state() {
+                                            daemon.engine.set_enabled(true);
+                                            daemon.write_status();
+                                        }
+                                    }
                                 }
                             }
 
