@@ -324,7 +324,7 @@ fn run_as_user(program: &str) -> std::process::Command {
                 use std::os::unix::process::CommandExt;
                 let mut cmd = std::process::Command::new(program);
                 cmd.uid(uid).gid(u32::MAX);
-                // Preserve display env vars for the user's session
+                if let Ok(v) = std::env::var("HOME") { cmd.env("HOME", &v); }
                 if let Ok(v) = std::env::var("DISPLAY") { cmd.env("DISPLAY", v); }
                 if let Ok(v) = std::env::var("WAYLAND_DISPLAY") { cmd.env("WAYLAND_DISPLAY", v); }
                 if let Ok(v) = std::env::var("XDG_RUNTIME_DIR") { cmd.env("XDG_RUNTIME_DIR", v); }

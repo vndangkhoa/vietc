@@ -99,7 +99,7 @@ pub struct AppStateConfig {
 impl Default for AutoRestoreConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             trigger_keys: default_restore_keys(),
         }
     }
@@ -348,7 +348,7 @@ vs = "với"
         assert_eq!(config.input_method, "vni");
         assert_eq!(config.toggle_key, "space");
         assert!(config.start_enabled); // default changed to true
-        assert!(config.auto_restore.enabled);
+        assert!(!config.auto_restore.enabled);
         assert!(config.app_state.enabled);
         assert!(!config.app_state.english_apps.is_empty());
         assert!(!config.app_state.vietnamese_apps.is_empty());
