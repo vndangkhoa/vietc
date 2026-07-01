@@ -4,65 +4,85 @@
 
 ### Password Auto-Detection
 
-- **AT-SPI2 D-Bus integration**: Queries `org.a11y.atspi.Registry.GetFocus` + `GetRole` to detect password fields (role 62 = `PASSWORD_TEXT`). Automatically disables Vietnamese input when typing into a password field, re-enables when focus moves away.
-- **Window-class fallback**: Password dialogs (pinentry, polkit, kwallet, ssh-askpass) are detected via `password_apps` config list.
-- **Window-title fallback**: Window titles containing "password", "passphrase", "sudo", "mật khẩu" trigger automatic English mode.
+- **AT-SPI2 D-Bus integration**: Queries `org.a11y.atspi.Accessible.GetRole` on the a11y bus (not session bus) to detect password fields. Works in GUI password dialogs and a11y-enabled apps.
+- **Process-tree sudo detection**: Scans `pstree` for `sudo`/`passwd` processes — auto-disables Vietnamese when sudo prompts in terminals.
+- **Window-title fallback**: Window titles containing "password", "sudo", "mật khẩu" trigger automatic English mode.
+- **Window-class fallback**: Known password dialogs (pinentry, polkit, kwallet) detected via `password_apps` config.
+- **Periodic re-check**: Re-evaluates password status every 30 keystrokes (catches in-terminal prompts).
 
 ### Telex Input Method
 
-- **Telex now fully enabled**: Both VNI and Telex are supported. Switch via Ctrl+Shift hotkey or tray menu "Input Method > Telex / VNI".
-- **Method status file** (`~/.config/vietc/method`): Daemon writes the current method so the tray can display it.
+- **Telex now fully enabled**: Both VNI and Telex are fully supported. Switch via Ctrl+Shift or tray menu "Input Method > Telex / VNI".
+- **Method status file** (`~/.config/vietc/method`): Daemon writes the current method; tray reads it to display.
 - **Tray indicator**: Red "VN" for VNI, Blue "TLX" for Telex, Gray "EN" for English mode.
-- **Config option**: `toggle_method_key = "shift"` configures the Ctrl+Shift method toggle combo.
+- **Config option**: `toggle_method_key = "shift"` configures the method toggle combo.
 
 ### GNOME/Wayland Support
 
-- **Native GNOME Shell D-Bus integration**: Queries `org.gnome.Shell.Eval` for focused window class, ID, and title — works on Wayland GNOME where xdotool/xprop are unavailable.
-- **Window detection chain**: GNOME Shell D-Bus → wlrctl → xdotool → /proc — ensures window tracking works across all environments.
-- **Compositor detection**: Added GNOME/Mutter detection via `pgrep gnome-shell` and `XDG_CURRENT_DESKTOP`.
-- **Dependencies**: `dbus` crate (0.9) added for both AT-SPI2 and GNOME Shell D-Bus queries.
+- **GNOME Shell D-Bus integration**: Queries `org.gnome.Shell.Eval` for focused window class, ID, title, and PID — works on Wayland GNOME where xdotool/xprop are unavailable.
+- **Window detection chain**: GNOME Shell D-Bus → xprop → wlrctl → xdotool → wmctrl → /proc — works across all environments.
+- **Compositor detection**: GNOME/Mutter detected via `pgrep gnome-shell` and `XDG_CURRENT_DESKTOP`.
+- **Dependencies**: `dbus` crate (0.9) for AT-SPI2 and GNOME Shell D-Bus.
+
+### Keyboard Grab Safety
+
+- **sigaction without SA_RESTART**: Ctrl+C and SIGTERM now properly interrupt the blocking evdev read, releasing the grab before exit.
+- **uinput auto-load**: The injector runs `modprobe uinput` before opening `/dev/uinput`.
+- **EINTR handling**: Interrupted system calls are caught and re-check the signal flag.
+- **30-second safety timeout**: Auto-releases grab if no events arrive (prevents permanent lockout).
+
+### Clipboard & Injection
+
+- **`wl-copy --paste-once`**: Keeps the clipboard process alive until pasted, eliminating 300-900ms delays on Wayland/GNOME.
+- **X11 SelectionRequest log silenced**: No more clipboard spam in the terminal.
+- **uinput priority**: uinput is always preferred over X11 XTest injection.
+
+### Config Changes
+
+- **Auto-restore disabled by default**: Prevents space consumption on valid Vietnamese words. Enable via `[auto_restore] enabled = true` if desired.
 
 ### CLI Enhancements
 
-- **Pass-through characters**: All characters now appear in output (not just those that emit engine events).
-- **Screen display**: Backspace characters are properly applied to show what would appear on screen.
+- **Pass-through characters**: All characters appear in output (not just engine events).
+- **Screen display**: Backspaces properly applied for realistic on-screen view.
 - **State reset**: Each input line starts with a clean engine state.
-- **New commands**: `:help`, `:status`, `:vi`, `:en`, `:ar on|off`, `:macros`, `:macro add/rm/clear`, `:events`, `:events clear`.
+- **New commands**: `:help`, `:status`, `:vi`, `:en`, `:ar on|off`, `:macros`, `:macro add/rm/clear`, `:events`.
 
 ### Bug Fixes
 
-- **Engine state correctly reset between input lines** in CLI test harness.
-- **Flush characters forwarded** after macro expansion / auto-restore replacement to preserve spacing.
-- **AT-SPI2 connected to wrong D-Bus bus**: Was connecting to session bus instead of the private accessibility bus. Now queries `org.a11y.Bus.GetAddress` to find the correct bus.
-- **Password detection now periodic**: Re-checks every 30 keystrokes even without window change (catches in-terminal sudo prompts).
-- **Double space on Ctrl+Space toggle**: Raw key forwarding now checks if engine is enabled before forwarding flush chars.
-- **xprop/wmctrl fallbacks**: Window class, title, and ID detection now work without `xdotool` installed (uses `xprop` + `wmctrl`).
-- **Single-instance lock improved**: Writes PID to lock file; detects and cleans up stale locks automatically.
+- **Double space on Ctrl+Space toggle**: Raw key forwarding now checks engine enabled state.
+- **Single-instance lock**: PID written to lock file; stale locks auto-detected and cleaned.
+- **xprop/wmctrl fallbacks**: Window detection works without `xdotool` installed.
+- **AT-SPI2 a11y bus connection**: Was connecting to session bus; now correctly queries the private a11y bus.
+- **Engine state reset between CLI input lines**.
 
 ---
+
+## v0.1.6 (2026-06-29)
 
 ### uinput-First Injection
 
-- **Injection priority reversed**: uinput (`/dev/uinput`) is now the primary injection backend on X11, with X11 XTest as fallback. uinput sends evdev keycodes that route correctly through libinput — no X11 keycode offset needed.
-- **X11 XTest keycode fix**: X11 injector was sending evdev keycodes directly to `XTestFakeKeyEvent`, which expects X11 keycodes (evdev + 8). Backspace sent keycode 14 (evdev) = X11 keycode 14 = "5" key. Fixed by adding +8 offset in all `send_keycode` paths.
-- **`paste_via_clipboard()` backspace fixed**: was hardcoded to X11 keycode 14 (actually "5"), now uses evdev 14 + 8 = 22 (correct X11 backspace).
+- **Injection priority reversed**: uinput (`/dev/uinput`) is now the primary injection backend on X11, with X11 XTest as fallback.
+- **X11 XTest keycode fix**: +8 offset applied to all evdev keycodes for XTest compatibility.
+- **`paste_via_clipboard()` backspace fixed**: was sending X11 keycode 14 (= "5"), now sends correct keycode 22.
 
 ### Window-Switch Detection
 
-- **Active window ID verified on every keystroke**: removed the `gap > 100ms` guard — the daemon now polls `xdotool`/`xprop` directly for every character keypress. This catches window switches that complete in under 100ms, preventing old engine buffer from leaking into the new window.
+- **Active window ID verified on every keystroke**: removed the 100ms guard — catches sub-100ms window switches.
 
 ### Input Method
 
-- **Telex disabled in tray**: greyed out with "(next version)" label and `Disposition::Informative`. Only VNI is functional.
-- **Default input method changed** from `"telex"` to `"vni"` in config fallback.
+- **Telex disabled in tray**: greyed out as "(next version)". Only VNI was functional.
+- **Default input method changed** to `"vni"`.
 
 ### Packaging
 
-- **Flatpak and AppImage removed**: only `.deb` packaging is maintained. `packaging/flatpak/` and `packaging/appimage/` directories deleted.
-- **Postinst improvements**: removes stale `/usr/local/bin/vietc*` binaries, deletes old `~/.config/vietc/config.toml` + `overrides.toml` + `.first-launch-done`, shows logout popup (notify-send + zenity).
-- **CI workflow**: only `.deb` artifact collected (no AppImage).
+- **Flatpak and AppImage removed**: only `.deb` packaging is maintained.
+- **Postinst improvements**: cleans stale binaries, config files; shows logout popup.
 
 ---
+
+## v0.1.5 (2026-06-29)
 
 ## v0.1.5 (2026-06-29)
 
