@@ -1208,9 +1208,11 @@ fn run_with_evdev(
                             if !commands.is_empty() {
                                 consumed_keys.insert(keycode);
                                 execute_commands(&*injector, &commands, false);
-                                // Flush chars: forward raw key after injection
-                                // (engine no longer includes flush char in insert)
-                                if is_flush_char(ch) {
+                                // Flush chars: forward raw key after injection.
+                                // When engine is disabled (English mode), the Insert event
+                                // already contains the character — forwarding raw key
+                                // would double-inject (double space on Ctrl+Space toggle).
+                                if is_flush_char(ch) && daemon.engine.is_enabled() {
                                     injector.send_key_event(keycode, 1);
                                     injector.send_key_event(keycode, 0);
                                 }
