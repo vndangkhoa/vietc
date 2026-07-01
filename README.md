@@ -113,39 +113,50 @@ Both **VNI** and **Telex** are fully supported. Switch via **Ctrl+LeftShift** or
 
 ## Installation
 
-### Build from Source
+### One-Command Install (recommended)
+
+Works on both **Linux Mint** and **Ubuntu** (including 24.04+ Wayland):
 
 ```bash
-# Dependencies (Ubuntu/Debian)
-sudo apt install git curl build-essential pkg-config \
-  libx11-dev libxtst-dev libevdev-dev libdbus-1-dev
+git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc \
+  && cd /tmp/vietc && sudo ./install.sh
+```
 
-# Clone and build
+The script will:
+1. Install build + runtime dependencies
+2. Compile all binaries
+3. Install to `/usr/bin/`
+4. Set up uinput udev rules
+5. Add your user to the `input` group
+
+**After install:** Log out and log back in, then launch `vietc-tray` from your application menu.
+
+### Manual Build & Run
+
+```bash
+# Install dependencies
+sudo apt install git curl build-essential pkg-config \
+  libx11-dev libxtst-dev libevdev-dev libdbus-1-dev wl-clipboard
+
+# Enable accessibility (Ubuntu Wayland — for password detection)
+gsettings set org.gnome.desktop.a11y.applications screen-reader-enabled true
+
+# Build
 git clone https://github.com/vndangkhoa/vietc.git
 cd vietc
 cargo build --release
 
-# Add user to input group (for keyboard capture)
-sudo usermod -aG input $USER
-# Log out and log back in
-
-# Run
+# Run (Mint — no sudo needed for uinput)
 ./target/release/vietc
+
+# Run (Ubuntu — needs sudo for keyboard grab)
+sudo ./target/release/vietc
 ```
 
-### Wayland (Ubuntu 24.04+) — Additional steps
+### Uninstall
 
 ```bash
-sudo apt install wl-clipboard
-gsettings set org.gnome.desktop.a11y.applications screen-reader-enabled true
-```
-
-### uinput Access (recommended)
-
-```bash
-sudo modprobe uinput
-echo 'KERNEL=="uinput", GROUP="input", MODE="0660"' | sudo tee /etc/udev/rules.d/99-uinput.rules
-sudo udevadm control --reload-rules && sudo udevadm trigger
+sudo ./uninstall.sh
 ```
 
 ---
