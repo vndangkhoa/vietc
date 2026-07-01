@@ -228,6 +228,18 @@ vietc/
 
 ---
 
+## Roadmap
+
+### v0.1.8
+- Wayland input method protocol (`zwp_input_method_v2`) — eliminates clipboard + backspace race, fixes missing spaces permanently
+- Event-based AT-SPI2 focus monitoring (subscribe to a11y focus events, no polling)
+
+### v0.1.9
+- GitHub Actions CI for automated .deb builds
+- Flatpak re-add for immutable distros
+
+---
+
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
