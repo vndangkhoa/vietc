@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Distro Support
+
+- **Distro support table**: README now lists supported (Ubuntu, Debian, Mint, Pop!_OS, elementary, Zorin, Neon, Fedora, RHEL, CentOS, Arch, Manjaro), might-support (openSUSE, Solus, Void), and not-supported (NixOS, Alpine, Gentoo) distros.
+- **libwayland-dev** added to install.sh for all distro families (was missing — caused build failures on X11-only systems like Linux Mint).
+- **libwayland-client0** added to runtime deps (was missing — caused "cannot open shared object file" on Mint).
+- **Config typo fixed**: `mặt khẩu` → `mật khẩu` in default config and README.
+
+### Documentation
+
+- **Roadmap section** added to README (v0.1.8: Wayland IM protocol, event-based AT-SPI2; v0.1.9: CI, Flatpak).
+- **RELEASE_CHECKLIST.md** removed (process now documented in the release commit messages).
+
+---
+
 ## v0.1.7 (2026-07-01)
 
 ### Password Auto-Detection
