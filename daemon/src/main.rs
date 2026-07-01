@@ -1254,6 +1254,7 @@ fn run_with_evdev(
                             consumed_keys.remove(&keycode);
                         }
                         if let Some(mut ch) = key_to_char(key) {
+                            eprintln!("[debug] key={} ch='{}' val={} buf={}", keycode, ch, value, daemon.engine.buffer().chars().count());
                             // Window change detection: only on character key presses.
                             // Modifier keys (Ctrl, Alt, Super) skip this block, so
                             // last_key_time is preserved across Alt+Tab sequences.
