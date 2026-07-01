@@ -33,8 +33,25 @@ impl PasswordDetector {
         self.cached
     }
 
-    fn check_atspi2(&self) -> Option<bool> {
+    /// Get the AT-SPI2 accessibility bus address via session bus
+    fn get_a11y_bus_address() -> Option<String> {
         let conn = Connection::new_session().ok()?;
+        let proxy = conn.with_proxy(
+            "org.a11y.Bus",
+            "/org/a11y/bus",
+            Duration::from_secs(2),
+        );
+        let (addr,): (String,) = proxy
+            .method_call("org.a11y.Bus", "GetAddress", ())
+            .ok()?;
+        Some(addr)
+    }
+
+    fn check_atspi2(&self) -> Option<bool> {
+        // AT-SPI2 runs on its own private D-Bus (accessibility bus),
+        // NOT on the session bus. We must first get the a11y bus address.
+        let addr = Self::get_a11y_bus_address()?;
+        let conn = Connection::new_address(&addr).ok()?;
         let timeout = Duration::from_secs(2);
 
         let proxy = conn.with_proxy(
