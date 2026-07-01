@@ -1205,27 +1205,28 @@ fn run_with_evdev(
                 }
 
                 if !grabbed {
-                    // Non-grabbing mode: raw keystrokes reach the application
-                    // directly.  Use Event Sourcing (replay_and_inject) which
-                    // tracks what's actually on screen and computes corrections
-                    // based on the screen state — not the engine's internal
-                    // buffer.  This avoids race conditions where a correction
-                    // backspace removes the wrong characters because the user
-                    // typed more while the clipboard paste was in flight.
-                    if value == 1 {
-                        if is_modifier_pressed(&key_state) {
-                            continue;
-                        }
-                        if let Some(ch) = key_to_char(key) {
-                            if ch == '\x08' {
-                                // Backspace: let the raw key through, but also
-                                // update the event sourcing state.
-                                daemon.replay_backspace();
-                            } else {
-                                let commands = daemon.replay_and_inject(ch);
-                                execute_commands(&*injector, &commands, false);
+                    // Legacy mode: raw keystrokes reach the application directly.
+                    // Use process_key for corrections; +1 backspace for control
+                    // keys that landed on screen as literal characters.
+                    if value != 1 {
+                        continue;
+                    }
+                    if is_modifier_pressed(&key_state) {
+                        continue;
+                    }
+                    if let Some(ch) = key_to_char(key) {
+                        let mut commands = daemon.process_key(ch);
+                        if !commands.is_empty()
+                            && is_vn_control_key(&daemon.config.input_method, ch)
+                        {
+                            for cmd in &mut commands {
+                                if let OutputCommand::Backspace(ref mut n) = cmd {
+                                    *n += 1;
+                                    break;
+                                }
                             }
                         }
+                        execute_commands(&*injector, &commands, false);
                     }
                 } else {
                     // Grabbing mode: all output goes through uinput only.
