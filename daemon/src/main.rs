@@ -1205,7 +1205,11 @@ fn run_with_evdev(
                 }
 
                 if !grabbed {
-                    // Legacy mode: only forward to engine on press events
+                    // Legacy mode: only forward to engine on press events.
+                    // Raw keystrokes reach the application BEFORE the daemon
+                    // can correct them, so VNI/Telex control keys (1-9, f,s,r,...)
+                    // appear on screen as literal characters.  We must account
+                    // for this by adding one extra backspace for control keys.
                     if value != 1 {
                         continue;
                     }
@@ -1213,7 +1217,22 @@ fn run_with_evdev(
                         continue;
                     }
                     if let Some(ch) = key_to_char(key) {
-                        let commands = daemon.process_key(ch);
+                        let mut commands = daemon.process_key(ch);
+                        // In non-grabbing mode, VNI/Telex control keys (1-9, f,s,r,x,j)
+                        // reach the application as literal characters before the daemon
+                        // can inject corrections.  Add one extra backspace to remove
+                        // the control character from the screen.
+                        if !commands.is_empty()
+                            && is_vn_control_key(&daemon.config.input_method, ch)
+                        {
+                            // Find and increment the first Backspace command
+                            for cmd in &mut commands {
+                                if let OutputCommand::Backspace(ref mut n) = cmd {
+                                    *n += 1;
+                                    break;
+                                }
+                            }
+                        }
                         execute_commands(&*injector, &commands, false);
                     }
                 } else {
