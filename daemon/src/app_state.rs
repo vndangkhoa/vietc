@@ -512,6 +512,15 @@ impl AppStateManager {
             }
         }
 
+        // Layer 4: Process-based detection (for terminal sudo/passwd prompts)
+        if let Some(pid) = get_active_window_pid() {
+            if is_sudo_process(pid) {
+                self.is_password_field = true;
+                log_password_detection("process-sudo", &format!("PID {}", pid));
+                return true;
+            }
+        }
+
         self.is_password_field = false;
         false
     }
@@ -647,6 +656,83 @@ impl AppStateManager {
 
 fn log_password_detection(method: &str, context: &str) {
     eprintln!("[vietc] Password field detected via {}: {}", method, context);
+}
+
+/// Get the PID of the active window via xprop
+fn get_active_window_pid() -> Option<u32> {
+    let id = get_active_window_id_xprop()?;
+    // Some terminals (gnome-terminal) don't have _NET_WM_PID directly
+    // Try xprop first
+    let output = Command::new("xprop")
+        .args(["-id", &id, "_NET_WM_PID"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Format: _NET_WM_PID(CARDINAL) = 12345
+        if let Some(pid_str) = stdout.split("= ").nth(1) {
+            if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                if pid > 0 {
+                    return Some(pid);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Check if the given PID or any of its children is running sudo/passwd
+fn is_sudo_process(pid: u32) -> bool {
+    // Check the process itself
+    if let Ok(output) = Command::new("ps")
+        .args(["-o", "comm=", "-p", &pid.to_string()])
+        .output()
+    {
+        let comm = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if comm == "sudo" || comm == "passwd" || comm == "pkexec" {
+            return true;
+        }
+    }
+
+    // Check child processes recursively (depth = 2)
+    if let Ok(output) = Command::new("ps")
+        .args(["--ppid", &pid.to_string(), "-o", "comm="])
+        .output()
+    {
+        let output = String::from_utf8_lossy(&output.stdout);
+        for line in output.lines() {
+            let comm = line.trim();
+            if comm == "sudo" || comm == "passwd" || comm == "pkexec" {
+                return true;
+            }
+        }
+    }
+
+    // Check grandchild processes (depth = 3)
+    if let Ok(output) = Command::new("ps")
+        .args(["--ppid", &pid.to_string(), "-o", "pid="])
+        .output()
+    {
+        let output = String::from_utf8_lossy(&output.stdout);
+        for line in output.lines() {
+            let child_pid = line.trim();
+            if child_pid.is_empty() { continue; }
+            if let Ok(output) = Command::new("ps")
+                .args(["--ppid", child_pid, "-o", "comm="])
+                .output()
+            {
+                let output = String::from_utf8_lossy(&output.stdout);
+                for line in output.lines() {
+                    let comm = line.trim();
+                    if comm == "sudo" || comm == "passwd" || comm == "pkexec" {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    false
 }
 
 fn override_path() -> std::path::PathBuf {
