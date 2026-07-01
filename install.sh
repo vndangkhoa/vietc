@@ -27,6 +27,7 @@ detect_distro() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         DISTRO=$ID
+        DISTRO_LIKE=${ID_LIKE:-""}
     else
         echo -e "${RED}Error: Cannot detect Linux distribution (/etc/os-release missing).${NC}"
         exit 1
@@ -40,12 +41,13 @@ install_dependencies() {
     echo -e "Installing ${mode} dependencies..."
     
     case "$DISTRO" in
-        ubuntu|debian|raspbian|pop|mint|linuxmint|neon)
+        ubuntu|debian|raspbian|pop|mint|linuxmint|neon|zorin|elementary)
+            export DEBIAN_FRONTEND=noninteractive
             apt-get update -y
             if [ "$mode" = "build" ]; then
-                apt-get install -y build-essential pkg-config libx11-dev libxtst-dev libdbus-1-dev libevdev-dev
+                apt-get install -y build-essential pkg-config libx11-dev libxtst-dev libdbus-1-dev libevdev-dev libwayland-dev curl
             fi
-            apt-get install -y libevdev2 libdbus-1-3 libx11-6 libxtst6 xclip wl-clipboard
+            apt-get install -y libevdev2 libdbus-1-3 libx11-6 libxtst6 xclip wl-clipboard libwayland-client0 curl
             ;;
         fedora|rhel|centos)
             if [ "$mode" = "build" ]; then
@@ -60,10 +62,19 @@ install_dependencies() {
             pacman -Sy --needed --noconfirm libevdev libx11 libxtst dbus xclip wl-clipboard
             ;;
         *)
-            echo -e "${YELLOW}Warning: Unsupported distribution '${DISTRO}'. Please make sure you have the following packages installed manually:${NC}"
-            echo -e "  - libevdev, libdbus-1, libx11, libxtst, xclip, wl-clipboard"
-            if [ "$mode" = "build" ]; then
-                echo -e "  - gcc, pkg-config, and development headers for the above libraries."
+            if [[ "$DISTRO_LIKE" == *"ubuntu"* || "$DISTRO_LIKE" == *"debian"* ]]; then
+                export DEBIAN_FRONTEND=noninteractive
+                apt-get update -y
+                if [ "$mode" = "build" ]; then
+                    apt-get install -y build-essential pkg-config libx11-dev libxtst-dev libdbus-1-dev libevdev-dev libwayland-dev curl
+                fi
+                apt-get install -y libevdev2 libdbus-1-3 libx11-6 libxtst6 xclip wl-clipboard libwayland-client0 curl
+            else
+                echo -e "${YELLOW}Warning: Unsupported distribution '${DISTRO}'. Please make sure you have the following packages installed manually:${NC}"
+                echo -e "  - libevdev, libdbus-1, libx11, libxtst, xclip, wl-clipboard"
+                if [ "$mode" = "build" ]; then
+                    echo -e "  - gcc, pkg-config, and development headers for the above libraries."
+                fi
             fi
             ;;
     esac
@@ -189,6 +200,10 @@ fi
 echo "Installing desktop launcher..."
 mkdir -p /usr/share/applications
 cp "$FILE_DESKTOP" /usr/share/applications/
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+fi
 
 # 5. Install Systemd User Service
 echo "Installing systemd user service..."
