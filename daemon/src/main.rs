@@ -855,20 +855,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // Try evdev first (more reliable than X11 XRecord)
+    // Try evdev first (more reliable than X11 XRecord in most environments).
+    // If the evdev device opens but produces no events (common in VMs where
+    // keyboard input bypasses the evdev grab), run_with_evdev will exit via
+    // the 30-second safety timeout — we fall through to X11 capture.
     match open_keyboard_device() {
         Ok((device, path)) => {
             log_info(&format!("[vietc] Keyboard device: {}", path));
-            return run_with_evdev(
+            match run_with_evdev(
                 device,
                 &mut daemon,
-                shared_active_window,
-                shared_window_class,
-                config_changed,
-                status_changed,
-                engine_enabled,
+                shared_active_window.clone(),
+                shared_window_class.clone(),
+                config_changed.clone(),
+                status_changed.clone(),
+                engine_enabled.clone(),
                 display,
-            );
+            ) {
+                Ok(()) => {
+                    log_info("[vietc] evdev returned, trying X11 capture as fallback");
+                }
+                Err(e) => {
+                    log_info(&format!(
+                        "[vietc] evdev exited with error: {} — trying X11 capture",
+                        e
+                    ));
+                }
+            }
         }
         Err(e) => {
             log_info(&format!("[vietc] evdev not available: {}", e));
@@ -882,10 +895,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return run_with_x11(
                 capture,
                 &mut daemon,
-                shared_active_window.clone(),
-                config_changed.clone(),
-                status_changed.clone(),
-                engine_enabled.clone(),
+                shared_active_window,
+                config_changed,
+                status_changed,
+                engine_enabled,
             );
         } else {
             log_info("[vietc] X11 not available, falling back");
