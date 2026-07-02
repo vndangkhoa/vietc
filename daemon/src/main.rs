@@ -1360,6 +1360,7 @@ fn run_with_evdev(
             );
             let _ = devices[primary_idx].0.ungrab();
             grabbed = false;
+            log_info("[vietc] Non-grabbed mode: polling all evdev devices for keystrokes");
             continue;
         }
 
@@ -1398,6 +1399,13 @@ fn run_with_evdev(
         }
         idle_polls = 0;
 
+        if !grabbed {
+            log_info(&format!(
+                "[vietc] evdev: {} device(s) have events after ungrab",
+                pfds.iter().filter(|p| (p.revents & libc::POLLIN) != 0).count()
+            ));
+        }
+
         // Check for status changes instantly
         if status_changed.load(Ordering::SeqCst) {
             daemon.sync_status_file();
@@ -1435,8 +1443,10 @@ fn run_with_evdev(
             };
             last_event_time = std::time::Instant::now();
 
+            let mut non_key_logged = 0u32;
             for event in events {
-                if let evdev::InputEventKind::Key(key) = event.kind() {
+                match event.kind() {
+                    evdev::InputEventKind::Key(key) => {
                     let value = event.value();
                     let keycode = key.0;
 
@@ -1511,6 +1521,28 @@ fn run_with_evdev(
                                     commands.push(OutputCommand::Backspace(len + 1));
                                     commands.push(OutputCommand::Type(buf_after));
                                 }
+                            }
+                            // Non-grabbed fix: the VNI/Telex control key character reached
+                            // the app directly. Add 1 extra backspace to remove it.
+                            if !commands.is_empty()
+                                && is_vn_control_key(daemon.app_state.effective_method(), ch)
+                            {
+                                for cmd in &mut commands {
+                                    if let OutputCommand::Backspace(ref mut n) = cmd {
+                                        *n += 1;
+                                    }
+                                }
+                                log_info(&format!(
+                                    "[vietc] non-grabbed: ch='{}' adjusted backspace+1",
+                                    ch.escape_default()
+                                ));
+                            }
+                            if !commands.is_empty() {
+                                log_info(&format!(
+                                    "[vietc] non-grabbed inject: ch='{}' cmds={:?}",
+                                    ch.escape_default(),
+                                    commands
+                                ));
                             }
                             execute_commands(&*injector, &commands, false);
                         }
@@ -1661,6 +1693,18 @@ fn run_with_evdev(
                                 continue;
                             }
                             injector.send_key_event(keycode, 0);
+                        }
+                    }
+                    }
+                    _ => {
+                        if non_key_logged < 5 {
+                            log_info(&format!(
+                                "[vietc] evdev: non-key event type={:?} code={} value={}",
+                                event.event_type(),
+                                event.code(),
+                                event.value()
+                            ));
+                            non_key_logged += 1;
                         }
                     }
                 }
