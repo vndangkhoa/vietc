@@ -831,18 +831,64 @@ fn log_password_detection(method: &str, context: &str) {
     eprintln!("[vietc] Password field detected via {}: {}", method, context);
 }
 
-/// Check if the given PID or any of its descendants is running sudo/passwd.
-/// Uses pstree to scan the full process tree (handles any depth):
-///   terminal → shell → sudo → passwd
-///   gnome-terminal-server → gnome-terminal → bash → sudo
+/// Walk up the process tree from `pid` to PID 1 and return all ancestor PIDs.
+fn get_ancestor_pids(pid: u32) -> Vec<u32> {
+    let mut ancestors = Vec::new();
+    let mut current = pid;
+    loop {
+        ancestors.push(current);
+        let path = format!("/proc/{}/status", current);
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => break,
+        };
+        let ppid = match content
+            .lines()
+            .find(|l| l.starts_with("PPid:"))
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|s| s.parse::<u32>().ok())
+        {
+            Some(0) | None => break,
+            Some(p) => p,
+        };
+        if ppid == current {
+            break;
+        }
+        current = ppid;
+    }
+    ancestors
+}
+
+/// Check if the given PID or any of its descendants is running a password
+/// prompt (sudo, passwd, pkexec).  Excludes the daemon's own ancestor chain
+/// so that running `sudo vietc-daemon` from the same terminal doesn't cause
+/// a false positive.
 fn is_sudo_process(pid: u32) -> bool {
+    // Build the daemon's ancestor PID chain to exclude self from detection
+    let daemon_pid = unsafe { libc::getpid() as u32 };
+    let daemon_ancestors = get_ancestor_pids(daemon_pid);
+
     if let Ok(output) = Command::new("pstree")
         .args(["-p", &pid.to_string()])
         .output()
     {
         let tree = String::from_utf8_lossy(&output.stdout);
         for target in &["sudo(", "passwd(", "pkexec("] {
-            if tree.contains(target) {
+            let mut start = 0;
+            while let Some(pos) = tree[start..].find(target) {
+                let abs_pos = start + pos;
+                let after = &tree[abs_pos + target.len()..];
+                let found_pid = after
+                    .split(')')
+                    .next()
+                    .and_then(|s| s.parse::<u32>().ok());
+                // Skip if this PID is the daemon's own ancestor (e.g. `sudo vietc-daemon`)
+                if let Some(p) = found_pid {
+                    if target == &"sudo(" && daemon_ancestors.contains(&p) {
+                        start = abs_pos + 1;
+                        continue;
+                    }
+                }
                 return true;
             }
         }
