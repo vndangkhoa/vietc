@@ -310,8 +310,6 @@ impl Daemon {
                     commands.push(OutputCommand::Type(text));
                 }
             }
-        } else {
-            // No event — key was consumed or ignored by engine
         }
 
         commands
@@ -1269,15 +1267,17 @@ fn run_with_x11_keymap(
 
             // Use keymap lookup for character conversion
             if let Some(ch) = capture.lookup_keycode(keycode, mod_state) {
+                let buf_before = daemon.engine.buffer();
                 let mut commands = daemon.process_key(ch);
-                if !commands.is_empty()
+                if commands.is_empty()
+                    && daemon.engine.is_enabled()
                     && is_vn_control_key(daemon.app_state.effective_method(), ch)
                 {
-                    for cmd in &mut commands {
-                        if let OutputCommand::Backspace(ref mut n) = cmd {
-                            *n += 1;
-                            break;
-                        }
+                    let buf_after = daemon.engine.buffer();
+                    if buf_after != buf_before && !buf_before.is_empty() {
+                        let len = buf_before.chars().count();
+                        commands.push(OutputCommand::Backspace(len + 1));
+                        commands.push(OutputCommand::Type(buf_after));
                     }
                 }
                 execute_commands(&*injector, &commands, false);
@@ -1499,15 +1499,17 @@ fn run_with_evdev(
                             continue;
                         }
                         if let Some(ch) = key_to_char(key) {
+                            let buf_before = daemon.engine.buffer();
                             let mut commands = daemon.process_key(ch);
-                            if !commands.is_empty()
+                            if commands.is_empty()
+                                && daemon.engine.is_enabled()
                                 && is_vn_control_key(daemon.app_state.effective_method(), ch)
                             {
-                                for cmd in &mut commands {
-                                    if let OutputCommand::Backspace(ref mut n) = cmd {
-                                        *n += 1;
-                                        break;
-                                    }
+                                let buf_after = daemon.engine.buffer();
+                                if buf_after != buf_before && !buf_before.is_empty() {
+                                    let len = buf_before.chars().count();
+                                    commands.push(OutputCommand::Backspace(len + 1));
+                                    commands.push(OutputCommand::Type(buf_after));
                                 }
                             }
                             execute_commands(&*injector, &commands, false);
