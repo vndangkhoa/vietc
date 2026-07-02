@@ -222,7 +222,12 @@ impl KeyInjector for UinputInjector {
             return InjectResult::Success;
         }
 
-        // Unicode text: clipboard copy + paste (reliable method)
+        // Unicode text: try xdotool type first (works on X11, doesn't touch clipboard)
+        if self.type_via_xdotool(s) {
+            return InjectResult::Success;
+        }
+
+        // Fallback: clipboard copy + paste
         if !self.paste_via_clipboard(s) {
             eprintln!(
                 "[vietc] send_string failed for '{}' (clipboard unavailable)",
@@ -386,6 +391,27 @@ impl UinputInjector {
         }
         self.send_string(text);
         InjectResult::Success
+    }
+
+    /// Type Unicode text via xdotool (X11 only). Returns true on success.
+    /// More reliable than clipboard paste — doesn't overwrite the user's clipboard
+    /// and works with XTest directly for proper Unicode key injection.
+    fn type_via_xdotool(&self, text: &str) -> bool {
+        let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
+        if is_wayland {
+            return false;
+        }
+        let mut cmd = Self::user_cmd("xdotool");
+        cmd.args(["type", "--clearmodifiers", text]);
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::null());
+        match cmd.output() {
+            Ok(output) => output.status.success(),
+            Err(e) => {
+                eprintln!("[vietc] xdotool type failed: {}", e);
+                false
+            }
+        }
     }
 
     /// Read the user's current clipboard contents (wl-paste on Wayland, xclip
