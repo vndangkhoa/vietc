@@ -1182,6 +1182,7 @@ fn run_with_x11_keymap(
             let active_window = shared_active_window.lock().unwrap().clone();
             if active_window != last_active_window {
                 last_active_window = active_window.clone();
+                daemon.engine.reset();
                 daemon.replay_reset();
             }
         }
@@ -1244,17 +1245,22 @@ fn run_with_x11_keymap(
                 continue;
             }
 
-            // Password detection
+            // Password detection — also reset buffers on transition to prevent
+            // stale engine content bleeding into the password field
             if daemon.config.app_state.enabled {
                 let is_pw = daemon.app_state.is_password_field();
                 let currently_enabled = daemon.engine.is_enabled();
                 if is_pw && currently_enabled {
                     daemon.engine.set_enabled(false);
+                    daemon.engine.reset();
+                    daemon.replay_reset();
                     daemon.write_status();
                 } else if !is_pw && !currently_enabled && daemon.config.start_enabled {
                     let default_state = daemon.app_state.get_default_state();
                     if default_state {
                         daemon.engine.set_enabled(true);
+                        daemon.engine.reset();
+                        daemon.replay_reset();
                         daemon.write_status();
                     }
                 }
@@ -1461,18 +1467,24 @@ fn run_with_evdev(
                         continue;
                     }
 
-                    // Password field check: disable engine if typing into a password field
+                    // Password field check: disable engine if typing into a password field.
+                    // Also reset buffers on transition to prevent stale engine content
+                    // bleeding into the password field (same-window field switch).
                     if value == 1 {
                         let is_pw = daemon.app_state.is_password_field();
                         let currently_enabled = daemon.engine.is_enabled();
                         if is_pw && currently_enabled {
                             daemon.engine.set_enabled(false);
+                            daemon.engine.reset();
+                            daemon.replay_reset();
                             daemon.write_status();
                             log_info("[vietc] Password field detected — engine disabled");
                         } else if !is_pw && !currently_enabled && daemon.config.start_enabled {
                             let default_state = daemon.app_state.get_default_state();
                             if default_state {
                                 daemon.engine.set_enabled(true);
+                                daemon.engine.reset();
+                                daemon.replay_reset();
                                 daemon.write_status();
                             }
                         }
@@ -1567,6 +1579,8 @@ fn run_with_evdev(
                                         let is_pw = daemon.app_state.check_password_field();
                                         if is_pw && daemon.engine.is_enabled() {
                                             daemon.engine.set_enabled(false);
+                                            daemon.engine.reset();
+                                            daemon.replay_reset();
                                             daemon.write_status();
                                         }
                                     }
@@ -1585,11 +1599,15 @@ fn run_with_evdev(
                                         let currently_enabled = daemon.engine.is_enabled();
                                         if is_pw && currently_enabled {
                                             daemon.engine.set_enabled(false);
+                                            daemon.engine.reset();
+                                            daemon.replay_reset();
                                             daemon.write_status();
                                             log_info("[vietc] Password field detected (periodic) — engine disabled");
                                         } else if !is_pw && !currently_enabled {
                                             if daemon.app_state.get_default_state() {
                                                 daemon.engine.set_enabled(true);
+                                                daemon.engine.reset();
+                                                daemon.replay_reset();
                                                 daemon.write_status();
                                             }
                                         }
