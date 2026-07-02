@@ -1245,10 +1245,11 @@ fn run_with_x11_keymap(
                 continue;
             }
 
-            // Password detection — also reset buffers on transition to prevent
-            // stale engine content bleeding into the password field
+            // Password detection (fresh AT-SPI2 check) — also reset buffers
+            // on transition to prevent stale engine content bleeding into
+            // the password field (same-window field switch).
             if daemon.config.app_state.enabled {
-                let is_pw = daemon.app_state.is_password_field();
+                let is_pw = daemon.app_state.check_password_field();
                 let currently_enabled = daemon.engine.is_enabled();
                 if is_pw && currently_enabled {
                     daemon.engine.set_enabled(false);
@@ -1467,11 +1468,11 @@ fn run_with_evdev(
                         continue;
                     }
 
-                    // Password field check: disable engine if typing into a password field.
-                    // Also reset buffers on transition to prevent stale engine content
-                    // bleeding into the password field (same-window field switch).
+                    // Password field check (fresh AT-SPI2 check): disable engine if typing
+                    // into a password field. Also reset buffers on transition to prevent
+                    // stale engine content bleeding into the password field.
                     if value == 1 {
-                        let is_pw = daemon.app_state.is_password_field();
+                        let is_pw = daemon.app_state.check_password_field();
                         let currently_enabled = daemon.engine.is_enabled();
                         if is_pw && currently_enabled {
                             daemon.engine.set_enabled(false);
