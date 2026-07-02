@@ -855,15 +855,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // Try evdev first (more reliable than X11 XRecord in most environments).
-    // If the evdev device opens but produces no events (common in VMs where
-    // keyboard input bypasses the evdev grab), run_with_evdev will exit via
-    // the 30-second safety timeout — we fall through to X11 capture.
-    match open_keyboard_device() {
-        Ok((device, path)) => {
-            log_info(&format!("[vietc] Keyboard device: {}", path));
+    // Try evdev first: open ALL keyboard-capable devices and poll them
+    // simultaneously. This handles VMs where input arrives on a different
+    // event node than the first device found.
+    match open_keyboard_devices() {
+        Ok(mut devices) => {
             match run_with_evdev(
-                device,
+                &mut devices,
                 &mut daemon,
                 shared_active_window.clone(),
                 shared_window_class.clone(),
@@ -890,19 +888,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "x11")]
     if display != display::DisplayServer::Wayland {
-        if let Some(capture) = X11Capture::new() {
-            log_info("[vietc] X11 XRecord capture active — using X11 capture/injection");
-            return run_with_x11(
-                capture,
-                &mut daemon,
-                shared_active_window,
-                shared_window_class,
-                config_changed,
-                status_changed,
-                engine_enabled,
-            );
-        } else {
-            log_info("[vietc] X11 not available, falling back");
+        log_info("[vietc] Trying X11 keymap-based capture");
+        match run_with_x11_keymap(
+            &mut daemon,
+            shared_active_window.clone(),
+            shared_window_class.clone(),
+            config_changed.clone(),
+            status_changed.clone(),
+            engine_enabled.clone(),
+            display,
+        ) {
+            Ok(()) => {
+                log_info("[vietc] X11 keymap returned, falling through to stdin mode");
+            }
+            Err(e) => {
+                log_info(&format!(
+                    "[vietc] X11 keymap exited with error: {} — falling back",
+                    e
+                ));
+            }
         }
     }
 
@@ -920,12 +924,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn open_keyboard_device() -> Result<(evdev::Device, String), Box<dyn std::error::Error>> {
+fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn std::error::Error>> {
     let dir = std::path::Path::new("/dev/input");
     if !dir.exists() {
         return Err("No /dev/input directory".into());
     }
 
+    let mut devices: Vec<(evdev::Device, String)> = Vec::new();
     let mut permission_denied_count = 0u32;
     let mut total_event_count = 0u32;
 
@@ -947,7 +952,12 @@ fn open_keyboard_device() -> Result<(evdev::Device, String), Box<dyn std::error:
                         .supported_keys()
                         .is_some_and(|k| k.contains(evdev::Key::KEY_A))
                     {
-                        return Ok((device, format!("{} ({})", entry.path().display(), dev_name)));
+                        log_info(&format!(
+                            "[vietc] Found keyboard device: {} ({})",
+                            entry.path().display(),
+                            dev_name
+                        ));
+                        devices.push((device, format!("{} ({})", entry.path().display(), dev_name)));
                     }
                 }
                 Err(e) => {
@@ -960,8 +970,12 @@ fn open_keyboard_device() -> Result<(evdev::Device, String), Box<dyn std::error:
         }
     }
 
+    if !devices.is_empty() {
+        log_info(&format!("[vietc] Opened {} keyboard device(s)", devices.len()));
+        return Ok(devices);
+    }
+
     if permission_denied_count > 0 {
-        // Check if user is in the group but session hasn't refreshed
         let in_group_db = std::process::Command::new("groups")
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).contains("input"))
@@ -1006,19 +1020,27 @@ fn run_with_x11(
     // press+release immediately, breaking held-key combos (Ctrl+C, Alt+Tab…).
     let mut pressed_keys: HashSet<u32> = HashSet::new();
 
-    eprintln!("[vietc] X11 event loop starting");
+    use std::io::Write;
+    let _ = std::io::stderr().write_all(b"[vietc] X11 event loop starting\n");
+    std::io::stderr().flush().ok();
 
     loop {
+        let _ = std::io::stderr().write_all(b"[vietc] X11: check status_changed\n");
+        std::io::stderr().flush().ok();
         if status_changed.load(Ordering::SeqCst) {
             daemon.sync_status_file();
             status_changed.store(false, Ordering::SeqCst);
         }
 
+        let _ = std::io::stderr().write_all(b"[vietc] X11: check config_changed\n");
+        std::io::stderr().flush().ok();
         if config_changed.load(Ordering::SeqCst) {
             daemon.reload_config();
             config_changed.store(false, Ordering::SeqCst);
         }
 
+        let _ = std::io::stderr().write_all(b"[vietc] X11: lock active_window\n");
+        std::io::stderr().flush().ok();
         {
             let active_window = shared_active_window.lock().unwrap().clone();
             if active_window != last_active_window {
@@ -1027,6 +1049,8 @@ fn run_with_x11(
             }
         }
 
+        let _ = std::io::stderr().write_all(b"[vietc] X11: lock window_class\n");
+        std::io::stderr().flush().ok();
         if daemon.config.app_state.enabled {
             let class = shared_window_class.lock().unwrap().clone();
             if !class.is_empty() {
@@ -1042,11 +1066,13 @@ fn run_with_x11(
         }
 
         // Wait for events with 100ms timeout.
-        // SKIP_RECORD_EVENTS may still be true from a previous injection —
-        // drain_pipe drops any stale injected events while flag is true.
+        let _ = std::io::stderr().write_all(b"[vietc] X11: wait_for_event\n");
+        std::io::stderr().flush().ok();
         let _got_data = capture.wait_for_event(100);
         // NOW safe to clear: any injected events from last iteration were dropped.
         SKIP_RECORD_EVENTS.store(false, Ordering::Relaxed);
+        let _ = std::io::stderr().write_all(b"[vietc] X11: next_event\n");
+        std::io::stderr().flush().ok();
         let evt = capture.next_event();
         if evt.is_none() {
             continue;
@@ -1118,8 +1144,143 @@ fn run_with_x11(
     }
 }
 
+#[cfg(feature = "x11")]
+fn run_with_x11_keymap(
+    daemon: &mut Daemon,
+    shared_active_window: Arc<Mutex<String>>,
+    shared_window_class: Arc<Mutex<String>>,
+    config_changed: Arc<AtomicBool>,
+    status_changed: Arc<AtomicBool>,
+    _engine_enabled: Arc<AtomicBool>,
+    display: display::DisplayServer,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use vietc_protocol::x11_inject::X11KeymapCapture;
+
+    let mut capture = X11KeymapCapture::new()?;
+    let injector = create_injector(display)?;
+    let mut last_active_window = String::new();
+    let mut last_window_class = String::new();
+    let mut key_state: HashSet<u32> = HashSet::new();
+
+    log_info("[vietc] X11 keymap capture active");
+    loop {
+        if SIGNAL_EXIT.load(Ordering::SeqCst) {
+            log_info("[vietc] Exiting on signal");
+            return Ok(());
+        }
+
+        if status_changed.load(Ordering::SeqCst) {
+            daemon.sync_status_file();
+            status_changed.store(false, Ordering::SeqCst);
+        }
+        if config_changed.load(Ordering::SeqCst) {
+            daemon.reload_config();
+            config_changed.store(false, Ordering::SeqCst);
+        }
+
+        {
+            let active_window = shared_active_window.lock().unwrap().clone();
+            if active_window != last_active_window {
+                last_active_window = active_window.clone();
+                daemon.replay_reset();
+            }
+        }
+        if daemon.config.app_state.enabled {
+            let class = shared_window_class.lock().unwrap().clone();
+            if !class.is_empty() && class != last_window_class {
+                last_window_class = class.clone();
+                daemon.check_app_change_with(class.clone());
+            }
+        }
+
+        // Poll keymap for changes every 10ms
+        let events = capture.poll();
+        if events.is_empty() {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            continue;
+        }
+
+        // Update persistent key state
+        for (keycode, pressed) in &events {
+            if *pressed {
+                key_state.insert(*keycode);
+            } else {
+                key_state.remove(keycode);
+            }
+        }
+
+        for (keycode, pressed) in &events {
+            if !*pressed {
+                continue;
+            }
+            let keycode = *keycode;
+
+            let shift_pressed = key_state.contains(&42) || key_state.contains(&54);
+            let ctrl_pressed = key_state.contains(&29) || key_state.contains(&97);
+            let alt_pressed = key_state.contains(&56) || key_state.contains(&100);
+            let caps_state = key_state.contains(&58);
+
+            let mut mod_state = 0i32;
+            if shift_pressed { mod_state |= 1; }
+            if caps_state { mod_state |= 2; }
+            if ctrl_pressed { mod_state |= 4; }
+            if alt_pressed { mod_state |= 8; }
+
+            let is_mod = ctrl_pressed || alt_pressed || key_state.contains(&125);
+
+            if is_mod {
+                continue;
+            }
+
+            // Engine toggle: Ctrl+Space
+            if ctrl_pressed && keycode == 57 {
+                daemon.toggle();
+                continue;
+            }
+
+            // Method toggle: Ctrl+LeftShift
+            if ctrl_pressed && shift_pressed {
+                daemon.toggle_method();
+                continue;
+            }
+
+            // Password detection
+            if daemon.config.app_state.enabled {
+                let is_pw = daemon.app_state.is_password_field();
+                let currently_enabled = daemon.engine.is_enabled();
+                if is_pw && currently_enabled {
+                    daemon.engine.set_enabled(false);
+                    daemon.write_status();
+                } else if !is_pw && !currently_enabled && daemon.config.start_enabled {
+                    let default_state = daemon.app_state.get_default_state();
+                    if default_state {
+                        daemon.engine.set_enabled(true);
+                        daemon.write_status();
+                    }
+                }
+            }
+
+            // Use keymap lookup for character conversion
+            if let Some(ch) = capture.lookup_keycode(keycode, mod_state) {
+                let mut commands = daemon.process_key(ch);
+                if !commands.is_empty()
+                    && is_vn_control_key(daemon.app_state.effective_method(), ch)
+                {
+                    for cmd in &mut commands {
+                        if let OutputCommand::Backspace(ref mut n) = cmd {
+                            *n += 1;
+                            break;
+                        }
+                    }
+                }
+                execute_commands(&*injector, &commands, false);
+            }
+        }
+    }
+}
+
 fn run_with_evdev(
-    mut device: evdev::Device,
+    devices: &mut Vec<(evdev::Device, String)>,
     daemon: &mut Daemon,
     shared_active_window: Arc<Mutex<String>>,
     shared_window_class: Arc<Mutex<String>>,
@@ -1130,8 +1291,10 @@ fn run_with_evdev(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let injector = create_injector(display)?;
 
-    let mut grabbed = if daemon.grab_enabled {
-        match device.grab() {
+    // Use the first device for grab (only one device can be grabbed at a time)
+    let primary_idx = 0usize;
+    let mut grabbed = if daemon.grab_enabled && !devices.is_empty() {
+        match devices[primary_idx].0.grab() {
             Ok(()) => {
                 log_info("[vietc] Keyboard grabbed — race condition eliminated");
                 true
@@ -1146,64 +1309,64 @@ fn run_with_evdev(
             }
         }
     } else {
-        log_info("[vietc] Keyboard grab disabled (config grab = false)");
-        log_info("[vietc] Set grab = true in vietc.toml to enable (needs root)");
+        if !daemon.grab_enabled {
+            log_info("[vietc] Keyboard grab disabled (config grab = false)");
+            log_info("[vietc] Set grab = true in vietc.toml to enable (needs root)");
+        }
         false
     };
 
     let mut consumed_keys: HashSet<u16> = HashSet::new();
     let mut last_active_window = String::new();
     let mut last_window_class = String::new();
-    // Skip counter: after Unicode injection, skip N upcoming events
-    // (they're auto-repeat pile-up from the injection delay)
     let mut skip_count = 0u32;
-    // Password detection: re-check every N key presses even without window change
-    // (catches in-terminal sudo prompts where window stays the same)
     let mut password_check_counter: u32 = 0;
 
-    // Safety: if grab is active and no events arrive for 3 seconds,
-    // release the grab so the user isn't locked out, and continue in
-    // non-grabbed mode (events reach both X and the daemon; daemon
-    // applies backspace corrections via uinput).
     let mut last_event_time = std::time::Instant::now();
     let mut last_key_time = std::time::Instant::now();
-    // Track consecutive idle polls for fast grab fallback
     let mut idle_polls: u32 = 0;
+
+    // Track key states for each device independently
+    let mut device_states: Vec<(evdev::AttributeSet<evdev::Key>, bool)> = devices
+        .iter()
+        .map(|(d, _)| {
+            let caps = is_caps_lock_on(d);
+            let state = d.get_key_state().ok().unwrap_or_else(evdev::AttributeSet::new);
+            (state, caps)
+        })
+        .collect();
 
     log_info("[vietc] Event loop started");
     loop {
-        // Check for signal (Ctrl+C, SIGTERM) — release grab before exit
         if SIGNAL_EXIT.load(Ordering::SeqCst) {
-            if grabbed {
-                let _ = device.ungrab();
+            if grabbed && !devices.is_empty() {
+                let _ = devices[primary_idx].0.ungrab();
                 log_info("[vietc] Signal received — keyboard grab released");
             }
             log_info("[vietc] Exiting on signal");
             return Ok(());
         }
 
-        // Grab safety timeout: if the grabbed device produces no events
-        // (common in VMs where EVIOCGRAB breaks event delivery), release
-        // the grab after ~300ms idle and continue in non-grabbed mode
-        // where events reach both X and the daemon.
         if grabbed && idle_polls >= 3 && last_event_time.elapsed() > std::time::Duration::from_millis(200) {
             log_info(
                 "[vietc] No events received via grab — releasing grab, continuing in non-grabbed evdev mode",
             );
-            let _ = device.ungrab();
+            let _ = devices[primary_idx].0.ungrab();
             grabbed = false;
             continue;
         }
 
-        // Poll evdev fd with 100ms timeout so the loop stays responsive
-        // even when no keyboard events arrive (e.g. VM doesn't route input
-        // through the grabbed device).
-        let mut pfd = libc::pollfd {
-            fd: device.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        let poll_ret = unsafe { libc::poll(&mut pfd, 1, 100) };
+        // Poll ALL devices simultaneously
+        let mut pfds: Vec<libc::pollfd> = devices
+            .iter()
+            .map(|(d, _)| libc::pollfd {
+                fd: d.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            })
+            .collect();
+
+        let poll_ret = unsafe { libc::poll(pfds.as_mut_ptr(), pfds.len() as libc::nfds_t, 100) };
         if poll_ret < 0 {
             let err = std::io::Error::last_os_error();
             if err.kind() == std::io::ErrorKind::Interrupted {
@@ -1217,8 +1380,6 @@ fn run_with_evdev(
         }
         if poll_ret == 0 {
             idle_polls += 1;
-            // No events available — check for background window changes even
-            // without a keypress (the background thread polls every 250ms).
             if daemon.config.app_state.enabled {
                 let class = shared_window_class.lock().unwrap().clone();
                 if !class.is_empty() && class != last_window_class {
@@ -1229,27 +1390,6 @@ fn run_with_evdev(
             continue;
         }
         idle_polls = 0;
-
-        let caps = is_caps_lock_on(&device);
-        let mut key_state = device
-            .get_key_state()
-            .ok()
-            .unwrap_or_else(evdev::AttributeSet::new);
-        let events = match device.fetch_events() {
-            Ok(events) => events,
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::Interrupted {
-                    // SIGINT/SIGTERM received — loop back to signal check
-                    continue;
-                }
-                log_info(&format!(
-                    "[vietc] fetch_events error (non-interrupted): {:?} — exiting",
-                    e
-                ));
-                return Err(e.into());
-            }
-        };
-        last_event_time = std::time::Instant::now();
 
         // Check for status changes instantly
         if status_changed.load(Ordering::SeqCst) {
@@ -1263,261 +1403,250 @@ fn run_with_evdev(
             config_changed.store(false, Ordering::SeqCst);
         }
 
-        for event in events {
-            if let evdev::InputEventKind::Key(key) = event.kind() {
-                let value = event.value();
-                let keycode = key.0;
+        // Process events from whichever device(s) have data ready
+        for (i, pfd) in pfds.iter().enumerate() {
+            if (pfd.revents & libc::POLLIN) == 0 {
+                continue;
+            }
 
-                // Update key state dynamically
-                if value == 1 {
-                    key_state.insert(key);
-                } else if value == 0 {
-                    key_state.remove(key);
-                }
+            let (ref mut device, ref _name) = devices[i];
+            let caps = device_states[i].1;
+            let mut key_state = std::mem::take(&mut device_states[i].0);
 
-                // Completely bypass all IME processing/interception for terminal emulators, IDE terminals, and games
-                if daemon.is_current_app_bypassed() {
-                    if grabbed {
-                        injector.send_key_event(keycode, value);
-                    }
-                    continue;
-                }
-
-                if value == 1 && is_toggle_combination_state(&key_state, &daemon.config.toggle_key)
-                {
-                    daemon.toggle();
-                    continue;
-                }
-
-                // Ctrl+LeftShift: toggle VNI/Telex input method
-                if value == 1 && is_method_toggle_state(&key_state)
-                {
-                    daemon.toggle_method();
-                    continue;
-                }
-
-                // Password field check: disable engine if typing into a password field
-                if value == 1 {
-                    let is_pw = daemon.app_state.is_password_field();
-                    let currently_enabled = daemon.engine.is_enabled();
-                    if is_pw && currently_enabled {
-                        daemon.engine.set_enabled(false);
-                        daemon.write_status();
-                        log_info("[vietc] Password field detected — engine disabled");
-                    } else if !is_pw && !currently_enabled && daemon.config.start_enabled {
-                        // Only re-enable if we're not in a manual toggle state
-                        let default_state = daemon.app_state.get_default_state();
-                        if default_state {
-                            daemon.engine.set_enabled(true);
-                            daemon.write_status();
-                        }
-                    }
-                }
-
-                if !grabbed {
-                    // Legacy mode: raw keystrokes reach the application directly.
-                    // Use process_key for corrections; +1 backspace for control
-                    // keys that landed on screen as literal characters.
-                    if value != 1 {
+            let events = match device.fetch_events() {
+                Ok(events) => events,
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::Interrupted {
                         continue;
                     }
-                    if is_modifier_pressed(&key_state) {
-                        continue;
-                    }
-                    if let Some(ch) = key_to_char(key) {
-                        let mut commands = daemon.process_key(ch);
-                        if !commands.is_empty()
-                            && is_vn_control_key(daemon.app_state.effective_method(), ch)
-                        {
-                            for cmd in &mut commands {
-                                if let OutputCommand::Backspace(ref mut n) = cmd {
-                                    *n += 1;
-                                    break;
-                                }
-                            }
-                        }
-                        execute_commands(&*injector, &commands, false);
-                    }
-                } else {
-                    // Grabbing mode: all output goes through uinput only.
+                    log_info(&format!(
+                        "[vietc] fetch_events error on device {}: {:?} — exiting",
+                        i, e
+                    ));
+                    return Err(e.into());
+                }
+            };
+            last_event_time = std::time::Instant::now();
 
-                    // If Ctrl, Alt, or Meta/Super is pressed, bypass the engine completely and forward raw key events.
-                    if is_modifier_pressed(&key_state) {
-                        injector.send_key_event(keycode, value);
-                        continue;
-                    }
+            for event in events {
+                if let evdev::InputEventKind::Key(key) = event.kind() {
+                    let value = event.value();
+                    let keycode = key.0;
 
-                    // Backspace in grab mode: pop engine, inject via uinput.
-                    if key == evdev::Key::KEY_BACKSPACE {
-                        if value == 1 || value == 2 {
-                            daemon.engine.process_key('\x08');
-                            injector.send_key_event(14, 1);
-                            injector.send_key_event(14, 0);
-                        }
-                        consumed_keys.insert(keycode);
-                        continue;
-                    }
-
+                    // Update key state dynamically
                     if value == 1 {
-                        // Press: process through engine
-                        if consumed_keys.contains(&keycode) {
-                            consumed_keys.remove(&keycode);
+                        key_state.insert(key);
+                    } else if value == 0 {
+                        key_state.remove(key);
+                    }
+
+                    // Completely bypass all IME processing/interception for terminal emulators, IDE terminals, and games
+                    if daemon.is_current_app_bypassed() {
+                        if grabbed {
+                            injector.send_key_event(keycode, value);
                         }
-                        if let Some(mut ch) = key_to_char(key) {
-                            // Window change detection: only on character key presses.
-                            // Modifier keys (Ctrl, Alt, Super) skip this block, so
-                            // last_key_time is preserved across Alt+Tab sequences.
-                            let gap = last_key_time.elapsed();
-                            last_key_time = std::time::Instant::now();
+                        continue;
+                    }
 
-                            // Fast path: check shared window ID from background thread (250ms polling)
-                            let active_window_id = shared_active_window.lock().unwrap().clone();
-                            let mut new_window = None;
+                    if value == 1 && is_toggle_combination_state(&key_state, &daemon.config.toggle_key)
+                    {
+                        daemon.toggle();
+                        continue;
+                    }
 
-                            // On Wayland, window ID may not change (native Wayland apps
-                            // don't have X11 IDs), so also check window class as a fallback.
-                            let active_window_class = shared_window_class.lock().unwrap().clone();
+                    // Ctrl+LeftShift: toggle VNI/Telex input method
+                    if value == 1 && is_method_toggle_state(&key_state)
+                    {
+                        daemon.toggle_method();
+                        continue;
+                    }
 
-                            if active_window_id != last_active_window {
-                                new_window = Some(active_window_id.clone());
-                            } else if !active_window_class.is_empty()
-                                && active_window_class != last_window_class
+                    // Password field check: disable engine if typing into a password field
+                    if value == 1 {
+                        let is_pw = daemon.app_state.is_password_field();
+                        let currently_enabled = daemon.engine.is_enabled();
+                        if is_pw && currently_enabled {
+                            daemon.engine.set_enabled(false);
+                            daemon.write_status();
+                            log_info("[vietc] Password field detected — engine disabled");
+                        } else if !is_pw && !currently_enabled && daemon.config.start_enabled {
+                            let default_state = daemon.app_state.get_default_state();
+                            if default_state {
+                                daemon.engine.set_enabled(true);
+                                daemon.write_status();
+                            }
+                        }
+                    }
+
+                    if !grabbed {
+                        if value != 1 {
+                            continue;
+                        }
+                        if is_modifier_pressed(&key_state) {
+                            continue;
+                        }
+                        if let Some(ch) = key_to_char(key) {
+                            let mut commands = daemon.process_key(ch);
+                            if !commands.is_empty()
+                                && is_vn_control_key(daemon.app_state.effective_method(), ch)
                             {
-                                // Window ID same but class changed — treat as window switch
-                                // (this covers Wayland native app switches)
-                                new_window = Some(active_window_class.clone());
-                            } else {
-                                // Always verify active window on every keypress — window
-                                // switches under 100ms can leak the old engine buffer.
-                                if let Some(id) = app_state::get_active_window_id() {
-                                    if id != active_window_id {
-                                        new_window = Some(id);
+                                for cmd in &mut commands {
+                                    if let OutputCommand::Backspace(ref mut n) = cmd {
+                                        *n += 1;
+                                        break;
                                     }
                                 }
                             }
+                            execute_commands(&*injector, &commands, false);
+                        }
+                    } else {
+                        if is_modifier_pressed(&key_state) {
+                            injector.send_key_event(keycode, value);
+                            continue;
+                        }
 
-                            if let Some(id) = new_window {
-                                log_info(&format!(
-                                    "[vietc] Window changed: '{}' -> '{}' (gap={:?})",
-                                    last_active_window, id, gap
-                                ));
-                                last_active_window = id.clone();
-                                // Save the window class when it changes (covers Wayland
-                                // where IDs might be identical for different apps)
-                                if !active_window_class.is_empty() {
-                                    last_window_class = active_window_class.clone();
-                                }
-                                daemon.engine.reset();
-                                daemon.replay_reset();
-
-                                if daemon.config.app_state.enabled {
-                                    let class = shared_window_class.lock().unwrap().clone();
-                                    let class = if class.is_empty() {
-                                        app_state::get_focused_window_class().unwrap_or_default()
-                                    } else {
-                                        class
-                                    };
-                                    daemon.check_app_change_with(class);
-                                }
-
-                                // Re-check password field status on window change
-                                if daemon.config.password_detection.enabled {
-                                    let is_pw = daemon.app_state.check_password_field();
-                                    if is_pw && daemon.engine.is_enabled() {
-                                        daemon.engine.set_enabled(false);
-                                        daemon.write_status();
-                                    }
-                                }
-                            } else if daemon.config.app_state.enabled {
-                                let class = shared_window_class.lock().unwrap().clone();
-                                if !class.is_empty() {
-                                    daemon.check_app_change_with(class);
-                                }
+                        if key == evdev::Key::KEY_BACKSPACE {
+                            if value == 1 || value == 2 {
+                                daemon.engine.process_key('\x08');
+                                injector.send_key_event(14, 1);
+                                injector.send_key_event(14, 0);
                             }
+                            consumed_keys.insert(keycode);
+                            continue;
+                        }
 
-                            // Periodic password re-check (every 30 keystrokes) —
-                            // catches in-terminal sudo prompts where the window
-                            // doesn't change but the focused widget becomes a
-                            // password field (detected via AT-SPI2).
-                            if daemon.config.password_detection.enabled {
-                                password_check_counter += 1;
-                                if password_check_counter >= 30 {
-                                    password_check_counter = 0;
-                                    let is_pw = daemon.app_state.check_password_field();
-                                    let currently_enabled = daemon.engine.is_enabled();
-                                    if is_pw && currently_enabled {
-                                        daemon.engine.set_enabled(false);
-                                        daemon.write_status();
-                                        log_info("[vietc] Password field detected (periodic) — engine disabled");
-                                    } else if !is_pw && !currently_enabled {
-                                        if daemon.app_state.get_default_state() {
-                                            daemon.engine.set_enabled(true);
-                                            daemon.write_status();
+                        if value == 1 {
+                            if consumed_keys.contains(&keycode) {
+                                consumed_keys.remove(&keycode);
+                            }
+                            if let Some(mut ch) = key_to_char(key) {
+                                let gap = last_key_time.elapsed();
+                                last_key_time = std::time::Instant::now();
+
+                                let active_window_id = shared_active_window.lock().unwrap().clone();
+                                let mut new_window = None;
+                                let active_window_class = shared_window_class.lock().unwrap().clone();
+
+                                if active_window_id != last_active_window {
+                                    new_window = Some(active_window_id.clone());
+                                } else if !active_window_class.is_empty()
+                                    && active_window_class != last_window_class
+                                {
+                                    new_window = Some(active_window_class.clone());
+                                } else {
+                                    if let Some(id) = app_state::get_active_window_id() {
+                                        if id != active_window_id {
+                                            new_window = Some(id);
                                         }
                                     }
                                 }
-                            }
 
-                            let shift = is_modifier_held_shift(&key_state);
-                            if ch.is_ascii_alphabetic() && (shift ^ caps) {
-                                ch = ch.to_ascii_uppercase();
-                            }
-                            let buf_before = daemon.engine.buffer().chars().count();
-                            let commands = daemon.process_key(ch);
-                            if !commands.is_empty() {
-                                log_info(&format!(
-                                    "[vietc] inject: engine={} ch='{}' buf={} cmds={:?}",
-                                    if daemon.engine.is_enabled() { "VN" } else { "EN" },
-                                    ch,
-                                    buf_before,
-                                    commands
-                                ));
-                                consumed_keys.insert(keycode);
-                                execute_commands(&*injector, &commands, false);
-                                // Flush chars: forward raw key after injection.
-                                // When engine is disabled (English mode), the Insert event
-                                // already contains the character — forwarding raw key
-                                // would double-inject (double space on Ctrl+Space toggle).
-                                if is_flush_char(ch) && daemon.engine.is_enabled() {
-                                    injector.send_key_event(keycode, 1);
-                                    injector.send_key_event(keycode, 0);
+                                if let Some(id) = new_window {
+                                    log_info(&format!(
+                                        "[vietc] Window changed: '{}' -> '{}' (gap={:?})",
+                                        last_active_window, id, gap
+                                    ));
+                                    last_active_window = id.clone();
+                                    if !active_window_class.is_empty() {
+                                        last_window_class = active_window_class.clone();
+                                    }
+                                    daemon.engine.reset();
+                                    daemon.replay_reset();
+
+                                    if daemon.config.app_state.enabled {
+                                        let class = shared_window_class.lock().unwrap().clone();
+                                        let class = if class.is_empty() {
+                                            app_state::get_focused_window_class().unwrap_or_default()
+                                        } else {
+                                            class
+                                        };
+                                        daemon.check_app_change_with(class);
+                                    }
+
+                                    if daemon.config.password_detection.enabled {
+                                        let is_pw = daemon.app_state.check_password_field();
+                                        if is_pw && daemon.engine.is_enabled() {
+                                            daemon.engine.set_enabled(false);
+                                            daemon.write_status();
+                                        }
+                                    }
+                                } else if daemon.config.app_state.enabled {
+                                    let class = shared_window_class.lock().unwrap().clone();
+                                    if !class.is_empty() {
+                                        daemon.check_app_change_with(class);
+                                    }
                                 }
-                                // Skip upcoming auto-repeat pile-up from injection delay
-                                skip_count = 3;
-                            } else if daemon.engine.is_enabled()
-                                && is_vn_control_key(daemon.app_state.effective_method(), ch)
-                                && daemon.engine.buffer().chars().count() <= buf_before
-                            {
-                                // Tone/mark key truly absorbed with no effect (no
-                                // literal character appended) — consume silently.
-                                // When the key is instead kept as a literal base
-                                // letter (e.g. leading "x", the "r" in "tr"), the
-                                // buffer grows and we must forward it like any
-                                // other character so it reaches the screen.
-                                consumed_keys.insert(keycode);
+
+                                if daemon.config.password_detection.enabled {
+                                    password_check_counter += 1;
+                                    if password_check_counter >= 30 {
+                                        password_check_counter = 0;
+                                        let is_pw = daemon.app_state.check_password_field();
+                                        let currently_enabled = daemon.engine.is_enabled();
+                                        if is_pw && currently_enabled {
+                                            daemon.engine.set_enabled(false);
+                                            daemon.write_status();
+                                            log_info("[vietc] Password field detected (periodic) — engine disabled");
+                                        } else if !is_pw && !currently_enabled {
+                                            if daemon.app_state.get_default_state() {
+                                                daemon.engine.set_enabled(true);
+                                                daemon.write_status();
+                                            }
+                                        }
+                                    }
+                                }
+
+                                let shift = is_modifier_held_shift(&key_state);
+                                if ch.is_ascii_alphabetic() && (shift ^ caps) {
+                                    ch = ch.to_ascii_uppercase();
+                                }
+                                let buf_before = daemon.engine.buffer().chars().count();
+                                let commands = daemon.process_key(ch);
+                                if !commands.is_empty() {
+                                    log_info(&format!(
+                                        "[vietc] inject: engine={} ch='{}' buf={} cmds={:?}",
+                                        if daemon.engine.is_enabled() { "VN" } else { "EN" },
+                                        ch,
+                                        buf_before,
+                                        commands
+                                    ));
+                                    consumed_keys.insert(keycode);
+                                    execute_commands(&*injector, &commands, false);
+                                    if is_flush_char(ch) && daemon.engine.is_enabled() {
+                                        injector.send_key_event(keycode, 1);
+                                        injector.send_key_event(keycode, 0);
+                                    }
+                                    skip_count = 3;
+                                } else if daemon.engine.is_enabled()
+                                    && is_vn_control_key(daemon.app_state.effective_method(), ch)
+                                    && daemon.engine.buffer().chars().count() <= buf_before
+                                {
+                                    consumed_keys.insert(keycode);
+                                } else {
+                                    injector.send_key_event(keycode, 1);
+                                }
                             } else {
                                 injector.send_key_event(keycode, 1);
                             }
-                        } else {
-                            injector.send_key_event(keycode, 1);
+                        } else if value == 2 {
+                            if consumed_keys.contains(&keycode) || skip_count > 0 {
+                                if skip_count > 0 { skip_count -= 1; }
+                                continue;
+                            }
+                            injector.send_key_event(keycode, 2);
+                        } else if value == 0 {
+                            if consumed_keys.contains(&keycode) {
+                                consumed_keys.remove(&keycode);
+                                continue;
+                            }
+                            injector.send_key_event(keycode, 0);
                         }
-                    } else if value == 2 {
-                        // Auto-repeat: skip if consumed or during injection drain
-                        if consumed_keys.contains(&keycode) || skip_count > 0 {
-                            if skip_count > 0 { skip_count -= 1; }
-                            continue;
-                        }
-                        injector.send_key_event(keycode, 2);
-                    } else if value == 0 {
-                        // Release: skip if consumed, else forward
-                        if consumed_keys.contains(&keycode) {
-                            consumed_keys.remove(&keycode);
-                            continue;
-                        }
-                        injector.send_key_event(keycode, 0);
                     }
                 }
             }
+
+            // Save updated key state back
+            device_states[i].0 = key_state;
         }
     }
 }
@@ -1554,10 +1683,10 @@ fn run_stdin_mode(
                 config_changed.store(false, Ordering::SeqCst);
             }
 
-            if let Ok((device, path)) = open_keyboard_device() {
-                log_info(&format!("[vietc] Keyboard device found: {}", path));
+            if let Ok(mut devices) = open_keyboard_devices() {
+                log_info(&format!("[vietc] Keyboard device(s) found: {}", devices.len()));
                 return run_with_evdev(
-                    device,
+                    &mut devices,
                     daemon,
                     shared_active_window,
                     shared_window_class,

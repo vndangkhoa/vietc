@@ -7,6 +7,26 @@ type Display = c_void;
 type Window = u64;
 type Atom = u64;
 type Time = u64;
+type KeySym = u64;
+
+#[repr(C)]
+struct XKeyEvent {
+    _type: c_int,
+    _serial: u64,
+    _send_event: c_int,
+    _display: *mut Display,
+    window: u64,
+    _root: u64,
+    _subwindow: u64,
+    _time: u64,
+    _x: c_int,
+    _y: c_int,
+    _x_root: c_int,
+    _y_root: c_int,
+    state: c_int,
+    keycode: u32,
+    _same_screen: c_int,
+}
 
 extern "C" {
     fn dlopen(filename: *const c_char, flag: c_int) -> *mut c_void;
@@ -40,6 +60,9 @@ struct X11Lib {
     x_destroy_window: unsafe extern "C" fn(*mut Display, Window) -> c_int,
     x_pending: unsafe extern "C" fn(*mut Display) -> c_int,
     x_next_event: unsafe extern "C" fn(*mut Display, *mut XEvent),
+    x_query_keymap: unsafe extern "C" fn(*mut Display, *mut c_char) -> c_int,
+    x_lookup_string: unsafe extern "C" fn(*const XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int,
+    x_utf8_lookup_string: Option<unsafe extern "C" fn(*mut c_void, *const XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int>,
 }
 
 impl X11Lib {
@@ -95,6 +118,12 @@ impl X11Lib {
             let x_destroy_window = sym!(x11_handle, "XDestroyWindow");
             let x_pending = sym!(x11_handle, "XPending");
             let x_next_event = sym!(x11_handle, "XNextEvent");
+            let x_query_keymap = sym!(x11_handle, "XQueryKeymap");
+            let x_lookup_string = sym!(x11_handle, "XLookupString");
+            let x_utf8_lookup_string = {
+                let p = dlsym(x11_handle, b"Xutf8LookupString\0".as_ptr() as *const c_char);
+                if p.is_null() { None } else { Some(std::mem::transmute(p)) }
+            };
             let x_test_fake_key_event = sym!(xtst_handle, "XTestFakeKeyEvent");
 
             Ok(Self {
@@ -114,6 +143,9 @@ impl X11Lib {
                 x_destroy_window,
                 x_pending,
                 x_next_event,
+                x_query_keymap,
+                x_lookup_string,
+                x_utf8_lookup_string,
             })
         }
     }
@@ -551,5 +583,111 @@ impl KeyInjector for X11Injector {
 
     fn update_pasted_text(&self, _text: &str) -> InjectResult {
         InjectResult::Success
+    }
+}
+
+/// X11 keymap-based capture: polls XQueryKeymap periodically to detect
+/// key presses/releases. No XRecord, no XGrabKeyboard — works on any X11
+/// system including VMs where evdev produces no events.
+pub struct X11KeymapCapture {
+    lib: X11Lib,
+    display: *mut Display,
+    prev_keys: [u8; 32],
+}
+
+unsafe impl Send for X11KeymapCapture {}
+
+impl X11KeymapCapture {
+    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let lib = X11Lib::new()?;
+        unsafe {
+            let display = (lib.x_open_display)(std::ptr::null());
+            if display.is_null() {
+                return Err("Cannot open X11 display".into());
+            }
+            Ok(Self {
+                lib,
+                display,
+                prev_keys: [0u8; 32],
+            })
+        }
+    }
+
+    /// Poll the current keymap and return any newly pressed or released keycodes.
+    /// Returns a Vec of (keycode_in_evdev_format, pressed) tuples.
+    /// X11 keycodes use offset 8 from evdev codes: evdev = x11 - 8.
+    pub fn poll(&mut self) -> Vec<(u32, bool)> {
+        let mut keys = [0u8; 32];
+        unsafe {
+            (self.lib.x_query_keymap)(self.display, keys.as_mut_ptr() as *mut c_char);
+        }
+
+        let mut events = Vec::new();
+        for i in 0..32 {
+            let changed = keys[i] ^ self.prev_keys[i];
+            if changed == 0 {
+                continue;
+            }
+            for bit in 0..8 {
+                if (changed >> bit) & 1 != 0 {
+                    let x11_keycode = (i * 8 + bit) as u32;
+                    let pressed = (keys[i] >> bit) & 1;
+                    // Convert from X11 keycode to evdev keycode (subtract 8)
+                    if x11_keycode >= 8 {
+                        events.push((x11_keycode - 8, pressed == 1));
+                    }
+                }
+            }
+        }
+        self.prev_keys = keys;
+        events
+    }
+
+    /// Convert an evdev keycode + modifier state to a character.
+    /// `state` is the X11 modifier bitmask (Shift=1, Lock=2, Ctrl=4, Mod1=8, etc.)
+    pub fn lookup_keycode(&self, keycode: u32, state: c_int) -> Option<char> {
+        let x11_keycode = keycode + 8;
+        unsafe {
+            let mut xke: XKeyEvent = std::mem::zeroed();
+            xke._type = 2; // KeyPress
+            xke._display = self.display;
+            xke.keycode = x11_keycode;
+            xke.state = state;
+
+            let mut buf = [0u8; 32];
+            let mut keysym: KeySym = 0;
+            let len = if let Some(xutf8) = self.lib.x_utf8_lookup_string {
+                xutf8(
+                    std::ptr::null_mut(),
+                    &mut xke as *mut XKeyEvent,
+                    buf.as_mut_ptr() as *mut c_char,
+                    buf.len() as c_int,
+                    &mut keysym,
+                    std::ptr::null_mut(),
+                )
+            } else {
+                (self.lib.x_lookup_string)(
+                    &mut xke as *mut XKeyEvent,
+                    buf.as_mut_ptr() as *mut c_char,
+                    buf.len() as c_int,
+                    &mut keysym,
+                    std::ptr::null_mut(),
+                )
+            };
+            if len > 0 {
+                let s = std::str::from_utf8(&buf[..len as usize]).ok()?;
+                s.chars().next()
+            } else {
+                None
+            }
+        }
+    }
+}
+
+impl Drop for X11KeymapCapture {
+    fn drop(&mut self) {
+        unsafe {
+            (self.lib.x_close_display)(self.display);
+        }
     }
 }
