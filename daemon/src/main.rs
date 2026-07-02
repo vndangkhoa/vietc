@@ -896,6 +896,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 capture,
                 &mut daemon,
                 shared_active_window,
+                shared_window_class,
                 config_changed,
                 status_changed,
                 engine_enabled,
@@ -993,6 +994,7 @@ fn run_with_x11(
     mut capture: X11Capture,
     daemon: &mut Daemon,
     shared_active_window: Arc<Mutex<String>>,
+    shared_window_class: Arc<Mutex<String>>,
     config_changed: Arc<AtomicBool>,
     status_changed: Arc<AtomicBool>,
     _engine_enabled: Arc<AtomicBool>,
@@ -1026,8 +1028,10 @@ fn run_with_x11(
         }
 
         if daemon.config.app_state.enabled {
-            let active_window = shared_active_window.lock().unwrap().clone();
-            daemon.check_app_change_with(active_window);
+            let class = shared_window_class.lock().unwrap().clone();
+            if !class.is_empty() {
+                daemon.check_app_change_with(class);
+            }
         }
 
         // Reset on focus loss (VMK technique)
