@@ -45,6 +45,7 @@ Viet+ eliminates all of this. Keystrokes are **instantly converted to Unicode** 
 | **Window-Switch Reset** | Engine clears automatically on Alt+Tab |
 | **CPU Priority** | Pinned to P-cores (0-3) + nice(-10) for low-latency input |
 | **Uinput Injection** | `/dev/uinput` for reliable injection on X11 and Wayland |
+| **Terminal Support** | ✅ Works in all major terminals: kitty, alacritty, gnome-terminal, konsole, foot, wezterm, st, urxvt, xterm |
 | **Password Auto-Detection** | 4 layers: AT-SPI2 → sudo process → window-title → window-class |
 | **Tray Icon** | Shows current mode: Red VN / Blue TLX / Gray EN |
 | **GNOME/Wayland** | Native GNOME Shell D-Bus integration |
@@ -211,6 +212,18 @@ enabled = true
 english_apps = ["code", "vim"]
 vietnamese_apps = ["telegram", "discord", "firefox"]
 bypass_apps = ["steam"]
+
+### Terminal Usage
+
+Viet+ works perfectly in terminals. When running inside a terminal (e.g., gnome-terminal, kitty), Vietnamese input is automatically enabled:
+
+```toml
+terminal_input_method = "vni"    # Automatically switch to VNI when running in a terminal app
+```
+
+Supported terminals: `kitty`, `alacritty`, `gnome-terminal`, `konsole`, `foot`, `wezterm`, `st`, `urxvt`, `xterm`
+
+Type Vietnamese directly — no pre-edit buffer, no underline, no duplication. Just type VNI or Telex digits and see Unicode characters instantly!
 terminal_apps = ["kitty", "alacritty", "gnome-terminal", "konsole", "foot",
   "wezterm", "st", "urxvt", "xterm"]
 terminal_input_method = "vni"
