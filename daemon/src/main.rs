@@ -1148,6 +1148,7 @@ fn run_with_evdev(
     let mut last_event_time = std::time::Instant::now();
     let mut last_key_time = std::time::Instant::now();
 
+    log_info("[vietc] Event loop started");
     loop {
         // Check for signal (Ctrl+C, SIGTERM) — release grab before exit
         if SIGNAL_EXIT.load(Ordering::SeqCst) {
@@ -1180,6 +1181,10 @@ fn run_with_evdev(
                     // SIGINT/SIGTERM received — loop back to signal check
                     continue;
                 }
+                log_info(&format!(
+                    "[vietc] fetch_events error (non-interrupted): {:?} — exiting",
+                    e
+                ));
                 return Err(e.into());
             }
         };
@@ -1399,6 +1404,13 @@ fn run_with_evdev(
                             let buf_before = daemon.engine.buffer().chars().count();
                             let commands = daemon.process_key(ch);
                             if !commands.is_empty() {
+                                log_info(&format!(
+                                    "[vietc] inject: engine={} ch='{}' buf={} cmds={:?}",
+                                    if daemon.engine.is_enabled() { "VN" } else { "EN" },
+                                    ch,
+                                    buf_before,
+                                    commands
+                                ));
                                 consumed_keys.insert(keycode);
                                 execute_commands(&*injector, &commands, false);
                                 // Flush chars: forward raw key after injection.
@@ -1411,7 +1423,8 @@ fn run_with_evdev(
                                 }
                                 // Skip upcoming auto-repeat pile-up from injection delay
                                 skip_count = 3;
-                            } else if is_vn_control_key(daemon.app_state.effective_method(), ch)
+                            } else if daemon.engine.is_enabled()
+                                && is_vn_control_key(daemon.app_state.effective_method(), ch)
                                 && daemon.engine.buffer().chars().count() <= buf_before
                             {
                                 // Tone/mark key truly absorbed with no effect (no
