@@ -1126,7 +1126,7 @@ fn run_with_evdev(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let injector = create_injector(display)?;
 
-    let grabbed = if daemon.grab_enabled {
+    let mut grabbed = if daemon.grab_enabled {
         match device.grab() {
             Ok(()) => {
                 log_info("[vietc] Keyboard grabbed — race condition eliminated");
@@ -1157,10 +1157,14 @@ fn run_with_evdev(
     // (catches in-terminal sudo prompts where window stays the same)
     let mut password_check_counter: u32 = 0;
 
-    // Safety: if grab is active and no events arrive for 30 seconds,
-    // release the grab so the user isn't locked out.
+    // Safety: if grab is active and no events arrive for 3 seconds,
+    // release the grab so the user isn't locked out, and continue in
+    // non-grabbed mode (events reach both X and the daemon; daemon
+    // applies backspace corrections via uinput).
     let mut last_event_time = std::time::Instant::now();
     let mut last_key_time = std::time::Instant::now();
+    // Track consecutive idle polls for fast grab fallback
+    let mut idle_polls: u32 = 0;
 
     log_info("[vietc] Event loop started");
     loop {
@@ -1174,13 +1178,17 @@ fn run_with_evdev(
             return Ok(());
         }
 
-        // Check for event timeout (grab safety)
-        if grabbed && last_event_time.elapsed() > std::time::Duration::from_secs(30) {
+        // Grab safety timeout: if the grabbed device produces no events
+        // (common in VMs where EVIOCGRAB breaks event delivery), release
+        // the grab after ~300ms idle and continue in non-grabbed mode
+        // where events reach both X and the daemon.
+        if grabbed && idle_polls >= 3 && last_event_time.elapsed() > std::time::Duration::from_millis(200) {
             log_info(
-                "[vietc] No events for 30s — releasing grab timeout, releasing grab for safety",
+                "[vietc] No events received via grab — releasing grab, continuing in non-grabbed evdev mode",
             );
             let _ = device.ungrab();
-            return Ok(());
+            grabbed = false;
+            continue;
         }
 
         // Poll evdev fd with 100ms timeout so the loop stays responsive
@@ -1204,6 +1212,7 @@ fn run_with_evdev(
             return Err(err.into());
         }
         if poll_ret == 0 {
+            idle_polls += 1;
             // No events available — check for background window changes even
             // without a keypress (the background thread polls every 250ms).
             if daemon.config.app_state.enabled {
@@ -1215,6 +1224,7 @@ fn run_with_evdev(
             }
             continue;
         }
+        idle_polls = 0;
 
         let caps = is_caps_lock_on(&device);
         let mut key_state = device
