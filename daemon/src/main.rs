@@ -142,6 +142,9 @@ impl Daemon {
             config.app_state.english_apps.clone(),
             config.app_state.vietnamese_apps.clone(),
             config.app_state.bypass_apps.clone(),
+            config.app_state.terminal_apps.clone(),
+            config.app_state.terminal_input_method.clone(),
+            config.input_method.clone(),
             config.start_enabled,
         );
         app_state.load_overrides();
@@ -189,17 +192,23 @@ impl Daemon {
     }
 
     fn toggle_method(&mut self) {
-        let new_method = match self.config.input_method.as_str() {
-            "vni" => InputMethod::Telex,
-            _ => InputMethod::Vni,
+        let new_global = match self.config.input_method.as_str() {
+            "vni" => "telex",
+            _ => "vni",
         };
-        self.config.input_method = match new_method {
-            InputMethod::Vni => "vni".into(),
-            InputMethod::Telex => "telex".into(),
+        self.config.input_method = new_global.into();
+        self.app_state.set_global_method(new_global);
+        let effective = self.app_state.effective_method();
+        let engine_method = match effective {
+            "vni" => InputMethod::Vni,
+            _ => InputMethod::Telex,
         };
-        self.engine.set_method(new_method);
+        self.engine.set_method(engine_method);
         self.write_method_status();
-        log_info(&format!("[vietc] Input method toggled to: {}", self.config.input_method));
+        log_info(&format!(
+            "[vietc] Input method toggled: global={}, effective={}",
+            self.config.input_method, effective
+        ));
     }
 
     fn sync_status_file(&mut self) {
@@ -226,11 +235,6 @@ impl Daemon {
 
         match Config::load_from(&self.config_path) {
             Ok(new_config) => {
-                let method = match new_config.input_method.as_str() {
-                    "vni" => InputMethod::Vni,
-                    _ => InputMethod::Telex,
-                };
-                self.engine.set_method(method);
                 self.engine
                     .set_auto_restore(new_config.auto_restore.enabled);
 
@@ -239,11 +243,22 @@ impl Daemon {
                     self.engine.add_macro(shortcut.clone(), expansion.clone());
                 }
 
+                self.app_state.set_global_method(&new_config.input_method);
                 self.app_state.update_lists(
                     new_config.app_state.english_apps.clone(),
                     new_config.app_state.vietnamese_apps.clone(),
                     new_config.app_state.bypass_apps.clone(),
+                    new_config.app_state.terminal_apps.clone(),
+                    new_config.app_state.terminal_input_method.clone(),
                 );
+
+                // Apply effective method (terminal override considered)
+                let effective = self.app_state.effective_method();
+                let engine_method = match effective {
+                    "vni" => InputMethod::Vni,
+                    _ => InputMethod::Telex,
+                };
+                self.engine.set_method(engine_method);
 
                 self.app_state.set_password_config(
                     new_config.password_detection.enabled,
@@ -464,6 +479,14 @@ impl Daemon {
             self.engine.set_enabled(should_enable);
             self.write_status();
         }
+        // Apply effective method (terminal override)
+        let effective = self.app_state.effective_method();
+        let engine_method = match effective {
+            "vni" => InputMethod::Vni,
+            _ => InputMethod::Telex,
+        };
+        // set_method also resets the engine buffer (safe — window already changed)
+        self.engine.set_method(engine_method);
     }
 }
 
@@ -1238,7 +1261,7 @@ fn run_with_evdev(
                     if let Some(ch) = key_to_char(key) {
                         let mut commands = daemon.process_key(ch);
                         if !commands.is_empty()
-                            && is_vn_control_key(&daemon.config.input_method, ch)
+                            && is_vn_control_key(daemon.app_state.effective_method(), ch)
                         {
                             for cmd in &mut commands {
                                 if let OutputCommand::Backspace(ref mut n) = cmd {
@@ -1388,7 +1411,7 @@ fn run_with_evdev(
                                 }
                                 // Skip upcoming auto-repeat pile-up from injection delay
                                 skip_count = 3;
-                            } else if is_vn_control_key(&daemon.config.input_method, ch)
+                            } else if is_vn_control_key(daemon.app_state.effective_method(), ch)
                                 && daemon.engine.buffer().chars().count() <= buf_before
                             {
                                 // Tone/mark key truly absorbed with no effect (no

@@ -109,7 +109,10 @@ password_apps = ["pinentry", "pinentry-gtk-2", "pinentry-qt", "kwallet"]
 enabled = true
 english_apps = ["code", "vim"]
 vietnamese_apps = ["telegram", "discord", "firefox"]
-bypass_apps = ["kitty", "alacritty", "steam"]
+bypass_apps = ["steam"]
+terminal_apps = ["kitty", "alacritty", "gnome-terminal", "konsole", "foot",
+  "wezterm", "st", "urxvt", "xterm"]
+terminal_input_method = "vni"
 EOF
 
 echo -e "${GREEN}=== Done! ===${NC}"

@@ -495,6 +495,14 @@ pub struct AppStateManager {
     vietnamese_apps: Vec<String>,
     /// Bypass apps from config
     bypass_apps: Vec<String>,
+    /// Terminal emulator class names (force VNI mode)
+    terminal_apps: Vec<String>,
+    /// Input method forced in terminals
+    terminal_input_method: String,
+    /// User's global input method (VNI/Telex)
+    global_method: String,
+    /// Effective method after terminal override
+    effective_method: String,
     /// Global enabled state
     global_enabled: bool,
     /// Password detection config
@@ -514,14 +522,27 @@ impl AppStateManager {
         english_apps: Vec<String>,
         vietnamese_apps: Vec<String>,
         bypass_apps: Vec<String>,
+        terminal_apps: Vec<String>,
+        terminal_input_method: String,
+        global_method: String,
         global_enabled: bool,
     ) -> Self {
+        let effective_method = Self::compute_effective_method(
+            &global_method,
+            &terminal_input_method,
+            &terminal_apps,
+            "",
+        );
         Self {
             current_app: String::new(),
             overrides: HashMap::new(),
             english_apps: english_apps.iter().map(|s| s.to_lowercase()).collect(),
             vietnamese_apps: vietnamese_apps.iter().map(|s| s.to_lowercase()).collect(),
             bypass_apps: bypass_apps.iter().map(|s| s.to_lowercase()).collect(),
+            terminal_apps: terminal_apps.iter().map(|s| s.to_lowercase()).collect(),
+            terminal_input_method,
+            global_method,
+            effective_method,
             global_enabled,
             password_enabled: false,
             check_atspi2: true,
@@ -531,6 +552,22 @@ impl AppStateManager {
             password_detector: PasswordDetector::new(),
             is_password_field: false,
         }
+    }
+
+    /// Compute effective method: use terminal override if current_app is a terminal,
+    /// otherwise use the global method.
+    fn compute_effective_method(
+        global_method: &str,
+        terminal_method: &str,
+        terminal_apps: &[String],
+        current_app: &str,
+    ) -> String {
+        for pattern in terminal_apps {
+            if current_app.contains(pattern.as_str()) {
+                return terminal_method.to_string();
+            }
+        }
+        global_method.to_string()
     }
 
     /// Update password detection config
@@ -547,6 +584,48 @@ impl AppStateManager {
         self.check_window_title = check_window_title;
         self.title_keywords = title_keywords.iter().map(|s| s.to_lowercase()).collect();
         self.password_apps = password_apps.iter().map(|s| s.to_lowercase()).collect();
+    }
+
+    /// Update terminal detection config
+    pub fn set_terminal_config(
+        &mut self,
+        terminal_apps: Vec<String>,
+        terminal_input_method: String,
+    ) {
+        self.terminal_apps = terminal_apps.iter().map(|s| s.to_lowercase()).collect();
+        self.terminal_input_method = terminal_input_method;
+        self.update_effective_method();
+    }
+
+    /// Set the user's global input method and recompute effective method
+    pub fn set_global_method(&mut self, method: &str) {
+        self.global_method = method.to_string();
+        self.update_effective_method();
+    }
+
+    /// Recompute effective method based on terminal override
+    pub fn update_effective_method(&mut self) {
+        self.effective_method = Self::compute_effective_method(
+            &self.global_method,
+            &self.terminal_input_method,
+            &self.terminal_apps,
+            &self.current_app,
+        );
+    }
+
+    /// Get the effective input method (terminal override applied)
+    pub fn effective_method(&self) -> &str {
+        &self.effective_method
+    }
+
+    /// Check if the current app is a terminal emulator
+    pub fn is_terminal_app(&self) -> bool {
+        for pattern in &self.terminal_apps {
+            if self.current_app.contains(pattern.as_str()) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Check if the current focused widget is a password field
@@ -615,12 +694,22 @@ impl AppStateManager {
         }
 
         let old_app = self.current_app.clone();
+        let old_is_terminal = self.is_terminal_app();
         self.current_app = new_class;
 
         eprintln!("[vietc] App: {} → {}", old_app, self.current_app);
 
+        // Recompute effective method on window change
+        self.update_effective_method();
+        let new_is_terminal = self.is_terminal_app();
+        let method_changed = old_is_terminal != new_is_terminal;
+
         let should_enable = self.get_default_state();
-        Some(should_enable)
+        if method_changed {
+            Some(should_enable) // signal caller that method might have changed
+        } else {
+            Some(should_enable)
+        }
     }
 
     /// Get the default Vietnamese state for the current app
@@ -680,15 +769,21 @@ impl AppStateManager {
         english_apps: Vec<String>,
         vietnamese_apps: Vec<String>,
         bypass_apps: Vec<String>,
+        terminal_apps: Vec<String>,
+        terminal_input_method: String,
     ) -> &Self {
         self.english_apps = english_apps.iter().map(|s| s.to_lowercase()).collect();
         self.vietnamese_apps = vietnamese_apps.iter().map(|s| s.to_lowercase()).collect();
         self.bypass_apps = bypass_apps.iter().map(|s| s.to_lowercase()).collect();
+        self.terminal_apps = terminal_apps.iter().map(|s| s.to_lowercase()).collect();
+        self.terminal_input_method = terminal_input_method;
+        self.update_effective_method();
         eprintln!(
-            "[vietc] App lists updated: {} English, {} Vietnamese, {} Bypass",
+            "[vietc] App lists updated: {} English, {} Vietnamese, {} Bypass, {} Terminal",
             self.english_apps.len(),
             self.vietnamese_apps.len(),
-            self.bypass_apps.len()
+            self.bypass_apps.len(),
+            self.terminal_apps.len()
         );
         self
     }

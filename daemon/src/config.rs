@@ -94,6 +94,12 @@ pub struct AppStateConfig {
 
     #[serde(default = "default_bypass_apps")]
     pub bypass_apps: Vec<String>,
+
+    #[serde(default = "default_terminal_apps")]
+    pub terminal_apps: Vec<String>,
+
+    #[serde(default = "default_terminal_method")]
+    pub terminal_input_method: String,
 }
 
 impl Default for AutoRestoreConfig {
@@ -112,6 +118,8 @@ impl Default for AppStateConfig {
             english_apps: default_english_apps(),
             vietnamese_apps: default_vietnamese_apps(),
             bypass_apps: default_bypass_apps(),
+            terminal_apps: default_terminal_apps(),
+            terminal_input_method: default_terminal_method(),
         }
     }
 }
@@ -176,6 +184,16 @@ fn default_english_apps() -> Vec<String> {
 
 fn default_bypass_apps() -> Vec<String> {
     vec![
+        "steam".into(),
+        "dota".into(),
+        "csgo".into(),
+        "minecraft".into(),
+        "factorio".into(),
+    ]
+}
+
+fn default_terminal_apps() -> Vec<String> {
+    vec![
         "terminal".into(),
         "kitty".into(),
         "alacritty".into(),
@@ -183,15 +201,24 @@ fn default_bypass_apps() -> Vec<String> {
         "wezterm".into(),
         "konsole".into(),
         "gnome-terminal".into(),
+        "gnome-terminal-server".into(),
+        "kgx".into(),
         "st".into(),
         "urxvt".into(),
         "xterm".into(),
-        "steam".into(),
-        "dota".into(),
-        "csgo".into(),
-        "minecraft".into(),
-        "factorio".into(),
+        "termite".into(),
+        "terminator".into(),
+        "tilix".into(),
+        "deepin-terminal".into(),
+        "pantheon-terminal".into(),
+        "blackbox".into(),
+        "contour".into(),
+        "cool-retro-term".into(),
     ]
+}
+
+fn default_terminal_method() -> String {
+    "vni".into()
 }
 
 fn default_vietnamese_apps() -> Vec<String> {
@@ -393,12 +420,16 @@ foo = "bar"
 [app_state]
 english_apps = ["vim", "neovim"]
 vietnamese_apps = ["zalo", "messenger"]
-bypass_apps = ["kitty"]
+bypass_apps = ["steam"]
+terminal_apps = ["kitty"]
+terminal_input_method = "telex"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.app_state.english_apps, vec!["vim", "neovim"]);
         assert_eq!(config.app_state.vietnamese_apps, vec!["zalo", "messenger"]);
-        assert_eq!(config.app_state.bypass_apps, vec!["kitty"]);
+        assert_eq!(config.app_state.bypass_apps, vec!["steam"]);
+        assert_eq!(config.app_state.terminal_apps, vec!["kitty"]);
+        assert_eq!(config.app_state.terminal_input_method, "telex");
     }
 
     #[test]
@@ -420,11 +451,31 @@ bypass_apps = ["kitty"]
     #[test]
     fn default_config_bypass_apps() {
         let config = Config::default();
-        assert!(config.app_state.bypass_apps.contains(&"kitty".to_string()));
-        assert!(config
+        assert!(config.app_state.bypass_apps.contains(&"steam".to_string()));
+        assert!(!config
             .app_state
             .bypass_apps
-            .contains(&"alacritty".to_string()));
+            .contains(&"kitty".to_string()));
+    }
+
+    #[test]
+    fn default_config_terminal_apps() {
+        let config = Config::default();
+        assert!(config.app_state.terminal_apps.contains(&"kitty".to_string()));
+        assert!(config.app_state.terminal_apps.contains(&"gnome-terminal".to_string()));
+        assert_eq!(config.app_state.terminal_input_method, "vni");
+    }
+
+    #[test]
+    fn parse_terminal_config() {
+        let toml = r#"
+[app_state]
+terminal_apps = ["foot", "alacritty"]
+terminal_input_method = "telex"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.app_state.terminal_apps, vec!["foot", "alacritty"]);
+        assert_eq!(config.app_state.terminal_input_method, "telex");
     }
 
     #[test]
