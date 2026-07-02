@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 use std::collections::HashSet;
 use std::fs;
+use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -1167,6 +1168,39 @@ fn run_with_evdev(
             );
             let _ = device.ungrab();
             return Ok(());
+        }
+
+        // Poll evdev fd with 100ms timeout so the loop stays responsive
+        // even when no keyboard events arrive (e.g. VM doesn't route input
+        // through the grabbed device).
+        let mut pfd = libc::pollfd {
+            fd: device.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let poll_ret = unsafe { libc::poll(&mut pfd, 1, 100) };
+        if poll_ret < 0 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            log_info(&format!(
+                "[vietc] poll error on evdev fd: {:?} — exiting",
+                err
+            ));
+            return Err(err.into());
+        }
+        if poll_ret == 0 {
+            // No events available — check for background window changes even
+            // without a keypress (the background thread polls every 250ms).
+            if daemon.config.app_state.enabled {
+                let class = shared_window_class.lock().unwrap().clone();
+                if !class.is_empty() && class != last_window_class {
+                    last_window_class = class.clone();
+                    daemon.check_app_change_with(last_window_class.clone());
+                }
+            }
+            continue;
         }
 
         let caps = is_caps_lock_on(&device);
