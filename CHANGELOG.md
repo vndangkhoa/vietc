@@ -1,5 +1,9 @@
 # Changelog
 
+<p align="center">
+  <a href="CHANGELOG.vi.md">Tiếng Việt</a>
+</p>
+
 ## Unreleased
 
 ### Distro Support

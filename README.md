@@ -18,6 +18,10 @@
   <sub>Zero underline &bull; No pre-edit buffer &bull; Backspace-Replay sync &bull; Built in Rust</sub>
 </p>
 
+<p align="center">
+  <a href="README.vi.md">Tiếng Việt</a>
+</p>
+
 ---
 
 ## What is Viet+?
