@@ -1412,13 +1412,6 @@ fn run_with_evdev(
         }
         idle_polls = 0;
 
-        if !grabbed {
-            log_info(&format!(
-                "[vietc] evdev: {} device(s) have events after ungrab",
-                pfds.iter().filter(|p| (p.revents & libc::POLLIN) != 0).count()
-            ));
-        }
-
         // Check for status changes instantly
         if status_changed.load(Ordering::SeqCst) {
             daemon.sync_status_file();
@@ -1441,8 +1434,8 @@ fn run_with_evdev(
             let caps = device_states[i].1;
             let mut key_state = std::mem::take(&mut device_states[i].0);
 
-            let events = match device.fetch_events() {
-                Ok(events) => events,
+            let event_list = match device.fetch_events() {
+                Ok(events) => events.collect::<Vec<_>>(),
                 Err(e) => {
                     if e.kind() == std::io::ErrorKind::Interrupted {
                         continue;
@@ -1456,9 +1449,17 @@ fn run_with_evdev(
             };
             last_event_time = std::time::Instant::now();
 
+            // Collect all EV_KEY keycodes first so we can skip redundant MSC_SCAN events
+            let mut key_processed: HashSet<u16> = HashSet::new();
+            for event in &event_list {
+                if event.event_type() == evdev::EventType::KEY {
+                    key_processed.insert(event.code());
+                }
+            }
+
             // Cache last MSC_SCAN keycode (VM workaround: some VMs emit EV_MSC instead of EV_KEY)
             let mut last_msc_code: Option<u16> = None;
-            for event in events {
+            for event in event_list {
                 let ev_type = event.event_type();
                 let ev_code = event.code();
                 let ev_value = event.value();
@@ -1473,14 +1474,17 @@ fn run_with_evdev(
                 let (keycode_val, value) = if is_key {
                     (ev_code, ev_value)
                 } else {
-                    // MSC_SCAN contains Linux keycode in value. MSC events come in
-                    // pairs: first = press, second = release (same value).
+                    // MSC_SCAN contains Linux keycode in value.
+                    // Skip if this keycode was already processed as EV_KEY.
+                    let scan_code = ev_value as u16;
+                    if key_processed.contains(&scan_code) {
+                        continue;
+                    }
                     let is_press = last_msc_code.map_or(true, |prev| prev != ev_code);
                     last_msc_code = Some(ev_code);
                     if !is_press {
                         continue;
                     }
-                    // Extract Linux keycode from MSC_SCAN value; treat as press
                     let code = if ev_value >= 0 && ev_value <= KEY_MAX as i32 {
                         ev_value as u16
                     } else {
