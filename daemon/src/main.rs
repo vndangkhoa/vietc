@@ -1309,12 +1309,12 @@ fn run_with_evdev(
     _engine_enabled: Arc<AtomicBool>,
     display: display::DisplayServer,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut injector = create_injector(display)?;
+    let injector = create_injector(display)?;
 
     // Use the first device for grab (only one device can be grabbed at a time)
     let primary_idx = 0usize;
-    let mut grabbed = if daemon.grab_enabled && !devices.is_empty() {
-        match devices[primary_idx].0.grab() {
+    let mut grabbed = match devices.first() {
+        Some(_) if daemon.grab_enabled => match devices[primary_idx].0.grab() {
             Ok(()) => {
                 log_info("[vietc] Keyboard grabbed — race condition eliminated");
                 true
@@ -1324,27 +1324,28 @@ fn run_with_evdev(
                     "[vietc] Could not grab keyboard: {} (run as root for grab)",
                     e
                 ));
-                log_info("[vietc] Falling back to non-grabbing mode (may have race)");
+                // On X11, fall through to keymap capture instead of non-grabbed evdev
+                #[cfg(feature = "x11")]
+                if display != display::DisplayServer::Wayland {
+                    log_info("[vietc] X11 detected — trying X11 keymap capture");
+                    return Ok(());
+                }
+                log_info("[vietc] Falling back to non-grabbing evdev mode (may have race)");
                 false
             }
+        },
+        _ => {
+            log_info("[vietc] No keyboard devices available for grab");
+            false
         }
-    } else {
-        if !daemon.grab_enabled {
-            log_info("[vietc] Keyboard grab disabled (config grab = false)");
-            log_info("[vietc] Set grab = true in vietc.toml to enable (needs root)");
-        }
-        false
     };
 
-    // Non-grabbed on X11: use XTest injection for fast, synchronous correction
-    if !grabbed {
-        #[cfg(feature = "x11")]
-        if display != display::DisplayServer::Wayland {
-            if let Ok(x11_inj) = vietc_protocol::x11_inject::X11Injector::new() {
-                injector = Box::new(x11_inj);
-                log_info("[vietc] Non-grabbed: using X11 injection (faster than uinput)");
-            }
-        }
+    // On X11 without evdev grab, use keymap capture instead of non-grabbed evdev.
+    // Reason: XTest backspace events feed back into evdev, corrupting the engine.
+    #[cfg(feature = "x11")]
+    if !grabbed && display != display::DisplayServer::Wayland {
+        log_info("[vietc] X11 without evdev grab — switching to X11 keymap capture");
+        return Ok(());
     }
 
     let mut consumed_keys: HashSet<u16> = HashSet::new();
@@ -1379,20 +1380,18 @@ fn run_with_evdev(
         }
 
         if grabbed && idle_polls >= 3 && last_event_time.elapsed() > std::time::Duration::from_millis(200) {
+            #[cfg(feature = "x11")]
+            if display != display::DisplayServer::Wayland {
+                log_info("[vietc] No events via grab on X11 — exiting evdev for X11 keymap capture");
+                let _ = devices[primary_idx].0.ungrab();
+                return Ok(());
+            }
             log_info(
                 "[vietc] No events received via grab — releasing grab, continuing in non-grabbed evdev mode",
             );
             let _ = devices[primary_idx].0.ungrab();
             grabbed = false;
             log_info("[vietc] Non-grabbed mode: polling all evdev devices for keystrokes");
-            // Switch to XTest injection for fast synchronous non-grabbed correction
-            #[cfg(feature = "x11")]
-            if display != display::DisplayServer::Wayland {
-                if let Ok(x11_inj) = vietc_protocol::x11_inject::X11Injector::new() {
-                    injector = Box::new(x11_inj);
-                    log_info("[vietc] Non-grabbed: using X11 injection (faster than uinput)");
-                }
-            }
             continue;
         }
 
