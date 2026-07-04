@@ -267,12 +267,12 @@ vietc/
 ## Lộ trình phát triển
 
 ### Phiên bản v0.1.8
-- Hỗ trợ giao thức nhập liệu Wayland (`zwp_input_method_v2`) — loại bỏ việc dùng clipboard và tranh chấp Backspace, khắc phục triệt để lỗi mất khoảng trắng.
-- Cơ chế giám sát tiêu điểm AT-SPI2 hướng sự kiện (đăng ký nhận sự kiện tiêu điểm từ a11y thay vì liên tục truy vấn).
+- [ ] Hỗ trợ giao thức nhập liệu Wayland (`zwp_input_method_v2`) — loại bỏ việc dùng clipboard và tranh chấp Backspace, khắc phục triệt để lỗi mất khoảng trắng.
+- [ ] Cơ chế giám sát tiêu điểm AT-SPI2 hướng sự kiện (đăng ký nhận sự kiện tiêu điểm từ a11y thay vì liên tục truy vấn).
 
 ### Phiên bản v0.1.9
-- Tự động hóa việc đóng gói tệp tin `.deb` bằng GitHub Actions CI.
-- Khôi phục hỗ trợ Flatpak cho các hệ điều hành bất biến (immutable distros).
+- [ ] Tự động hóa việc đóng gói tệp tin `.deb` bằng GitHub Actions CI.
+- [ ] Khôi phục hỗ trợ Flatpak cho các hệ điều hành bất biến (immutable distros).
 
 ---
 
