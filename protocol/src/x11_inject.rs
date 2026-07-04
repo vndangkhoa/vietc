@@ -417,10 +417,10 @@ impl X11Injector {
         // (unlikely at this point, but be safe)
         self.handle_pending_events();
 
-        // Send backspaces via XTest (X11 keycode 22 = backspace)
+        // Send backspaces via XTest (evdev 14 = KEY_BACKSPACE → X11 22)
         if backspaces > 0 {
             for _ in 0..backspaces {
-                self.send_keycode(22, false);
+                self.send_keycode(14, false);
             }
         }
 
@@ -523,7 +523,7 @@ impl KeyInjector for X11Injector {
     }
 
     fn send_backspace(&self) -> InjectResult {
-        self.send_keycode(22, false); // X11 keycode 22 = backspace
+        self.send_keycode(14, false); // evdev 14 = KEY_BACKSPACE → X11 22
         InjectResult::Success
     }
 
