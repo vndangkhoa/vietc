@@ -197,6 +197,10 @@ toggle_method_key = "shift"     # Ctrl+Shift to toggle VNI/Telex
 start_enabled = true            # Vietnamese by default
 grab = true                     # grab keyboard (evdev)
 
+[auto_restore]
+enabled = false                 # Auto-restore English words (defaults to false)
+trigger_keys = ["space", "escape"]
+
 [password_detection]
 enabled = true
 check_atspi2 = true
@@ -212,27 +216,23 @@ enabled = true
 english_apps = ["code", "vim"]
 vietnamese_apps = ["telegram", "discord", "firefox"]
 bypass_apps = ["steam"]
-
-### Terminal Usage
-
-Viet+ works perfectly in terminals. When running inside a terminal (e.g., gnome-terminal, kitty), Vietnamese input is automatically enabled:
-
-```toml
-terminal_input_method = "vni"    # Automatically switch to VNI when running in a terminal app
-```
-
-Supported terminals: `kitty`, `alacritty`, `gnome-terminal`, `konsole`, `foot`, `wezterm`, `st`, `urxvt`, `xterm`
-
-Type Vietnamese directly — no pre-edit buffer, no underline, no duplication. Just type VNI or Telex digits and see Unicode characters instantly!
 terminal_apps = ["kitty", "alacritty", "gnome-terminal", "konsole", "foot",
   "wezterm", "st", "urxvt", "xterm"]
-terminal_input_method = "vni"
+terminal_input_method = "vni"   # Automatically switch to VNI when running in a terminal app
 
 [macros]
 ko = "không"
 dc = "được"
 vs = "với"
 ```
+
+### Terminal Usage
+
+Viet+ works perfectly in terminals. When running inside a terminal (e.g., gnome-terminal, kitty), Vietnamese input is automatically enabled using the input method specified by `terminal_input_method` under `[app_state]`.
+
+Supported terminals: `kitty`, `alacritty`, `gnome-terminal`, `konsole`, `foot`, `wezterm`, `st`, `urxvt`, `xterm`
+
+Type Vietnamese directly — no pre-edit buffer, no underline, no duplication. Just type VNI or Telex digits and see Unicode characters instantly!
 
 ---
 
