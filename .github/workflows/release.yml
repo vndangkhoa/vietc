@@ -1,0 +1,29 @@
+name: Release
+on:
+  push:
+    tags:
+      - 'v*'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential pkg-config libx11-dev libxtst-dev \
+            libdbus-1-dev libevdev-dev libwayland-dev
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build binaries
+        run: |
+          cargo build --release
+          (cd ui && cargo build --release)
+          gcc -O2 -o target/release/vietc-xrecord packaging/deb/vietc-xrecord.c -lX11 -lXtst
+      - name: Package tarball
+        run: bash packaging/build-tarball.sh
+      - name: Upload tarball to release
+        run: |
+          gh release upload "${{ github.ref_name }}" target/dist/*.tar.gz
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

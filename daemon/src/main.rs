@@ -495,6 +495,8 @@ enum OutputCommand {
     Backspace(usize),
 }
 
+const KEY_MAX: u32 = 0x1ff;
+
 /// Characters that flush the current word and start a new one.
 fn is_flush_char(ch: char) -> bool {
     matches!(ch, ' ' | '.' | ',' | '!' | '?' | ';' | ':' | '\t' | '\n')
@@ -1280,6 +1282,17 @@ fn run_with_x11_keymap(
                         commands.push(OutputCommand::Type(buf_after));
                     }
                 }
+                // X11 capture: the VNI/Telex control key character reached
+                // the app directly. Add 1 extra backspace to remove it.
+                if !commands.is_empty()
+                    && is_vn_control_key(daemon.app_state.effective_method(), ch)
+                {
+                    for cmd in &mut commands {
+                        if let OutputCommand::Backspace(ref mut n) = cmd {
+                            *n += 1;
+                        }
+                    }
+                }
                 execute_commands(&*injector, &commands, false);
             }
         }
@@ -1443,12 +1456,40 @@ fn run_with_evdev(
             };
             last_event_time = std::time::Instant::now();
 
-            let mut non_key_logged = 0u32;
+            // Cache last MSC_SCAN keycode (VM workaround: some VMs emit EV_MSC instead of EV_KEY)
+            let mut last_msc_code: Option<u16> = None;
             for event in events {
-                match event.kind() {
-                    evdev::InputEventKind::Key(key) => {
-                    let value = event.value();
-                    let keycode = key.0;
+                let ev_type = event.event_type();
+                let ev_code = event.code();
+                let ev_value = event.value();
+
+                // Handle both EV_KEY (normal) and EV_MSC/MSC_SCAN (VM fallback)
+                let is_key = ev_type == evdev::EventType::KEY;
+                let is_msc_key = !is_key && ev_type == evdev::EventType::MISC && ev_code == 4;
+                if !is_key && !is_msc_key {
+                    continue;
+                }
+
+                let (keycode_val, value) = if is_key {
+                    (ev_code, ev_value)
+                } else {
+                    // MSC_SCAN contains Linux keycode in value. MSC events come in
+                    // pairs: first = press, second = release (same value).
+                    let is_press = last_msc_code.map_or(true, |prev| prev != ev_code);
+                    last_msc_code = Some(ev_code);
+                    if !is_press {
+                        continue;
+                    }
+                    // Extract Linux keycode from MSC_SCAN value; treat as press
+                    let code = if ev_value >= 0 && ev_value <= KEY_MAX as i32 {
+                        ev_value as u16
+                    } else {
+                        continue;
+                    };
+                    (code, 1i32)
+                };
+                let keycode = keycode_val;
+                let key = evdev::Key(keycode);
 
                     // Update key state dynamically
                     if value == 1 {
@@ -1694,19 +1735,6 @@ fn run_with_evdev(
                             }
                             injector.send_key_event(keycode, 0);
                         }
-                    }
-                    }
-                    _ => {
-                        if non_key_logged < 5 {
-                            log_info(&format!(
-                                "[vietc] evdev: non-key event type={:?} code={} value={}",
-                                event.event_type(),
-                                event.code(),
-                                event.value()
-                            ));
-                            non_key_logged += 1;
-                        }
-                    }
                 }
             }
 

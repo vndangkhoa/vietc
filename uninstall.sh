@@ -38,7 +38,12 @@ rm -f /usr/share/icons/hicolor/256x256/apps/vietc*.svg
 rm -f /usr/share/applications/vietc.desktop
 rm -f /etc/xdg/autostart/vietc-tray.desktop
 
-# Reload
+# Reload udev
 udevadm control --reload-rules 2>/dev/null || true
+
+# Reload systemd user daemon
+if command -v systemctl &>/dev/null; then
+    systemctl --global daemon-reload 2>/dev/null || true
+fi
 
 echo -e "${GREEN}=== Viet+ removed ===${NC}"
