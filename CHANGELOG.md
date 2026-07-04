@@ -15,7 +15,7 @@
 
 ### Documentation
 
-- **Roadmap section** added to README (v0.1.8: Wayland IM protocol, event-based AT-SPI2; v0.1.9: CI, Flatpak).
+- **Roadmap section** added to README (v0.1.19: Wayland IM protocol, event-based AT-SPI2; v0.1.20: CI, Flatpak).
 - **RELEASE_CHECKLIST.md** removed (process now documented in the release commit messages).
 
 ---
