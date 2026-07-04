@@ -1309,7 +1309,7 @@ fn run_with_evdev(
     _engine_enabled: Arc<AtomicBool>,
     display: display::DisplayServer,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let injector = create_injector(display)?;
+    let mut injector = create_injector(display)?;
 
     // Use the first device for grab (only one device can be grabbed at a time)
     let primary_idx = 0usize;
@@ -1335,6 +1335,17 @@ fn run_with_evdev(
         }
         false
     };
+
+    // Non-grabbed on X11: use XTest injection for fast, synchronous correction
+    if !grabbed {
+        #[cfg(feature = "x11")]
+        if display != display::DisplayServer::Wayland {
+            if let Ok(x11_inj) = vietc_protocol::x11_inject::X11Injector::new() {
+                injector = Box::new(x11_inj);
+                log_info("[vietc] Non-grabbed: using X11 injection (faster than uinput)");
+            }
+        }
+    }
 
     let mut consumed_keys: HashSet<u16> = HashSet::new();
     let mut last_active_window = String::new();
@@ -1374,6 +1385,14 @@ fn run_with_evdev(
             let _ = devices[primary_idx].0.ungrab();
             grabbed = false;
             log_info("[vietc] Non-grabbed mode: polling all evdev devices for keystrokes");
+            // Switch to XTest injection for fast synchronous non-grabbed correction
+            #[cfg(feature = "x11")]
+            if display != display::DisplayServer::Wayland {
+                if let Ok(x11_inj) = vietc_protocol::x11_inject::X11Injector::new() {
+                    injector = Box::new(x11_inj);
+                    log_info("[vietc] Non-grabbed: using X11 injection (faster than uinput)");
+                }
+            }
             continue;
         }
 
