@@ -34,7 +34,7 @@ install_runtime_deps() {
         fedora|rhel|centos)
             dnf install -y libevdev libX11 libXtst dbus-libs libwayland-client xclip wl-clipboard curl
             ;;
-        arch|manjaro)
+        arch|manjaro|cachyos|endeavouros|garuda|artix)
             pacman -Sy --needed --noconfirm libevdev libx11 libxtst dbus \
               libwayland xclip wl-clipboard curl
             ;;
@@ -163,7 +163,11 @@ EOF
 # User setup
 INSTALLING_USER="${SUDO_USER:-$USER}"
 if [ -n "$INSTALLING_USER" ] && [ "$INSTALLING_USER" != "root" ]; then
-    adduser "$INSTALLING_USER" input 2>/dev/null || true
+    if command -v usermod &>/dev/null; then
+        usermod -aG input "$INSTALLING_USER" 2>/dev/null || true
+    elif command -v adduser &>/dev/null; then
+        adduser "$INSTALLING_USER" input 2>/dev/null || true
+    fi
     rm -f "$(getent passwd "$INSTALLING_USER" | cut -d: -f6)/.config/vietc/config.toml" 2>/dev/null || true
 fi
 
