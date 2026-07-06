@@ -559,7 +559,22 @@ impl UinputInjector {
         }
     }
 
-    /// Send Ctrl+V through our uinput device.
+    /// Force-release all modifier keys so the next injected character
+    /// is never accidentally combined with a stuck modifier (Chrome, etc.).
+    fn clear_modifiers(&self) {
+        for code in &[29, 97,   // L/R Ctrl
+                      42, 54,  // L/R Shift
+                      56, 100, // L/R Alt
+                      125, 126] // L/R Meta (Win)
+        {
+            self.send_uinput_event(EV_KEY, *code, 0);
+        }
+        self.send_uinput_event(0, 0, 0); // SYN
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+
+    /// Send Ctrl+V through our uinput device, with a forced modifier clear
+    /// afterwards so apps (Chrome, etc.) never see a stuck Ctrl key.
     fn send_ctrl_v(&self) {
         let is_terminal = {
             let st = self.clip.inner.lock().unwrap();
@@ -568,42 +583,43 @@ impl UinputInjector {
         };
 
         if is_terminal {
-            // Send Ctrl+Shift+V
             self.send_uinput_event(EV_KEY, 29, 1); // KEY_LEFTCTRL press
             self.send_uinput_event(EV_KEY, 42, 1); // KEY_LEFTSHIFT press
             self.send_uinput_event(0, 0, 0); // SYN
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            std::thread::sleep(std::time::Duration::from_millis(3));
 
             self.send_uinput_event(EV_KEY, 47, 1); // KEY_V press
             self.send_uinput_event(0, 0, 0); // SYN
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            std::thread::sleep(std::time::Duration::from_millis(3));
 
             self.send_uinput_event(EV_KEY, 47, 0); // KEY_V release
             self.send_uinput_event(0, 0, 0); // SYN
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            std::thread::sleep(std::time::Duration::from_millis(3));
 
             self.send_uinput_event(EV_KEY, 42, 0); // KEY_LEFTSHIFT release
             self.send_uinput_event(EV_KEY, 29, 0); // KEY_LEFTCTRL release
             self.send_uinput_event(0, 0, 0); // SYN
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            std::thread::sleep(std::time::Duration::from_millis(3));
         } else {
-            // Send Ctrl+V
             self.send_uinput_event(EV_KEY, 29, 1); // KEY_LEFTCTRL press
             self.send_uinput_event(0, 0, 0); // SYN
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            std::thread::sleep(std::time::Duration::from_millis(3));
 
             self.send_uinput_event(EV_KEY, 47, 1); // KEY_V press
             self.send_uinput_event(0, 0, 0); // SYN
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            std::thread::sleep(std::time::Duration::from_millis(3));
 
             self.send_uinput_event(EV_KEY, 47, 0); // KEY_V release
             self.send_uinput_event(0, 0, 0); // SYN
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            std::thread::sleep(std::time::Duration::from_millis(3));
 
             self.send_uinput_event(EV_KEY, 29, 0); // KEY_LEFTCTRL release
             self.send_uinput_event(0, 0, 0); // SYN
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            std::thread::sleep(std::time::Duration::from_millis(3));
         }
+
+        // Force-release all modifiers so Chrome etc. never see a stuck Ctrl
+        self.clear_modifiers();
     }
 
 }

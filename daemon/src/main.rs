@@ -1911,7 +1911,9 @@ fn execute_commands(
 
     // Sleep briefly to let the display server and target application process the
     // injected key strokes and clear any modifier states before we handle subsequent physical keys.
-    if grabbed && !commands.is_empty() {
+    // Non-grabbed mode needs this just as much — the next physical key arrives at the app
+    // before our modifier releases, causing stuck Ctrl (Chrome treats next char as Ctrl+<key>).
+    if !commands.is_empty() {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
