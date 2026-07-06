@@ -36,7 +36,7 @@ install_runtime_deps() {
             ;;
         arch|manjaro|cachyos|endeavouros|garuda|artix)
             pacman -Sy --needed --noconfirm libevdev libx11 libxtst dbus \
-              libwayland xclip wl-clipboard curl
+              wayland xclip wl-clipboard curl
             ;;
         *)
             echo -e "${YELLOW}Unsupported: $DISTRO. Install deps manually.${NC}"
@@ -107,8 +107,11 @@ chmod 755 /usr/bin/vietc-daemon /usr/bin/vietc-cli /usr/bin/vietc-uinputd /usr/b
 rm -f /usr/local/bin/vietc /usr/local/bin/vietc-daemon /usr/local/bin/vietc-cli \
       /usr/local/bin/vietc-uinputd /usr/local/bin/vietc-tray /usr/local/bin/vietc-xrecord 2>/dev/null || true
 
-# Udev rules
-echo 'KERNEL=="uinput", GROUP="input", MODE="0660"' > /etc/udev/rules.d/99-vietc.rules
+# Udev rules & Kernel module
+mkdir -p /etc/modules-load.d
+echo "uinput" > /etc/modules-load.d/vietc.conf
+modprobe uinput 2>/dev/null || true
+echo 'KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="input", MODE="0660"' > /etc/udev/rules.d/99-vietc.rules
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger 2>/dev/null || true
 

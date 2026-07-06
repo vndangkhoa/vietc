@@ -976,10 +976,22 @@ fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn std::
     }
 
     if permission_denied_count > 0 {
-        let in_group_db = std::process::Command::new("groups")
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).contains("input"))
-            .unwrap_or(false);
+        let username = std::env::var("USER").unwrap_or_else(|_| {
+            std::process::Command::new("id")
+                .arg("-un")
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default()
+        });
+        let in_group_db = if !username.is_empty() {
+            std::process::Command::new("id")
+                .args(["-nG", &username])
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).contains("input"))
+                .unwrap_or(false)
+        } else {
+            false
+        };
 
         if in_group_db {
             Err(format!(
@@ -992,7 +1004,7 @@ fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn std::
         } else {
             Err(format!(
                 "Permission denied on {}/{} devices. Add your user to the 'input' group: \
-                 sudo usermod -aG input $USER && sudo usermod -aG vinput $USER, \
+                 sudo usermod -aG input $USER, \
                  then log out and log back in.",
                 permission_denied_count, total_event_count
             )

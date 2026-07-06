@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import { Terminal, Send, Play, RefreshCw, Zap, Cpu, Lock, HelpCircle } from 'lucide-react';
 import { parseVni } from '../utils/vniParser';
 import { TerminalLog } from '../types';
@@ -71,17 +70,12 @@ export default function TerminalSimulator() {
     <div id="demo" className="py-16 bg-[#0a0b0d] border-t border-white/10 scroll-mt-20">
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
         
-        {/* Section Header */}
-        <div className="text-center max-w-3xl mx-auto mb-12">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono mb-4"
-          >
-            <Zap size={12} className="text-emerald-400 animate-pulse" />
-            <span>INTERACTIVE EXPERIMENT</span>
-          </motion.div>
+          {/* Section Header */}
+          <div className="text-center max-w-3xl mx-auto mb-12">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono mb-4">
+              <Zap size={12} className="text-emerald-400 animate-pulse" />
+              <span>INTERACTIVE EXPERIMENT</span>
+            </div>
           
           <h2 className="text-3xl sm:text-4xl font-serif text-white tracking-tight">
             Trải Nghiệm <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-400 italic">VietC Simulator</span>
@@ -207,7 +201,7 @@ export default function TerminalSimulator() {
                 <span className="font-sans font-bold text-sm text-slate-200 tracking-wide uppercase">Màn Hình Kiểm Soát VietC</span>
               </div>
               <div className="flex items-center gap-1 bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full text-[10px] font-mono border border-emerald-500/20">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                 <span>Live Monitor</span>
               </div>
             </div>
@@ -225,7 +219,7 @@ export default function TerminalSimulator() {
                 
                 {/* S0 */}
                 <div className="flex flex-col items-center z-10">
-                  <div className={`w-8 h-8 rounded-full border flex items-center justify-center font-mono text-xs font-bold transition-all duration-300 ${
+                  <div className={`w-8 h-8 rounded-full border flex items-center justify-center font-mono text-xs font-bold ${
                     imeState === 'S0'
                       ? 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.35)] scale-110'
                       : 'bg-[#0a0b0d] text-slate-500 border-white/5'
@@ -237,7 +231,7 @@ export default function TerminalSimulator() {
 
                 {/* S1 */}
                 <div className="flex flex-col items-center z-10">
-                  <div className={`w-8 h-8 rounded-full border flex items-center justify-center font-mono text-xs font-bold transition-all duration-300 ${
+                  <div className={`w-8 h-8 rounded-full border flex items-center justify-center font-mono text-xs font-bold ${
                     imeState === 'S1'
                       ? 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.35)] scale-110'
                       : 'bg-[#0a0b0d] text-slate-500 border-white/5'
@@ -249,7 +243,7 @@ export default function TerminalSimulator() {
 
                 {/* S2 */}
                 <div className="flex flex-col items-center z-10">
-                  <div className={`w-8 h-8 rounded-full border flex items-center justify-center font-mono text-xs font-bold transition-all duration-300 ${
+                  <div className={`w-8 h-8 rounded-full border flex items-center justify-center font-mono text-xs font-bold ${
                     imeState === 'S2'
                       ? 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.35)] scale-110'
                       : 'bg-[#0a0b0d] text-slate-500 border-white/5'
@@ -261,7 +255,7 @@ export default function TerminalSimulator() {
 
                 {/* S3 */}
                 <div className="flex flex-col items-center z-10">
-                  <div className={`w-8 h-8 rounded-full border flex items-center justify-center font-mono text-xs font-bold transition-all duration-300 ${
+                  <div className={`w-8 h-8 rounded-full border flex items-center justify-center font-mono text-xs font-bold ${
                     imeState === 'S3'
                       ? 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.35)] scale-110'
                       : 'bg-[#0a0b0d] text-slate-500 border-white/5'
@@ -296,38 +290,29 @@ export default function TerminalSimulator() {
             </div>
 
             <div ref={logContainerRef} className="flex-1 bg-[#0d0e12] p-4 rounded-xl border border-white/5 overflow-y-auto h-[170px] font-mono text-[11px] space-y-2.5">
-              <AnimatePresence initial={false}>
-                {terminalLogs.map((log) => (
-                  <motion.div
-                    key={log.id}
-                    initial={{ opacity: 0, x: 5 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0 }}
-                    className="border-b border-white/5 pb-2 last:border-none"
-                  >
-                    <div className="flex items-center justify-between text-[9px] text-slate-500 mb-0.5">
-                      <span className="flex items-center gap-1">
-                        <span className={`w-1 h-1 rounded-full ${
-                          log.type === 'diff' ? 'bg-emerald-400' : log.type === 'ime_state' ? 'bg-teal-400' : 'bg-slate-400'
-                        }`} />
-                        {log.type.toUpperCase()}
-                      </span>
-                      <span>{log.timestamp}</span>
-                    </div>
-                    <div className={
-                      log.type === 'diff' ? 'text-emerald-300' : log.type === 'ime_state' ? 'text-teal-200' : 'text-slate-300'
-                    }>
-                      {log.text}
-                    </div>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-              
               {terminalLogs.length === 0 && (
                 <div className="h-full flex items-center justify-center text-slate-600 italic">
                   Gõ phím hoặc chọn mẫu để hiển thị logs sự kiện nhân (kernel event logs)
                 </div>
               )}
+              {terminalLogs.map((log, idx) => (
+                <div key={idx} className="border-b border-white/5 pb-2 last:border-none">
+                  <div className="flex items-center justify-between text-[9px] text-slate-500 mb-0.5">
+                    <span className="flex items-center gap-1">
+                      <span className={`w-1 h-1 rounded-full ${
+                        log.type === 'diff' ? 'bg-emerald-400' : log.type === 'ime_state' ? 'bg-teal-400' : 'bg-slate-400'
+                      }`} />
+                      {log.type.toUpperCase()}
+                    </span>
+                    <span>{log.timestamp}</span>
+                  </div>
+                  <div className={
+                    log.type === 'diff' ? 'text-emerald-300' : log.type === 'ime_state' ? 'text-teal-200' : 'text-slate-300'
+                  }>
+                    {log.text}
+                  </div>
+                </div>
+              ))}
               <div ref={logEndRef} />
             </div>
 
