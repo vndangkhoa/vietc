@@ -31,6 +31,31 @@ DISTRO="${ID:-unknown}"
 echo "Detected: $DISTRO ($ARCH)"
 
 install_deps() {
+    # Check if distro is explicitly supported
+    local matched=false
+    case "$DISTRO" in
+        ubuntu|debian|linuxmint|mint|pop|neon|zorin|elementary|fedora|rhel|centos|arch|manjaro|cachyos|endeavouros|garuda|artix)
+            matched=true
+            ;;
+    esac
+
+    # Fallback to package manager detection if distro is not matched
+    if [ "$matched" = false ]; then
+        if command -v pacman &>/dev/null; then
+            DISTRO="arch"
+            matched=true
+        elif command -v apt-get &>/dev/null; then
+            DISTRO="ubuntu"
+            matched=true
+        elif command -v dnf &>/dev/null; then
+            DISTRO="fedora"
+            matched=true
+        fi
+        if [ "$matched" = true ]; then
+            echo "Distro ID not explicitly recognized. Falling back to package manager: $DISTRO"
+        fi
+    fi
+
     if [ "$FROM_SOURCE" = true ]; then
         echo "Installing build and runtime dependencies..."
         case "$DISTRO" in
