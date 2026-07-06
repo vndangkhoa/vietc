@@ -2,8 +2,8 @@
   <img src="https://img.shields.io/badge/Platform-Linux-blue?style=for-the-badge" alt="Platform">
   <img src="https://img.shields.io/badge/Language-Rust-orange?style=for-the-badge" alt="Rust">
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/Version-0.1.21-purple?style=for-the-badge" alt="Version">
-  <img src="https://img.shields.io/badge/Tests-108_passing-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/Version-0.1.7-purple?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/Tests-104_passing-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/Event_Sourcing-✓-blueviolet?style=for-the-badge" alt="Event Sourcing">
 </p>
 
@@ -254,16 +254,59 @@ vietc/
 │   ├── x11_capture.rs       # XRecord key capture
 │   └── wayland_im.rs        # Wayland IM protocol (stub)
 ├── daemon/                  # Main daemon process
-│   ├── main.rs              # Event loops, grab, signal handling
+│   ├── main.rs              # Entry point, CLI argument parsing
+│   ├── daemon.rs            # Daemon struct: process_key, toggle, replay
 │   ├── config.rs            # TOML config loader + hot reload
 │   ├── app_state.rs         # Per-app VN/EN memory + password detection
+│   ├── event.rs             # Pure event routing functions + grab-render tests
+│   ├── evdev_loop.rs        # evdev poll loop (grabbed & non-grabbed modes)
+│   ├── inject.rs            # Command execution, injector creation
+│   ├── stdin.rs             # Stdin mode with retry loop
+│   ├── x11_capture.rs       # X11 RECORD + keymap capture paths
+│   ├── device.rs            # Keyboard device discovery + permissions
+│   ├── signal.rs            # SIGINT/SIGTERM handler, single-instance lock
+│   ├── env.rs               # DISPLAY/DBUS env recovery from /proc
 │   ├── password_detector.rs # AT-SPI2 D-Bus password field detection
-│   └── display.rs           # X11/Wayland/compositor detection
+│   ├── commands.rs          # OutputCommand enum
+│   ├── log.rs               # Log rotation, timestamps
+│   ├── display.rs           # X11/Wayland/compositor detection
+│   └── tests/               # Integration test harness
+│       ├── daemon_suite.rs
+│       └── common/
+│           ├── virtual_keyboard.rs
+│           ├── clipboard.rs
+│           ├── distro.rs
+│           └── mod.rs
 ├── ui/                      # System tray icon (ksni)
 │   └── tray.rs              # Tray with VN/TLX/EN mode display
 ├── cli/                     # Interactive test harness
 └── uinputd/                 # Privileged uinput socket daemon
 ```
+
+---
+
+## Advantages of the Modular Architecture
+
+The 0.1.7 refactoring split a 2151-line `main.rs` into 11 focused modules, delivering measurable improvements in maintainability, testability, and correctness:
+
+### Grab Persists Forever
+The old daemon released the keyboard grab after 300ms of idle time, forcing a fallback to non-grabbed mode for the entire session. Non-grabbed mode had inherent race conditions — the physical keystroke reached the application before the daemon could backspace-and-replace it, producing garbled text. **The grab now persists until the daemon exits**, eliminating the root cause of garbled input.
+
+### No Double-Input
+With multiple keyboard devices (e.g., built-in keyboard + USB keyboard), every keystroke appeared twice — the primary device was grabbed, but the non-primary device still fed keystrokes through the engine. Changed `if !grabbed && i != 0` to just `if i != 0`, so non-primary devices always skip the engine and forward keys directly to the application.
+
+### Testable Event Routing
+Pure event routing functions in `event.rs` can render keystrokes entirely in memory — no evdev devices, no uinput, no clipboard. The grab-render tests exercise the exact same logic path as the production evdev loop, verifying that engine output and daemon forwarding decisions produce correct on-screen text for sentences like:
+```
+Ngayf xuaw, trong mootj khu ruwngf raamj...
+→ Ngày xưa, trong một khu rừng rậm...
+```
+
+### Integration Test Harness
+A configurable test infrastructure spawns a real daemon subprocess, sends synthetic keystrokes via `/dev/uinput` virtual keyboards, and reads the system clipboard to verify output. Plug-and-play backends for clipboard (xclip/wl-paste), device discovery, and distro detection make the test system portable across Ubuntu, Fedora, Arch, and Linux Mint.
+
+### Regression Prevention
+Every past bug corresponds to a documented test scenario in `docs/testing-dictionary.md` (40+ entries). Writing the integration test is the first step of every bug fix — the test goes red, the fix goes green, and the test stays green forever.
 
 ---
 

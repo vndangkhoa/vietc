@@ -6,6 +6,30 @@
 
 ## Unreleased
 
+### Modular Refactoring
+
+- **Monolithic 2151-line main.rs split into 11 focused modules**: Each module has a single responsibility — `event.rs` (pure event routing, testable without I/O), `evdev_loop.rs` (poll loop only), `inject.rs` (command execution), `daemon.rs` (Daemon struct + process_key/toggle/replay), `device.rs` (keyboard discovery + permissions), `signal.rs` (signal handling + single-instance lock), `stdin.rs` (stdin mode with retry), `x11_capture.rs` (X11 RECORD + keymap capture), `env.rs` (DISPLAY/DBUS recovery), `commands.rs` (OutputCommand enum), `log.rs` (log rotation).
+- **Pure functions extracted to `event.rs`**: Grab-mode keystroke rendering can now be tested without evdev or uinput devices — verifies engine composition + daemon forwarding decisions in pure Rust.
+- **104 unit tests** (20 daemon + 72 engine + 12 protocol), all passing.
+
+### Bug Fixes
+
+- **Grab now persists for daemon lifetime**: Removed idle-grab fallback (300ms). Previously the daemon released the grab after 3 idle polls (~300ms), forcing a non-grabbed fallback that had inherent race conditions. Now the grab is held until the daemon exits.
+- **Double-input from non-primary devices fixed**: Changed `if !grabbed && i != 0` to `if i != 0` — devices that are not the primary keyboard (index 0) are always skipped in the engine path. Their events reach the application directly; processing them through the engine injected a second copy of every keystroke.
+- **Engine-disabled key forwarding in grabbed mode**: When the engine is toggled OFF, keys are forwarded directly via `injector.send_key_event()` instead of being consumed and paste-injected.
+
+### Integration Testing
+
+- **Virtual keyboard test harness** (`daemon/tests/common/virtual_keyboard.rs`): Creates `/dev/uinput` virtual devices for sending synthetic keystrokes in CI.
+- **Clipboard backend** (`daemon/tests/common/clipboard.rs`): Reads system clipboard via xclip (X11) or wl-paste (Wayland) to verify daemon output.
+- **Distro detection** (`daemon/tests/common/distro.rs`): Auto-detects Ubuntu, Mint, Fedora, Arch, display server, and desktop environment for backend selection.
+- **DaemonProcess subprocess manager** (`daemon/tests/common/mod.rs`): Spawns, monitors logs, and kills the daemon subprocess for integration tests.
+- **Daemon integration suite** (`daemon/tests/daemon_suite.rs`): Tests for virtual keyboard creation, clipboard read/write, and VNI word injection in both grabbed and non-grabbed modes.
+
+### Documentation
+
+- **Testing dictionary** (`docs/testing-dictionary.md`): Comprehensive glossary covering 40+ test scenarios with TEST-NNN, SETUP, INPUT, EXPECTED, and CHECKS for all 4 suites (engine, event, daemon, regression).
+
 ### Distro Support
 
 - **Distro support table**: README now lists supported (Ubuntu, Debian, Mint, Pop!_OS, elementary, Zorin, Neon, Fedora, RHEL, CentOS, Arch, Manjaro), might-support (openSUSE, Solus, Void), and not-supported (NixOS, Alpine, Gentoo) distros.

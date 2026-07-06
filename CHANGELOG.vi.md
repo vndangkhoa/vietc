@@ -6,6 +6,30 @@
 
 ## Chưa phát hành (Unreleased)
 
+### Tái cấu trúc mô-đun (Modular Refactoring)
+
+- **Tách tệp main.rs từ 2151 dòng thành 11 mô-đun chuyên biệt**: Mỗi mô-đun đảm nhận một trách nhiệm duy nhất — `event.rs` (điều hướng sự kiện thuần túy, có thể kiểm thử không cần I/O), `evdev_loop.rs` (chỉ vòng lặp poll), `inject.rs` (thực thi lệnh), `daemon.rs` (cấu trúc Daemon + process_key/toggle/replay), `device.rs` (phát hiện bàn phím + phân quyền), `signal.rs` (xử lý tín hiệu + khóa đơn phiên), `stdin.rs` (chế độ stdin với vòng lặp thử lại), `x11_capture.rs` (X11 RECORD + bắt bàn phím), `env.rs` (phục hồi DISPLAY/DBUS), `commands.rs` (enum OutputCommand), `log.rs` (xoay vòng nhật ký).
+- **Hàm thuần túy được tách vào `event.rs`**: Mô phỏng gõ phím trong chế độ grab có thể được kiểm thử mà không cần thiết bị evdev hoặc uinput — xác minh quá trình tổng hợp bộ gõ và quyết định chuyển tiếp phím bằng Rust thuần túy.
+- **104 bài kiểm thử đơn vị** (20 daemon + 72 engine + 12 giao thức), tất cả đều đạt yêu cầu.
+
+### Sửa lỗi (Bug Fixes)
+
+- **Grab tồn tại suốt vòng đời daemon**: Loại bỏ cơ chế nhả grab khi không hoạt động (300ms). Trước đây daemon nhả grab sau 3 lần kiểm tra không có sự kiện (~300ms), chuyển sang chế độ không grab vốn có lỗi tranh chấp. Giờ đây grab được giữ cho đến khi daemon thoát.
+- **Sửa lỗi gõ đôi từ thiết bị không phải chính**: Thay đổi `if !grabbed && i != 0` thành `if i != 0` — các thiết bị không phải bàn phím chính (chỉ số 0) luôn bỏ qua xử lý bộ gõ. Sự kiện của chúng đến thẳng ứng dụng; xử lý chúng qua bộ gõ đã tạo ra bản sao thứ hai của mỗi lần gõ phím.
+- **Chuyển tiếp phím khi tắt bộ gõ trong chế độ grab**: Khi bộ gõ bị TẮT, phím được chuyển tiếp trực tiếp qua `injector.send_key_event()` thay vì bị tiêu thụ và dán qua clipboard.
+
+### Kiểm thử tích hợp (Integration Testing)
+
+- **Bộ kiểm thử bàn phím ảo** (`daemon/tests/common/virtual_keyboard.rs`): Tạo thiết bị `/dev/uinput` ảo để gửi các tổ hợp phím tổng hợp trong CI.
+- **Bộ xử lý clipboard** (`daemon/tests/common/clipboard.rs`): Đọc clipboard hệ thống qua xclip (X11) hoặc wl-paste (Wayland) để xác minh đầu ra daemon.
+- **Nhận diện distro** (`daemon/tests/common/distro.rs`): Tự động nhận diện Ubuntu, Mint, Fedora, Arch, máy chủ hiển thị và môi trường desktop để chọn backend phù hợp.
+- **Trình quản lý tiến trình con DaemonProcess** (`daemon/tests/common/mod.rs`): Sinh, giám sát nhật ký và kết thúc tiến trình daemon cho kiểm thử tích hợp.
+- **Bộ kiểm thử tích hợp daemon** (`daemon/tests/daemon_suite.rs`): Kiểm thử tạo bàn phím ảo, đọc/ghi clipboard và gõ từ VNI ở cả chế độ grab và không grab.
+
+### Tài liệu hướng dẫn (Documentation)
+
+- **Từ điển kiểm thử** (`docs/testing-dictionary.md`): Bảng chú thích toàn diện với hơn 40 kịch bản kiểm thử bao gồm TEST-NNN, SETUP, INPUT, EXPECTED và CHECKS cho cả 4 bộ (engine, event, daemon, regression).
+
 ### Hỗ trợ Bản phân phối (Distro Support)
 
 - **Bảng hỗ trợ Distro**: README hiện đã liệt kê các distro hỗ trợ tốt (Ubuntu, Debian, Mint, Pop!_OS, elementary, Zorin, Neon, Fedora, RHEL, CentOS, Arch, Manjaro), có thể hỗ trợ (openSUSE, Solus, Void), và chưa hỗ trợ (NixOS, Alpine, Gentoo).

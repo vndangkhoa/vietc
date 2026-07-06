@@ -2,8 +2,8 @@
   <img src="https://img.shields.io/badge/Nền_tảng-Linux-blue?style=for-the-badge" alt="Platform">
   <img src="https://img.shields.io/badge/Ngôn_ngữ-Rust-orange?style=for-the-badge" alt="Rust">
   <img src="https://img.shields.io/badge/Giấy_phép-MIT-green?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/Phiên_bản-0.1.21-purple?style=for-the-badge" alt="Version">
-  <img src="https://img.shields.io/badge/Kiểm_thử-108_đạt-brightgreen?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/Phiên_bản-0.1.7-purple?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/Kiểm_thử-104_đạt-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/Event_Sourcing-✓-blueviolet?style=for-the-badge" alt="Event Sourcing">
 </p>
 
@@ -254,16 +254,59 @@ vietc/
 │   ├── x11_capture.rs       # Bắt phím qua XRecord
 │   └── wayland_im.rs        # Giao thức Wayland IM (đang phát triển)
 ├── daemon/                  # Tiến trình nền chính điều khiển bộ gõ
-│   ├── main.rs              # Vòng lặp sự kiện, chiếm quyền bàn phím, xử lý tín hiệu
-│   ├── config.rs            # Tải tệp cấu hình TOML + tự động cập nhật cấu hình nóng
-│   ├── app_state.rs         # Quản lý bộ nhớ trạng thái theo ứng dụng + nhận diện mật khẩu
+│   ├── main.rs              # Điểm vào, phân tích đối số dòng lệnh
+│   ├── daemon.rs            # Cấu trúc Daemon: process_key, toggle, replay
+│   ├── config.rs            # Tải tệp cấu hình TOML + tự động cập nhật nóng
+│   ├── app_state.rs         # Bộ nhớ trạng thái theo ứng dụng + nhận diện mật khẩu
+│   ├── event.rs             # Hàm điều hướng sự kiện thuần túy + kiểm thử grab-render
+│   ├── evdev_loop.rs        # Vòng lặp evdev poll (chế độ grab & không grab)
+│   ├── inject.rs            # Thực thi lệnh, tạo bộ giả lập
+│   ├── stdin.rs             # Chế độ stdin với vòng lặp thử lại
+│   ├── x11_capture.rs       # X11 RECORD + bắt bàn phím
+│   ├── device.rs            # Phát hiện thiết bị bàn phím + phân quyền
+│   ├── signal.rs            # Xử lý SIGINT/SIGTERM, khóa đơn phiên
+│   ├── env.rs               # Phục hồi biến môi trường DISPLAY/DBUS từ /proc
 │   ├── password_detector.rs # Nhận diện trường mật khẩu qua AT-SPI2 D-Bus
-│   └── display.rs           # Nhận diện máy chủ đồ họa X11/Wayland/Compositor
+│   ├── commands.rs          # Enum OutputCommand
+│   ├── log.rs               # Xoay vòng nhật ký, dấu thời gian
+│   ├── display.rs           # Nhận diện X11/Wayland/Compositor
+│   └── tests/               # Bộ kiểm thử tích hợp
+│       ├── daemon_suite.rs
+│       └── common/
+│           ├── virtual_keyboard.rs
+│           ├── clipboard.rs
+│           ├── distro.rs
+│           └── mod.rs
 ├── ui/                      # Biểu tượng khay hệ thống (sử dụng ksni)
 │   └── tray.rs              # Khay hiển thị chế độ VN/TLX/EN
 ├── cli/                     # Công cụ dòng lệnh kiểm thử bộ xử lý tiếng Việt
 └── uinputd/                 # Tiến trình đặc quyền quản lý socket uinput
 ```
+
+---
+
+## Lợi ích của kiến trúc mô-đun
+
+Việc tái cấu trúc phiên bản 0.1.7 đã chia tệp `main.rs` dài 2151 dòng thành 11 mô-đun chuyên biệt, mang lại những cải thiện đáng kể về khả năng bảo trì, kiểm thử và độ chính xác:
+
+### Grab tồn tại vĩnh viễn
+Trước đây, daemon nhả quyền chiếm giữ bàn phím (grab) sau 300ms không có sự kiện, buộc phải chuyển sang chế độ không grab cho toàn bộ phiên làm việc. Chế độ không grab tiềm ẩn lỗi tranh chấp — phím gõ đến ứng dụng trước khi daemon kịp xóa và thay thế, gây ra hiện tượng ký tự bị lỗi. **Grab hiện tồn tại cho đến khi daemon thoát**, loại bỏ triệt để nguyên nhân gốc rễ của lỗi gõ sai dấu.
+
+### Không gõ đôi
+Khi có nhiều thiết bị bàn phím (ví dụ: bàn phím tích hợp + bàn phím USB), mỗi lần gõ phím xuất hiện hai lần — thiết bị chính bị chiếm quyền, nhưng thiết bị phụ vẫn đưa sự kiện qua bộ gõ. Thay đổi từ `if !grabbed && i != 0` thành `if i != 0` giúp các thiết bị không phải chính luôn bỏ qua bộ gõ và chuyển tiếp phím trực tiếp đến ứng dụng.
+
+### Điều hướng sự kiện có thể kiểm thử
+Các hàm thuần túy trong `event.rs` có thể mô phỏng quá trình gõ phím hoàn toàn trong bộ nhớ — không cần thiết bị evdev, không cần uinput, không cần clipboard. Các kiểm thử grab-render sử dụng cùng logic với vòng lặp evdev thực tế, xác minh rằng đầu ra bộ gõ và quyết định chuyển tiếp phím cho ra văn bản hiển thị chính xác cho các câu phức tạp như:
+```
+Ngayf xuaw, trong mootj khu ruwngf raamj...
+→ Ngày xưa, trong một khu rừng rậm...
+```
+
+### Bộ kiểm thử tích hợp linh hoạt
+Cơ sở hạ tầng kiểm thử có thể cấu hình khởi chạy tiến trình daemon thực, gửi các tổ hợp phím tổng hợp qua bàn phím ảo `/dev/uinput`, và đọc clipboard hệ thống để xác minh đầu ra. Hệ thống backend dạng plug-and-play cho clipboard (xclip/wl-paste), phát hiện thiết bị và nhận diện distro giúp bộ kiểm thử hoạt động trên Ubuntu, Fedora, Arch và Linux Mint.
+
+### Ngăn chặn tái phát lỗi
+Mọi lỗi đã từng xảy ra đều có kịch bản kiểm thử tương ứng trong `docs/testing-dictionary.md` (hơn 40 mục). Bước đầu tiên của mỗi bản sửa lỗi là viết kiểm thử tích hợp — kiểm thử báo đỏ (thất bại), bản sửa làm nó xanh (thành công), và kiểm thử mãi mãi xanh.
 
 ---
 
