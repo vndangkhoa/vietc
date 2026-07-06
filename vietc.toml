@@ -1,32 +1,48 @@
-# Viet+ IME Configuration
-
 input_method = "vni"
 toggle_key = "space"
 start_enabled = true
 grab = true
+debug = false
 
 [auto_restore]
 enabled = true
-trigger_keys = ["space", "escape"]
+trigger_keys = [
+    "space",
+    "escape",
+]
 
 [app_state]
 enabled = true
 english_apps = [
-    "code", "jetbrains", "intellij", "pycharm", "webstorm",
-    "vim", "nvim", "kitty", "alacritty", "foot", "ghostty",
+    "code",
+    "jetbrains",
+    "intellij",
+    "pycharm",
+    "webstorm",
+    "vim",
+    "nvim",
+    "kitty",
+    "alacritty",
+    "foot",
+    "ghostty",
 ]
 vietnamese_apps = [
-    "telegram", "discord", "slack", "firefox", "chromium", "thunderbird",
+    "telegram",
+    "discord",
+    "slack",
+    "firefox",
+    "chromium",
+    "thunderbird",
 ]
 
 [macros]
-ko = "không"
-kc = "không có"
-"ko dc" = "không được"
-dc = "được"
-ng = "người"
-nk = "như"
-vs = "với"
-lm = "làm"
-rd = "rất"
 bt = "biết"
+vs = "với"
+kc = "không có"
+dc = "được"
+ko = "không"
+rd = "rất"
+nk = "như"
+"ko dc" = "không được"
+lm = "làm"
+ng = "người"
