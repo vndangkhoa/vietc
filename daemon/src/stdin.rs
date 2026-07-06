@@ -97,7 +97,7 @@ pub fn run_stdin_mode(
             Ok(_) => {
                 let ch = buffer[0] as char;
                 let commands = daemon.process_key(ch);
-                execute_commands(&*injector, &commands, false);
+                execute_commands(&*injector, &commands);
             }
             Err(e) => {
                 log_info(&format!("[vietc] Read error: {}", e));

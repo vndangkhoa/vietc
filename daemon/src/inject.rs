@@ -7,7 +7,6 @@ use crate::log::log_info;
 pub fn execute_commands(
     injector: &dyn KeyInjector,
     commands: &[OutputCommand],
-    grabbed: bool,
 ) {
     let mut pending_backspaces: usize = 0;
     let mut pending_text = String::new();
@@ -15,12 +14,7 @@ pub fn execute_commands(
     for cmd in commands {
         match cmd {
             OutputCommand::Backspace(count) => {
-                let adjusted = if grabbed {
-                    count.saturating_sub(1)
-                } else {
-                    *count
-                };
-                pending_backspaces += adjusted;
+                pending_backspaces += count;
             }
             OutputCommand::Type(text) => {
                 pending_text.push_str(text);

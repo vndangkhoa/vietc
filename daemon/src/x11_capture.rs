@@ -111,7 +111,7 @@ pub fn run_with_x11(
                             let commands = daemon.replay_backspace();
                             pressed_keys.remove(&event.keycode);
                             vietc_protocol::x11_capture::SKIP_RECORD_EVENTS.store(true, Ordering::Relaxed);
-                            execute_commands(&*injector, &commands, true);
+                            execute_commands(&*injector, &commands);
                             if daemon.event_store.is_empty() && commands.is_empty() {
                                 let _ = injector.send_backspace();
                             }
@@ -127,7 +127,7 @@ pub fn run_with_x11(
                             let commands = daemon.replay_and_inject(ch);
                             pressed_keys.remove(&event.keycode);
                             vietc_protocol::x11_capture::SKIP_RECORD_EVENTS.store(true, Ordering::Relaxed);
-                            execute_commands(&*injector, &commands, true);
+                            execute_commands(&*injector, &commands);
                         }
                     }
                 }
@@ -285,7 +285,7 @@ pub fn run_with_x11_keymap(
                         }
                     }
                 }
-                execute_commands(&*injector, &commands, false);
+                execute_commands(&*injector, &commands);
             }
         }
     }

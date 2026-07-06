@@ -83,6 +83,10 @@ pub fn run_with_evdev(
     let mut last_key_time = std::time::Instant::now();
 
     log_info("[vietc] Event loop started");
+
+    // Cache debug flag to avoid reloading config every keystroke
+    let mut debug_logging = daemon.config.debug;
+
     loop {
         if SIGNAL_EXIT.load(Ordering::SeqCst) {
             if grabbed && !devices.is_empty() {
@@ -140,6 +144,7 @@ pub fn run_with_evdev(
         if config_changed.load(Ordering::SeqCst) {
             daemon.reload_config();
             config_changed.store(false, Ordering::SeqCst);
+            debug_logging = daemon.config.debug;
         }
 
         // Process events from whichever device(s) have data ready
@@ -279,7 +284,7 @@ pub fn run_with_evdev(
                                 commands
                             ));
                         }
-                        execute_commands(&*injector, &commands, false);
+                        execute_commands(&*injector, &commands);
                     }
                 } else {
                     if is_modifier_pressed(&key_state) {
@@ -304,6 +309,15 @@ pub fn run_with_evdev(
                     }
 
                     if value == 1 {
+                        if debug_logging {
+                            log_info(&format!(
+                                "[vietc] grabbed key: code={} ch='{}' buf='{}' enabled={}",
+                                keycode,
+                                key_to_char(key).map(|c| c.escape_default().to_string()).unwrap_or_default(),
+                                daemon.engine.buffer().escape_default(),
+                                daemon.engine.is_enabled(),
+                            ));
+                        }
                         if consumed_keys.contains(&keycode) {
                             consumed_keys.remove(&keycode);
                         }
@@ -399,6 +413,13 @@ pub fn run_with_evdev(
                             let buf_before = daemon.engine.buffer().chars().count();
                             let commands = daemon.process_key(ch);
                             if !commands.is_empty() {
+                                if debug_logging {
+                                    log_info(&format!(
+                                        "[vietc] grabbed inject: ch='{}' cmds={:?}",
+                                        ch.escape_default(),
+                                        commands,
+                                    ));
+                                }
                                 log_info(&format!(
                                     "[vietc] inject: engine={} ch='{}' buf={} cmds={:?}",
                                     if daemon.engine.is_enabled() { "VN" } else { "EN" },
@@ -407,7 +428,7 @@ pub fn run_with_evdev(
                                     commands
                                 ));
                                 consumed_keys.insert(keycode);
-                                execute_commands(&*injector, &commands, false);
+                                execute_commands(&*injector, &commands);
                                 if is_flush_char(ch) && daemon.engine.is_enabled() {
                                     injector.send_key_event(keycode, 1);
                                     injector.send_key_event(keycode, 0);
@@ -417,8 +438,20 @@ pub fn run_with_evdev(
                                 && is_vn_control_key(daemon.app_state.effective_method(), ch)
                                 && daemon.engine.buffer().chars().count() <= buf_before
                             {
+                                if debug_logging {
+                                    log_info(&format!(
+                                        "[vietc] grabbed consumed: ch='{}' (control key, no screen change)",
+                                        ch.escape_default(),
+                                    ));
+                                }
                                 consumed_keys.insert(keycode);
                             } else {
+                                if debug_logging {
+                                    log_info(&format!(
+                                        "[vietc] grabbed forward: ch='{}' (no commands)",
+                                        ch.escape_default(),
+                                    ));
+                                }
                                 injector.send_key_event(keycode, 1);
                             }
                         } else {
