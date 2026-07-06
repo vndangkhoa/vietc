@@ -252,6 +252,7 @@ pub struct X11Injector {
     atom_targets: Atom,
     atom_string: Atom,
     clipboard_text: RefCell<String>,
+    selection_served: std::cell::Cell<bool>,
 }
 
 unsafe impl Send for X11Injector {}
@@ -287,6 +288,7 @@ impl X11Injector {
                 atom_targets,
                 atom_string,
                 clipboard_text: RefCell::new(String::new()),
+                selection_served: std::cell::Cell::new(false),
             })
         }
     }
@@ -379,6 +381,7 @@ impl X11Injector {
                     self.clipboard_text.borrow().as_ptr() as *const c_void,
                     self.clipboard_text.borrow().len() as c_int,
                 );
+                self.selection_served.set(true);
             }
 
             // Send SelectionNotify to inform the requestor
@@ -410,6 +413,8 @@ impl X11Injector {
     }
 
     fn paste_via_clipboard(&self, backspaces: usize, text: &str) -> bool {
+        self.selection_served.set(false);
+
         // Set clipboard text directly via X11
         self.set_clipboard_text(text);
 
@@ -421,6 +426,7 @@ impl X11Injector {
         if backspaces > 0 {
             for _ in 0..backspaces {
                 self.send_keycode(14, false);
+                std::thread::sleep(std::time::Duration::from_millis(2));
             }
         }
 
@@ -434,11 +440,14 @@ impl X11Injector {
         }
 
         // Handle SelectionRequest events that come from the paste target
-        // Process events with a short spin loop (up to ~50ms)
-        for _ in 0..4 {
+        // Process events with a spin loop (up to 150ms timeout)
+        for _ in 0..30 {
             // Brief sleep to let X11 events propagate
             std::thread::sleep(std::time::Duration::from_millis(5));
             self.handle_pending_events();
+            if self.selection_served.get() {
+                break;
+            }
         }
 
         true

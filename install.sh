@@ -197,6 +197,18 @@ chmod 755 /usr/bin/vietc-daemon /usr/bin/vietc-cli /usr/bin/vietc-uinputd /usr/b
 rm -f /usr/local/bin/vietc /usr/local/bin/vietc-daemon /usr/local/bin/vietc-cli \
       /usr/local/bin/vietc-uinputd /usr/local/bin/vietc-tray /usr/local/bin/vietc-xrecord 2>/dev/null || true
 
+# Clean old local user binaries & autostart to prevent shadowing the new system-wide ones
+if [ -n "$INSTALLING_USER" ] && [ "$INSTALLING_USER" != "root" ]; then
+    USER_HOME="$(getent passwd "$INSTALLING_USER" | cut -d: -f6 || true)"
+    if [ -n "$USER_HOME" ]; then
+        rm -f "$USER_HOME/.local/bin/vietc" "$USER_HOME/.local/bin/vietc-daemon" \
+               "$USER_HOME/.local/bin/vietc-cli" "$USER_HOME/.local/bin/vietc-uinputd" \
+               "$USER_HOME/.local/bin/vietc-tray" "$USER_HOME/.local/bin/vietc-xrecord" \
+               "$USER_HOME/.local/bin/vietc-start" 2>/dev/null || true
+        rm -f "$USER_HOME/.config/autostart/vietc.desktop" 2>/dev/null || true
+    fi
+fi
+
 # Udev rules & Kernel module
 mkdir -p /etc/modules-load.d
 echo "uinput" > /etc/modules-load.d/vietc.conf

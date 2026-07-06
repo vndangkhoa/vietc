@@ -63,6 +63,7 @@ pub trait KeyInjector {
             if self.send_backspace() != InjectResult::Success {
                 return InjectResult::Failed;
             }
+            std::thread::sleep(std::time::Duration::from_millis(2));
         }
         InjectResult::Success
     }
