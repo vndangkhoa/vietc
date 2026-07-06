@@ -24,7 +24,10 @@ const UI_DEV_SETUP: u64 = 0x405c5503;
 const EV_KEY: u16 = 0x01;
 #[allow(dead_code)]
 const EV_ABS: u16 = 0x03;
-const KEY_MAX: u32 = 0x1ff;
+/// Maximum keyboard keycode (0-255). Stops before mouse button codes
+/// (BTN_MISC = 256, BTN_LEFT = 272) to avoid X11 treating the uinput
+/// device as a pointer.
+const KEYBOARD_KEY_MAX: u16 = 255;
 
 /// Shared clipboard bookkeeping between the injection path and the background
 /// restorer thread.
@@ -89,8 +92,11 @@ impl UinputInjector {
         ioctl(fd, UI_SET_EVBIT, EV_KEY as u64)
             .map_err(|e| format!("UI_SET_EVBIT failed: {}", e))?;
 
-        // Enable all key codes we'll need
-        for code in 0..=KEY_MAX {
+        // Enable all keyboard keycodes we'll need (0-255).
+        // KEY_MAX (0x1ff) includes mouse button codes (BTN_LEFT=272 etc.)
+        // which would make X11 treat this device as a pointer and conflict
+        // with the real mouse.
+        for code in 0..=KEYBOARD_KEY_MAX {
             ioctl(fd, UI_SET_KEYBIT, code as u64)
                 .map_err(|e| format!("UI_SET_KEYBIT {} failed: {}", code, e))?;
         }
