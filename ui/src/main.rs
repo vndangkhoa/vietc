@@ -166,8 +166,9 @@ fn start_daemon() {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("[vietc-tray] Failed to start daemon with sudo: {}", e);
+                    eprintln!("[vietc-tray] Try: sudo setcap cap_sys_admin+ep $(which vietc-daemon)");
+                    eprintln!("[vietc-tray] Or start manually: sudo vietc-daemon &");
                     let _ = std::process::Command::new(&daemon_bin).spawn();
-                    let _ = std::fs::write(&flag_path, "1");
                     return;
                 }
             };
@@ -176,10 +177,20 @@ fn start_daemon() {
                 use std::io::Write;
                 let _ = stdin.write_all(format!("{}\n", password).as_bytes());
             }
-            let _ = child.wait();
-        }
+            let status = child.wait();
 
-        let _ = std::fs::write(&flag_path, "1");
+            // Only suppress future password prompts if sudo actually succeeded
+            if let Ok(exit) = status {
+                if exit.success() {
+                    let _ = std::fs::write(&flag_path, "1");
+                    eprintln!("[vietc-tray] Daemon started with root privileges");
+                } else {
+                    eprintln!("[vietc-tray] sudo failed (wrong password?), starting daemon without root");
+                    eprintln!("[vietc-tray] Try: sudo setcap cap_sys_admin+ep $(which vietc-daemon)");
+                    let _ = std::process::Command::new(&daemon_bin).spawn();
+                }
+            }
+        }
         return;
     }
 

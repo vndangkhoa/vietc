@@ -195,6 +195,14 @@ else
 fi
 chmod 755 /usr/bin/vietc-daemon /usr/bin/vietc-cli /usr/bin/vietc-uinputd /usr/bin/vietc-tray 2>/dev/null || true
 
+# Grant cap_sys_admin so evdev grab works without full root (Linux ≥ 5.8)
+# Also grant cap_dac_override for /dev/uinput access if not in input group
+if command -v setcap &>/dev/null; then
+    setcap cap_sys_admin,cap_dac_override+ep /usr/bin/vietc-daemon 2>/dev/null && \
+        echo -e "${GREEN}setcap: vietc-daemon can grab keyboard without full root${NC}" || \
+        echo -e "${YELLOW}setcap failed — run with sudo for grab${NC}"
+fi
+
 # Clean old /usr/local/bin/ binaries
 rm -f /usr/local/bin/vietc /usr/local/bin/vietc-daemon /usr/local/bin/vietc-cli \
       /usr/local/bin/vietc-uinputd /usr/local/bin/vietc-tray /usr/local/bin/vietc-xrecord 2>/dev/null || true
@@ -313,5 +321,29 @@ vietnamese_apps = ["telegram", "discord", "firefox"]
 EOF
 fi
 
-echo -e "${GREEN}=== Done! ===${NC}"
-echo -e "${YELLOW}Log out and log back in, then run: vietc-tray${NC}"
+echo ""
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}  Viet+ installed successfully!${NC}"
+echo -e "${GREEN}========================================${NC}"
+echo ""
+
+if command -v setcap &>/dev/null && getcap /usr/bin/vietc-daemon 2>/dev/null | grep -q cap_sys_admin; then
+    echo -e "${GREEN}✓ CAP_SYS_ADMIN granted — daemon can grab keyboard without root${NC}"
+    echo ""
+    echo -e "Start the tray now:  ${GREEN}vietc-tray${NC}"
+    echo -e "Or test directly:     ${GREEN}sudo -u $INSTALLING_USER vietc-daemon &${NC}"
+else
+    echo -e "${YELLOW}⚠  Daemon needs root for keyboard grab${NC}"
+    echo ""
+    echo -e "Start the daemon:     ${GREEN}sudo vietc-daemon${NC}"
+    echo -e "Then run the tray:    ${GREEN}vietc-tray${NC}"
+    echo ""
+    echo -e "Or configure passwordless sudo:"
+    echo -e "  ${GREEN}echo \"$INSTALLING_USER ALL=(ALL) NOPASSWD: /usr/bin/vietc-daemon\" | sudo tee /etc/sudoers.d/vietc${NC}"
+fi
+
+echo ""
+echo -e "Test: type in Vietnamese in any app."
+echo -e "Toggle VN/EN: ${GREEN}Ctrl+Space${NC}  Switch VNI/Telex: ${GREEN}Ctrl+Shift${NC}"
+echo ""
+echo -e "See ${GREEN}vietc.toml${NC} for configuration."
