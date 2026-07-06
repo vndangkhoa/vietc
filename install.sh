@@ -7,6 +7,14 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; NC='\033[0m'
 
 [ "$EUID" -ne 0 ] && echo -e "${RED}Please run with sudo.${NC}" && exit 1
 
+# Parse arguments
+FROM_SOURCE=false
+for arg in "$@"; do
+    if [ "$arg" = "--from-source" ] || [ "$arg" = "--local" ]; then
+        FROM_SOURCE=true
+    fi
+done
+
 echo -e "${GREEN}=== Viet+ Installer ===${NC}"
 
 # Architecture
@@ -22,71 +30,120 @@ esac
 DISTRO="${ID:-unknown}"
 echo "Detected: $DISTRO ($ARCH)"
 
-install_runtime_deps() {
-    echo "Installing runtime dependencies..."
-    case "$DISTRO" in
-        ubuntu|debian|linuxmint|mint|pop|neon|zorin|elementary)
-            export DEBIAN_FRONTEND=noninteractive
-            apt-get update -y
-            apt-get install -y libevdev2 libdbus-1-3 libx11-6 libxtst6 \
-              libwayland-client0 xclip wl-clipboard curl
-            ;;
-        fedora|rhel|centos)
-            dnf install -y libevdev libX11 libXtst dbus-libs libwayland-client xclip wl-clipboard curl
-            ;;
-        arch|manjaro|cachyos|endeavouros|garuda|artix)
-            pacman -Sy --needed --noconfirm libevdev libx11 libxtst dbus \
-              wayland xclip wl-clipboard curl
-            ;;
-        *)
-            echo -e "${YELLOW}Unsupported: $DISTRO. Install deps manually.${NC}"
-            ;;
-    esac
+install_deps() {
+    if [ "$FROM_SOURCE" = true ]; then
+        echo "Installing build and runtime dependencies..."
+        case "$DISTRO" in
+            ubuntu|debian|linuxmint|mint|pop|neon|zorin|elementary)
+                export DEBIAN_FRONTEND=noninteractive
+                apt-get update -y
+                apt-get install -y build-essential pkg-config libx11-dev libxtst-dev \
+                  libdbus-1-dev libevdev-dev libwayland-dev git \
+                  libevdev2 libdbus-1-3 libx11-6 libxtst6 \
+                  libwayland-client0 xclip wl-clipboard curl
+                ;;
+            fedora|rhel|centos)
+                dnf groupinstall -y "Development Tools"
+                dnf install -y libX11-devel libXtst-devel dbus-devel libevdev-devel wayland-devel git \
+                  libevdev libX11 libXtst dbus-libs libwayland-client xclip wl-clipboard curl
+                ;;
+            arch|manjaro|cachyos|endeavouros|garuda|artix)
+                pacman -Sy --needed --noconfirm base-devel pkgconf git \
+                  libevdev libx11 libxtst dbus wayland xclip wl-clipboard curl
+                ;;
+            *)
+                echo -e "${YELLOW}Unsupported: $DISTRO. Install deps manually.${NC}"
+                ;;
+        esac
+    else
+        echo "Installing runtime dependencies..."
+        case "$DISTRO" in
+            ubuntu|debian|linuxmint|mint|pop|neon|zorin|elementary)
+                export DEBIAN_FRONTEND=noninteractive
+                apt-get update -y
+                apt-get install -y libevdev2 libdbus-1-3 libx11-6 libxtst6 \
+                  libwayland-client0 xclip wl-clipboard curl
+                ;;
+            fedora|rhel|centos)
+                dnf install -y libevdev libX11 libXtst dbus-libs libwayland-client xclip wl-clipboard curl
+                ;;
+            arch|manjaro|cachyos|endeavouros|garuda|artix)
+                pacman -Sy --needed --noconfirm libevdev libx11 libxtst dbus \
+                  wayland xclip wl-clipboard curl
+                ;;
+            *)
+                echo -e "${YELLOW}Unsupported: $DISTRO. Install deps manually.${NC}"
+                ;;
+        esac
+    fi
 }
 
-install_runtime_deps
-
-echo "Fetching latest release..."
-RELEASE_JSON=$(curl -sSfL "https://api.github.com/repos/vndangkhoa/vietc/releases/latest" 2>/dev/null || echo "")
-TAG=$(echo "$RELEASE_JSON" | grep '"tag_name"' | sed 's/.*"v\(.*\)",/\1/')
-if [ -z "$TAG" ]; then
-    echo -e "${RED}Failed to fetch latest release info.${NC}"
-    exit 1
-fi
-echo "Latest version: v$TAG"
+install_deps
 
 TMPDIR=$(mktemp -d)
 cleanup() { rm -rf "$TMPDIR"; }
 trap cleanup EXIT
 
-# Try tarball first, then .deb
-TARBALL="vietc_${TAG}_linux_${ARCH}.tar.gz"
-TARBALL_URL="https://github.com/vndangkhoa/vietc/releases/download/v${TAG}/${TARBALL}"
-DEB="vietc_${TAG}-1_amd64.deb"
-DEB_URL="https://github.com/vndangkhoa/vietc/releases/download/v${TAG}/${DEB}"
-INSTALL_DIR="$TMPDIR/install"
-mkdir -p "$INSTALL_DIR"
-
-if curl -sSfL -o "$TMPDIR/$TARBALL" "$TARBALL_URL" 2>/dev/null; then
-    echo "Downloading tarball..."
-    tar -xzf "$TMPDIR/$TARBALL" -C "$INSTALL_DIR"
-    BIN_DIR="$INSTALL_DIR/vietc_${TAG}_linux_${ARCH}/bin"
-    PKG_DIR="$INSTALL_DIR/vietc_${TAG}_linux_${ARCH}"
-elif curl -sSfL -o "$TMPDIR/$DEB" "$DEB_URL" 2>/dev/null; then
-    echo "Downloading .deb package..."
-    if command -v dpkg-deb &>/dev/null; then
-        dpkg-deb -x "$TMPDIR/$DEB" "$INSTALL_DIR"
-    else
-        ar x "$TMPDIR/$DEB" --output="$TMPDIR/deb" 2>/dev/null
-        tar -xzf "$TMPDIR/deb/data.tar.gz" -C "$INSTALL_DIR" 2>/dev/null || \
-        tar -xJf "$TMPDIR/deb/data.tar.xz" -C "$INSTALL_DIR" 2>/dev/null || true
+if [ "$FROM_SOURCE" = true ]; then
+    # Install Rust if missing
+    if ! command -v cargo &>/dev/null; then
+        echo "Installing Rust..."
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        export PATH="$HOME/.cargo/bin:$PATH"
+        if [ -n "${SUDO_USER:-}" ] && [ -d "/home/$SUDO_USER/.cargo/bin" ]; then
+            export PATH="/home/$SUDO_USER/.cargo/bin:$PATH"
+        fi
     fi
-    BIN_DIR="$INSTALL_DIR/usr/bin"
-    PKG_DIR="$INSTALL_DIR"
+
+    # Clone staging if not in repo
+    if [ ! -f Cargo.toml ] || [ ! -d .git ]; then
+        echo "Cloning staging branch to build..."
+        git clone -b staging https://github.com/vndangkhoa/vietc.git "$TMPDIR/source"
+        cd "$TMPDIR/source"
+    fi
+
+    echo "Building from source..."
+    cargo build --release
+    (cd ui && cargo build --release)
 else
-    echo -e "${RED}No prebuilt binary found for v$TAG ($ARCH).${NC}"
-    echo -e "${YELLOW}Visit https://github.com/vndangkhoa/vietc/releases${NC}"
-    exit 1
+    echo "Fetching latest release..."
+    RELEASE_JSON=$(curl -sSfL "https://api.github.com/repos/vndangkhoa/vietc/releases/latest" 2>/dev/null || echo "")
+    TAG=$(echo "$RELEASE_JSON" | grep '"tag_name"' | sed 's/.*"v\(.*\)",/\1/')
+    if [ -z "$TAG" ]; then
+        echo -e "${RED}Failed to fetch latest release info.${NC}"
+        exit 1
+    fi
+    echo "Latest version: v$TAG"
+
+    # Try tarball first, then .deb
+    TARBALL="vietc_${TAG}_linux_${ARCH}.tar.gz"
+    TARBALL_URL="https://github.com/vndangkhoa/vietc/releases/download/v${TAG}/${TARBALL}"
+    DEB="vietc_${TAG}-1_amd64.deb"
+    DEB_URL="https://github.com/vndangkhoa/vietc/releases/download/v${TAG}/${DEB}"
+    INSTALL_DIR="$TMPDIR/install"
+    mkdir -p "$INSTALL_DIR"
+
+    if curl -sSfL -o "$TMPDIR/$TARBALL" "$TARBALL_URL" 2>/dev/null; then
+        echo "Downloading tarball..."
+        tar -xzf "$TMPDIR/$TARBALL" -C "$INSTALL_DIR"
+        BIN_DIR="$INSTALL_DIR/vietc_${TAG}_linux_${ARCH}/bin"
+        PKG_DIR="$INSTALL_DIR/vietc_${TAG}_linux_${ARCH}"
+    elif curl -sSfL -o "$TMPDIR/$DEB" "$DEB_URL" 2>/dev/null; then
+        echo "Downloading .deb package..."
+        if command -v dpkg-deb &>/dev/null; then
+            dpkg-deb -x "$TMPDIR/$DEB" "$INSTALL_DIR"
+        else
+            ar x "$TMPDIR/$DEB" --output="$TMPDIR/deb" 2>/dev/null
+            tar -xzf "$TMPDIR/deb/data.tar.gz" -C "$INSTALL_DIR" 2>/dev/null || \
+            tar -xJf "$TMPDIR/deb/data.tar.xz" -C "$INSTALL_DIR" 2>/dev/null || true
+        fi
+        BIN_DIR="$INSTALL_DIR/usr/bin"
+        PKG_DIR="$INSTALL_DIR"
+    else
+        echo -e "${RED}No prebuilt binary found for v$TAG ($ARCH).${NC}"
+        echo -e "${YELLOW}Visit https://github.com/vndangkhoa/vietc/releases${NC}"
+        exit 1
+    fi
 fi
 
 # Kill old processes
@@ -96,11 +153,19 @@ pkill -x vietc 2>/dev/null || true
 
 # Install binaries
 echo "Installing to /usr/bin/..."
-cp "$BIN_DIR/vietc-daemon" /usr/bin/vietc-daemon
-cp "$BIN_DIR/vietc-cli" /usr/bin/vietc-cli
-cp "$BIN_DIR/vietc-uinputd" /usr/bin/vietc-uinputd
-cp "$BIN_DIR/vietc-tray" /usr/bin/vietc-tray
-[ -f "$BIN_DIR/vietc-xrecord" ] && cp "$BIN_DIR/vietc-xrecord" /usr/bin/vietc-xrecord
+if [ "$FROM_SOURCE" = true ]; then
+    cp target/release/vietc /usr/bin/vietc-daemon
+    cp target/release/vietc-cli /usr/bin/vietc-cli
+    cp target/release/vietc-uinputd /usr/bin/vietc-uinputd
+    cp ui/target/release/vietc-tray /usr/bin/vietc-tray
+    [ -f target/release/vietc-xrecord ] && cp target/release/vietc-xrecord /usr/bin/vietc-xrecord || true
+else
+    cp "$BIN_DIR/vietc-daemon" /usr/bin/vietc-daemon
+    cp "$BIN_DIR/vietc-cli" /usr/bin/vietc-cli
+    cp "$BIN_DIR/vietc-uinputd" /usr/bin/vietc-uinputd
+    cp "$BIN_DIR/vietc-tray" /usr/bin/vietc-tray
+    [ -f "$BIN_DIR/vietc-xrecord" ] && cp "$BIN_DIR/vietc-xrecord" /usr/bin/vietc-xrecord || true
+fi
 chmod 755 /usr/bin/vietc-daemon /usr/bin/vietc-cli /usr/bin/vietc-uinputd /usr/bin/vietc-tray 2>/dev/null || true
 
 # Clean old /usr/local/bin/ binaries
@@ -116,19 +181,29 @@ udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger 2>/dev/null || true
 
 # Icons
-if [ -d "$PKG_DIR/icons" ]; then
+if [ "$FROM_SOURCE" = true ]; then
     mkdir -p /usr/share/icons/hicolor/256x256/apps
-    cp "$PKG_DIR/icons"/*.svg /usr/share/icons/hicolor/256x256/apps/ 2>/dev/null || true
-elif [ -d "$INSTALL_DIR/usr/share/icons" ]; then
-    cp -r "$INSTALL_DIR/usr/share/icons/"* /usr/share/icons/ 2>/dev/null || true
+    cp packaging/icons/*.svg /usr/share/icons/hicolor/256x256/apps/ 2>/dev/null || true
+else
+    if [ -d "$PKG_DIR/icons" ]; then
+        mkdir -p /usr/share/icons/hicolor/256x256/apps
+        cp "$PKG_DIR/icons"/*.svg /usr/share/icons/hicolor/256x256/apps/ 2>/dev/null || true
+    elif [ -d "$INSTALL_DIR/usr/share/icons" ]; then
+        cp -r "$INSTALL_DIR/usr/share/icons/"* /usr/share/icons/ 2>/dev/null || true
+    fi
 fi
 
 # Desktop file
-if [ -f "$PKG_DIR/desktop/vietc.desktop" ]; then
+if [ "$FROM_SOURCE" = true ]; then
     mkdir -p /usr/share/applications
-    cp "$PKG_DIR/desktop/vietc.desktop" /usr/share/applications/
-elif [ -f "$INSTALL_DIR/usr/share/applications/vietc.desktop" ]; then
-    cp "$INSTALL_DIR/usr/share/applications/vietc.desktop" /usr/share/applications/
+    cp packaging/deb/vietc.desktop /usr/share/applications/
+else
+    if [ -f "$PKG_DIR/desktop/vietc.desktop" ]; then
+        mkdir -p /usr/share/applications
+        cp "$PKG_DIR/desktop/vietc.desktop" /usr/share/applications/
+    elif [ -f "$INSTALL_DIR/usr/share/applications/vietc.desktop" ]; then
+        cp "$INSTALL_DIR/usr/share/applications/vietc.desktop" /usr/share/applications/
+    fi
 fi
 
 # XDG autostart
@@ -176,10 +251,14 @@ fi
 
 # Config
 mkdir -p /etc/vietc
-if [ -f "$PKG_DIR/config/config.toml" ]; then
-    cp "$PKG_DIR/config/config.toml" /etc/vietc/config.toml
-elif [ -f "$INSTALL_DIR/etc/vietc/config.toml" ]; then
-    cp "$INSTALL_DIR/etc/vietc/config.toml" /etc/vietc/config.toml
+if [ "$FROM_SOURCE" = true ]; then
+    cp vietc.toml /etc/vietc/config.toml
+else
+    if [ -f "$PKG_DIR/config/config.toml" ]; then
+        cp "$PKG_DIR/config/config.toml" /etc/vietc/config.toml
+    elif [ -f "$INSTALL_DIR/etc/vietc/config.toml" ]; then
+        cp "$INSTALL_DIR/etc/vietc/config.toml" /etc/vietc/config.toml
+    fi
 fi
 if [ ! -f /etc/vietc/config.toml ]; then
     cat > /etc/vietc/config.toml << 'EOF'
