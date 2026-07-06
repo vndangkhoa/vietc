@@ -379,7 +379,6 @@ pub fn run_with_evdev(
                                 let class = shared_window_class.lock().unwrap().clone();
                                 if !class.is_empty() {
                                     injector.set_active_window(&class);
-                                    daemon.check_app_change_with(class);
                                 }
                             }
 
