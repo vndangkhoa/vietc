@@ -1,0 +1,6 @@
+{
+  "name": "VietC - Native Linux VNI Terminal IME",
+  "description": "Website giới thiệu bộ gõ tiếng Việt VietC siêu nhẹ, siêu mượt cho Linux Terminal, kèm theo hướng dẫn cài đặt và trang tùy biến bộ Keycap 3D Resin Rồng Con dễ thương.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

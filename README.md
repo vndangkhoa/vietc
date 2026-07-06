@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Platform-Linux-blue?style=for-the-badge" alt="Platform">
   <img src="https://img.shields.io/badge/Language-Rust-orange?style=for-the-badge" alt="Rust">
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/Version-0.1.18-purple?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.21-purple?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/Tests-108_passing-brightgreen?style=for-the-badge" alt="Tests">
   <img src="https://img.shields.io/badge/Event_Sourcing-✓-blueviolet?style=for-the-badge" alt="Event Sourcing">
 </p>
@@ -266,11 +266,11 @@ vietc/
 
 ## Roadmap
 
-### v0.1.19
+### v0.1.22
 - [ ] Wayland input method protocol (`zwp_input_method_v2`) — eliminates clipboard + backspace race, fixes missing spaces permanently
 - [ ] Event-based AT-SPI2 focus monitoring (subscribe to a11y focus events, no polling)
 
-### v0.1.20
+### v0.1.23
 - [ ] GitHub Actions CI for automated .deb builds
 - [ ] Flatpak re-add for immutable distros
 

@@ -495,6 +495,8 @@ enum OutputCommand {
     Backspace(usize),
 }
 
+const KEY_MAX: u32 = 0x1ff;
+
 /// Characters that flush the current word and start a new one.
 fn is_flush_char(ch: char) -> bool {
     matches!(ch, ' ' | '.' | ',' | '!' | '?' | ';' | ':' | '\t' | '\n')
@@ -974,10 +976,22 @@ fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn std::
     }
 
     if permission_denied_count > 0 {
-        let in_group_db = std::process::Command::new("groups")
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).contains("input"))
-            .unwrap_or(false);
+        let username = std::env::var("USER").unwrap_or_else(|_| {
+            std::process::Command::new("id")
+                .arg("-un")
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default()
+        });
+        let in_group_db = if !username.is_empty() {
+            std::process::Command::new("id")
+                .args(["-nG", &username])
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).contains("input"))
+                .unwrap_or(false)
+        } else {
+            false
+        };
 
         if in_group_db {
             Err(format!(
@@ -990,7 +1004,7 @@ fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn std::
         } else {
             Err(format!(
                 "Permission denied on {}/{} devices. Add your user to the 'input' group: \
-                 sudo usermod -aG input $USER && sudo usermod -aG vinput $USER, \
+                 sudo usermod -aG input $USER, \
                  then log out and log back in.",
                 permission_denied_count, total_event_count
             )
@@ -1280,6 +1294,17 @@ fn run_with_x11_keymap(
                         commands.push(OutputCommand::Type(buf_after));
                     }
                 }
+                // X11 capture: the VNI/Telex control key character reached
+                // the app directly. Add 1 extra backspace to remove it.
+                if !commands.is_empty()
+                    && is_vn_control_key(daemon.app_state.effective_method(), ch)
+                {
+                    for cmd in &mut commands {
+                        if let OutputCommand::Backspace(ref mut n) = cmd {
+                            *n += 1;
+                        }
+                    }
+                }
                 execute_commands(&*injector, &commands, false);
             }
         }
@@ -1296,7 +1321,7 @@ fn run_with_evdev(
     _engine_enabled: Arc<AtomicBool>,
     display: display::DisplayServer,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let injector = create_injector(display)?;
+    let mut injector = create_injector(display)?;
 
     // Use the first device for grab (only one device can be grabbed at a time)
     let primary_idx = 0usize;
@@ -1322,6 +1347,17 @@ fn run_with_evdev(
         }
         false
     };
+
+    // Non-grabbed on X11: use XTest injection for fast, synchronous correction
+    if !grabbed {
+        #[cfg(feature = "x11")]
+        if display != display::DisplayServer::Wayland {
+            if let Ok(x11_inj) = vietc_protocol::x11_inject::X11Injector::new() {
+                injector = Box::new(x11_inj);
+                log_info("[vietc] Non-grabbed: using X11 injection (faster than uinput)");
+            }
+        }
+    }
 
     let mut consumed_keys: HashSet<u16> = HashSet::new();
     let mut last_active_window = String::new();
@@ -1361,6 +1397,14 @@ fn run_with_evdev(
             let _ = devices[primary_idx].0.ungrab();
             grabbed = false;
             log_info("[vietc] Non-grabbed mode: polling all evdev devices for keystrokes");
+            // Switch to XTest injection for fast synchronous non-grabbed correction
+            #[cfg(feature = "x11")]
+            if display != display::DisplayServer::Wayland {
+                if let Ok(x11_inj) = vietc_protocol::x11_inject::X11Injector::new() {
+                    injector = Box::new(x11_inj);
+                    log_info("[vietc] Non-grabbed: using X11 injection (faster than uinput)");
+                }
+            }
             continue;
         }
 
@@ -1399,13 +1443,6 @@ fn run_with_evdev(
         }
         idle_polls = 0;
 
-        if !grabbed {
-            log_info(&format!(
-                "[vietc] evdev: {} device(s) have events after ungrab",
-                pfds.iter().filter(|p| (p.revents & libc::POLLIN) != 0).count()
-            ));
-        }
-
         // Check for status changes instantly
         if status_changed.load(Ordering::SeqCst) {
             daemon.sync_status_file();
@@ -1428,8 +1465,8 @@ fn run_with_evdev(
             let caps = device_states[i].1;
             let mut key_state = std::mem::take(&mut device_states[i].0);
 
-            let events = match device.fetch_events() {
-                Ok(events) => events,
+            let event_list = match device.fetch_events() {
+                Ok(events) => events.collect::<Vec<_>>(),
                 Err(e) => {
                     if e.kind() == std::io::ErrorKind::Interrupted {
                         continue;
@@ -1443,12 +1480,13 @@ fn run_with_evdev(
             };
             last_event_time = std::time::Instant::now();
 
-            let mut non_key_logged = 0u32;
-            for event in events {
-                match event.kind() {
-                    evdev::InputEventKind::Key(key) => {
-                    let value = event.value();
-                    let keycode = key.0;
+            for event in event_list {
+                if event.event_type() != evdev::EventType::KEY {
+                    continue;
+                }
+                let keycode = event.code();
+                let value = event.value();
+                let key = evdev::Key(keycode);
 
                     // Update key state dynamically
                     if value == 1 {
@@ -1499,6 +1537,12 @@ fn run_with_evdev(
                                 daemon.write_status();
                             }
                         }
+                    }
+
+                    // In non-grabbed mode, only process engine from primary device (i==0)
+                    // to avoid double-processing when multiple keyboard devices report same keys
+                    if !grabbed && i != 0 {
+                        continue;
                     }
 
                     if !grabbed {
@@ -1694,19 +1738,6 @@ fn run_with_evdev(
                             }
                             injector.send_key_event(keycode, 0);
                         }
-                    }
-                    }
-                    _ => {
-                        if non_key_logged < 5 {
-                            log_info(&format!(
-                                "[vietc] evdev: non-key event type={:?} code={} value={}",
-                                event.event_type(),
-                                event.code(),
-                                event.value()
-                            ));
-                            non_key_logged += 1;
-                        }
-                    }
                 }
             }
 

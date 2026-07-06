@@ -15,7 +15,7 @@
 
 ### Tài liệu hướng dẫn (Documentation)
 
-- Thêm mục **Roadmap** vào README (v0.1.19: Giao thức Wayland IM, AT-SPI2 hướng sự kiện; v0.1.20: CI, Flatpak).
+- Thêm mục **Roadmap** vào README (v0.1.22: Giao thức Wayland IM, AT-SPI2 hướng sự kiện; v0.1.23: CI, Flatpak).
 - Loại bỏ **RELEASE_CHECKLIST.md** (quy trình phát hành hiện được ghi nhận trong nội dung các commit phát hành).
 
 ---
