@@ -1279,6 +1279,10 @@ fn run_with_x11_keymap(
                 }
             }
 
+            if !daemon.engine.is_enabled() {
+                continue;
+            }
+
             // Use keymap lookup for character conversion
             if let Some(ch) = capture.lookup_keycode(keycode, mod_state) {
                 let buf_before = daemon.engine.buffer();
@@ -1550,6 +1554,9 @@ fn run_with_evdev(
                             continue;
                         }
                         if is_modifier_pressed(&key_state) {
+                            continue;
+                        }
+                        if !daemon.engine.is_enabled() {
                             continue;
                         }
                         if let Some(ch) = key_to_char(key) {

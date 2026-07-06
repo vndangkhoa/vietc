@@ -139,9 +139,25 @@ fn start_daemon() {
             eprintln!("[vietc-tray] No password provided, starting daemon without root");
             let _ = std::process::Command::new(&daemon_bin).spawn();
         } else {
-            // Start daemon with sudo
+            // Start daemon with sudo, explicitly passing display/auth environment variables
+            let display = std::env::var("DISPLAY").unwrap_or_default();
+            let xauthority = std::env::var("XAUTHORITY").unwrap_or_default();
+            let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
+
+            let mut args = vec!["-S".to_string()];
+            if !display.is_empty() {
+                args.push(format!("DISPLAY={}", display));
+            }
+            if !xauthority.is_empty() {
+                args.push(format!("XAUTHORITY={}", xauthority));
+            }
+            if !wayland_display.is_empty() {
+                args.push(format!("WAYLAND_DISPLAY={}", wayland_display));
+            }
+            args.push(daemon_bin.clone());
+
             let mut child = match std::process::Command::new("sudo")
-                .args(["-S", &daemon_bin])
+                .args(&args)
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())

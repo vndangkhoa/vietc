@@ -64,11 +64,11 @@ impl UinputInjector {
     fn send_enter(&self) {
         self.send_uinput_event(EV_KEY, 28, 1);
         self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_micros(100));
+        std::thread::sleep(std::time::Duration::from_millis(2));
 
         self.send_uinput_event(EV_KEY, 28, 0);
         self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_micros(100));
+        std::thread::sleep(std::time::Duration::from_millis(2));
     }
 
     pub fn new(name: &str) -> Result<Self, Box<dyn std::error::Error>> {
@@ -158,21 +158,21 @@ impl UinputInjector {
         if shift {
             self.send_uinput_event(EV_KEY, 42, 1);
             self.send_uinput_event(0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_micros(100));
+            std::thread::sleep(std::time::Duration::from_millis(2));
         }
 
         self.send_uinput_event(EV_KEY, keycode, 1);
         self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_micros(100));
+        std::thread::sleep(std::time::Duration::from_millis(2));
 
         self.send_uinput_event(EV_KEY, keycode, 0);
         self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_micros(100));
+        std::thread::sleep(std::time::Duration::from_millis(2));
 
         if shift {
             self.send_uinput_event(EV_KEY, 42, 0);
             self.send_uinput_event(0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_micros(100));
+            std::thread::sleep(std::time::Duration::from_millis(2));
         }
     }
 }
@@ -181,11 +181,11 @@ impl KeyInjector for UinputInjector {
     fn send_backspace(&self) -> InjectResult {
         self.send_uinput_event(EV_KEY, 14, 1);
         self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_micros(100));
+        std::thread::sleep(std::time::Duration::from_millis(2));
 
         self.send_uinput_event(EV_KEY, 14, 0);
         self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_micros(100));
+        std::thread::sleep(std::time::Duration::from_millis(2));
 
         InjectResult::Success
     }
@@ -223,7 +223,7 @@ impl KeyInjector for UinputInjector {
         }
 
         // Unicode text: try xdotool type first (works on X11, doesn't touch clipboard)
-        if self.type_via_xdotool(s) {
+        if self.type_via_xdotool(0, s) {
             return InjectResult::Success;
         }
 
@@ -385,23 +385,39 @@ impl UinputInjector {
             return InjectResult::Success;
         }
 
-        // Unicode: backspaces via uinput, then delegate to send_string()
+        // Unicode: try xdotool type with backspaces first (works on X11, doesn't touch clipboard)
+        if self.type_via_xdotool(backspaces, text) {
+            return InjectResult::Success;
+        }
+
+        // Fallback: backspaces via uinput, then clipboard copy + paste (both via uinput)
         if backspaces > 0 {
             for _ in 0..backspaces { let _ = self.send_backspace(); }
         }
-        self.send_string(text);
+        if !self.paste_via_clipboard(text) {
+            eprintln!(
+                "[vietc] send_string failed for '{}' (clipboard unavailable)",
+                text.escape_default()
+            );
+        }
         InjectResult::Success
     }
 
     /// Type Unicode text via xdotool (X11 only). Returns true on success.
     /// More reliable than clipboard paste — doesn't overwrite the user's clipboard
     /// and works with XTest directly for proper Unicode key injection.
-    fn type_via_xdotool(&self, text: &str) -> bool {
+    fn type_via_xdotool(&self, backspaces: usize, text: &str) -> bool {
         let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
         if is_wayland {
             return false;
         }
         let mut cmd = Self::user_cmd("xdotool");
+        if backspaces > 0 {
+            cmd.arg("key");
+            for _ in 0..backspaces {
+                cmd.arg("BackSpace");
+            }
+        }
         cmd.args(["type", "--clearmodifiers", text]);
         cmd.stdout(std::process::Stdio::null());
         cmd.stderr(std::process::Stdio::null());
@@ -464,7 +480,7 @@ impl UinputInjector {
         }
 
         // Give the selection owner a moment to take ownership before pasting.
-        std::thread::sleep(std::time::Duration::from_micros(200));
+        std::thread::sleep(std::time::Duration::from_millis(5));
 
         self.send_ctrl_v();
         let elapsed = (std::time::Instant::now() - t_total).as_millis();
@@ -491,7 +507,7 @@ impl UinputInjector {
                 let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
                 let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
                 let display = std::env::var("DISPLAY").unwrap_or_default();
-                let xauthority = std::env::var("XAUTHORITY").unwrap_or_default();
+                let mut xauthority = std::env::var("XAUTHORITY").unwrap_or_default();
 
                 use std::os::unix::process::CommandExt;
                 let mut cmd = std::process::Command::new(program);
@@ -506,11 +522,18 @@ impl UinputInjector {
                 if !display.is_empty() {
                     cmd.env("DISPLAY", display);
                 }
+                if let Some(username) = Self::get_original_username() {
+                    let home_dir = format!("/home/{}", username);
+                    cmd.env("HOME", home_dir.clone());
+                    if xauthority.is_empty() || xauthority.starts_with("/root/") || xauthority.contains("/root") {
+                        let user_xauth = format!("{}/.Xauthority", home_dir);
+                        if std::path::Path::new(&user_xauth).exists() {
+                            xauthority = user_xauth;
+                        }
+                    }
+                }
                 if !xauthority.is_empty() {
                     cmd.env("XAUTHORITY", xauthority);
-                }
-                if let Some(username) = Self::get_original_username() {
-                    cmd.env("HOME", format!("/home/{}", username));
                 }
                 return cmd;
             }
@@ -568,19 +591,19 @@ impl UinputInjector {
     fn send_ctrl_v(&self) {
         self.send_uinput_event(EV_KEY, 29, 1); // KEY_LEFTCTRL press
         self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_micros(100));
+        std::thread::sleep(std::time::Duration::from_millis(2));
 
         self.send_uinput_event(EV_KEY, 47, 1); // KEY_V press
         self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_micros(100));
+        std::thread::sleep(std::time::Duration::from_millis(2));
 
         self.send_uinput_event(EV_KEY, 47, 0); // KEY_V release
         self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_micros(100));
+        std::thread::sleep(std::time::Duration::from_millis(2));
 
         self.send_uinput_event(EV_KEY, 29, 0); // KEY_LEFTCTRL release
         self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_micros(100));
+        std::thread::sleep(std::time::Duration::from_millis(2));
     }
 
 }

@@ -172,6 +172,20 @@ cleanup_old_install() {
   # Remove old binaries from /usr/local/bin/ (shadowed the new /usr/bin/ ones)
   rm -f /usr/local/bin/vietc-tray /usr/local/bin/vietc /usr/local/bin/vietc-daemon \
         /usr/local/bin/vietc-cli /usr/local/bin/vietc-uinputd /usr/local/bin/vietc-xrecord 2>/dev/null || true
+
+  # Clean old local user binaries & autostart to prevent shadowing the new system-wide ones
+  local installing_user="${SUDO_USER:-${USER:-}}"
+  if [ -n "$installing_user" ] && [ "$installing_user" != "root" ]; then
+    local user_home
+    user_home="$(getent passwd "$installing_user" 2>/dev/null | cut -d: -f6 || true)"
+    if [ -n "$user_home" ]; then
+      rm -f "$user_home/.local/bin/vietc" "$user_home/.local/bin/vietc-daemon" \
+             "$user_home/.local/bin/vietc-cli" "$user_home/.local/bin/vietc-uinputd" \
+             "$user_home/.local/bin/vietc-tray" "$user_home/.local/bin/vietc-xrecord" \
+             "$user_home/.local/bin/vietc-start" 2>/dev/null || true
+      rm -f "$user_home/.config/autostart/vietc.desktop" 2>/dev/null || true
+    fi
+  fi
 }
 
 case "$1" in
