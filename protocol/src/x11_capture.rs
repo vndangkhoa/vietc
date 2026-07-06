@@ -65,7 +65,6 @@ struct LookupLib {
     display: *mut Display,
     x_close_display: unsafe extern "C" fn(*mut Display) -> c_int,
     x_lookup_string: unsafe extern "C" fn(*mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int,
-    x_utf8_lookup_string: Option<unsafe extern "C" fn(*mut c_void, *mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int>,
 }
 
 unsafe impl Send for LookupLib {}
@@ -111,10 +110,6 @@ impl LookupLib {
                 display,
                 x_close_display: sym!("XCloseDisplay"),
                 x_lookup_string: sym!("XLookupString"),
-                x_utf8_lookup_string: {
-                    let p = dlsym(handle, b"Xutf8LookupString\0".as_ptr() as *const c_char);
-                    if p.is_null() { None } else { Some(std::mem::transmute(p)) }
-                },
             })
         }
     }
@@ -128,24 +123,13 @@ impl LookupLib {
 
             let mut buf = [0u8; 32];
             let mut keysym: KeySym = 0;
-            let len = if let Some(xutf8) = self.x_utf8_lookup_string {
-                xutf8(
-                    std::ptr::null_mut(),
-                    &mut xke as *mut XKeyEvent,
-                    buf.as_mut_ptr() as *mut c_char,
-                    buf.len() as c_int,
-                    &mut keysym,
-                    std::ptr::null_mut(),
-                )
-            } else {
-                (self.x_lookup_string)(
-                    &mut xke as *mut XKeyEvent,
-                    buf.as_mut_ptr() as *mut c_char,
-                    buf.len() as c_int,
-                    &mut keysym,
-                    std::ptr::null_mut(),
-                )
-            };
+            let len = (self.x_lookup_string)(
+                &mut xke as *mut XKeyEvent,
+                buf.as_mut_ptr() as *mut c_char,
+                buf.len() as c_int,
+                &mut keysym,
+                std::ptr::null_mut(),
+            );
 
             if len > 0 {
                 let s = std::str::from_utf8(&buf[..len as usize]).ok()?;

@@ -765,6 +765,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let display_var = std::env::var("DISPLAY").unwrap_or_default();
     let xauth_var = std::env::var("XAUTHORITY").unwrap_or_default();
     log_info(&format!("[vietc] DISPLAY='{}'  XAUTHORITY='{}'", display_var, xauth_var));
+    if display_var.is_empty() && unsafe { libc::getuid() } == 0 {
+        log_info("[vietc] WARNING: DISPLAY not set — clipboard paste won't work");
+        log_info("[vietc] WARNING: start via vietc-tray (passes DISPLAY) or use sudo -E");
+    }
     match std::process::Command::new("xdotool")
         .args(["getactivewindow"])
         .output()
@@ -1066,6 +1070,7 @@ fn run_with_x11(
         if daemon.config.app_state.enabled {
             let class = shared_window_class.lock().unwrap().clone();
             if !class.is_empty() {
+                injector.set_active_window(&class);
                 daemon.check_app_change_with(class);
             }
         }
@@ -1202,6 +1207,7 @@ fn run_with_x11_keymap(
             let class = shared_window_class.lock().unwrap().clone();
             if !class.is_empty() && class != last_window_class {
                 last_window_class = class.clone();
+                injector.set_active_window(&class);
                 daemon.check_app_change_with(class.clone());
             }
         }
@@ -1354,6 +1360,11 @@ fn run_with_evdev(
 
     // Non-grabbed on X11: use XTest injection for fast, synchronous correction
     if !grabbed {
+        if unsafe { libc::geteuid() } != 0 {
+            log_info("[vietc] WARNING: not running as root — keyboard grab unavailable");
+            log_info("[vietc] WARNING: non-grabbed mode has race conditions with fast typing");
+            log_info("[vietc] WARNING: run with sudo, or setcap cap_sys_admin+ep on the binary");
+        }
         #[cfg(feature = "x11")]
         if display != display::DisplayServer::Wayland {
             if let Ok(x11_inj) = vietc_protocol::x11_inject::X11Injector::new() {
@@ -1658,6 +1669,7 @@ fn run_with_evdev(
                                         } else {
                                             class
                                         };
+                                        injector.set_active_window(&class);
                                         daemon.check_app_change_with(class);
                                     }
 
@@ -1673,6 +1685,7 @@ fn run_with_evdev(
                                 } else if daemon.config.app_state.enabled {
                                     let class = shared_window_class.lock().unwrap().clone();
                                     if !class.is_empty() {
+                                        injector.set_active_window(&class);
                                         daemon.check_app_change_with(class);
                                     }
                                 }
@@ -1834,6 +1847,7 @@ fn run_stdin_mode(
         // Check for app changes instantly using the cached state from background thread
         if daemon.config.app_state.enabled {
             let active_window = shared_active_window.lock().unwrap().clone();
+            injector.set_active_window(&active_window);
             daemon.check_app_change_with(active_window);
         }
 

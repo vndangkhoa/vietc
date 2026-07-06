@@ -56,6 +56,9 @@ pub trait KeyInjector {
     fn send_key_event(&self, _keycode: u16, _value: i32) -> InjectResult {
         InjectResult::NotSupported
     }
+    fn set_active_window(&self, _window_class: &str) -> InjectResult {
+        InjectResult::Success
+    }
     fn flush(&self) -> InjectResult;
 
     fn send_backspaces(&self, count: usize) -> InjectResult {

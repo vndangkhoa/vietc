@@ -45,6 +45,8 @@ struct ClipInner {
     restore_due: Option<Instant>,
     /// Set on shutdown so the restorer thread can exit.
     shutdown: bool,
+    /// The currently active window class (lowercase).
+    active_window: String,
 }
 
 struct ClipState {
@@ -121,6 +123,7 @@ impl UinputInjector {
                 clipboard_saved: false,
                 restore_due: None,
                 shutdown: false,
+                active_window: String::new(),
             }),
             cv: Condvar::new(),
         });
@@ -222,11 +225,6 @@ impl KeyInjector for UinputInjector {
             return InjectResult::Success;
         }
 
-        // Unicode text: try xdotool type first (works on X11, doesn't touch clipboard)
-        if self.type_via_xdotool(0, s) {
-            return InjectResult::Success;
-        }
-
         // Fallback: clipboard copy + paste
         if !self.paste_via_clipboard(s) {
             eprintln!(
@@ -253,6 +251,12 @@ impl KeyInjector for UinputInjector {
             text.escape_default(),
             text.len()
         );
+        InjectResult::Success
+    }
+
+    fn set_active_window(&self, window_class: &str) -> InjectResult {
+        let mut st = self.clip.inner.lock().unwrap();
+        st.active_window = window_class.to_lowercase();
         InjectResult::Success
     }
 }
@@ -385,12 +389,7 @@ impl UinputInjector {
             return InjectResult::Success;
         }
 
-        // Unicode: try xdotool type with backspaces first (works on X11, doesn't touch clipboard)
-        if self.type_via_xdotool(backspaces, text) {
-            return InjectResult::Success;
-        }
-
-        // Fallback: backspaces via uinput, then clipboard copy + paste (both via uinput)
+        // Unicode: backspaces via uinput, then clipboard copy + paste (both via uinput)
         if backspaces > 0 {
             for _ in 0..backspaces { let _ = self.send_backspace(); }
         }
@@ -401,33 +400,6 @@ impl UinputInjector {
             );
         }
         InjectResult::Success
-    }
-
-    /// Type Unicode text via xdotool (X11 only). Returns true on success.
-    /// More reliable than clipboard paste — doesn't overwrite the user's clipboard
-    /// and works with XTest directly for proper Unicode key injection.
-    fn type_via_xdotool(&self, backspaces: usize, text: &str) -> bool {
-        let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
-        if is_wayland {
-            return false;
-        }
-        let mut cmd = Self::user_cmd("xdotool");
-        if backspaces > 0 {
-            cmd.arg("key");
-            for _ in 0..backspaces {
-                cmd.arg("BackSpace");
-            }
-        }
-        cmd.args(["type", "--clearmodifiers", text]);
-        cmd.stdout(std::process::Stdio::null());
-        cmd.stderr(std::process::Stdio::null());
-        match cmd.output() {
-            Ok(output) => output.status.success(),
-            Err(e) => {
-                eprintln!("[vietc] xdotool type failed: {}", e);
-                false
-            }
-        }
     }
 
     /// Read the user's current clipboard contents (wl-paste on Wayland, xclip
@@ -589,21 +561,49 @@ impl UinputInjector {
 
     /// Send Ctrl+V through our uinput device.
     fn send_ctrl_v(&self) {
-        self.send_uinput_event(EV_KEY, 29, 1); // KEY_LEFTCTRL press
-        self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        let is_terminal = {
+            let st = self.clip.inner.lock().unwrap();
+            let app = &st.active_window;
+            app.contains("terminal") || app.contains("konsole") || app.contains("kitty") || app.contains("alacritty") || app.contains("xterm")
+        };
 
-        self.send_uinput_event(EV_KEY, 47, 1); // KEY_V press
-        self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        if is_terminal {
+            // Send Ctrl+Shift+V
+            self.send_uinput_event(EV_KEY, 29, 1); // KEY_LEFTCTRL press
+            self.send_uinput_event(EV_KEY, 42, 1); // KEY_LEFTSHIFT press
+            self.send_uinput_event(0, 0, 0); // SYN
+            std::thread::sleep(std::time::Duration::from_millis(2));
 
-        self.send_uinput_event(EV_KEY, 47, 0); // KEY_V release
-        self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_millis(2));
+            self.send_uinput_event(EV_KEY, 47, 1); // KEY_V press
+            self.send_uinput_event(0, 0, 0); // SYN
+            std::thread::sleep(std::time::Duration::from_millis(2));
 
-        self.send_uinput_event(EV_KEY, 29, 0); // KEY_LEFTCTRL release
-        self.send_uinput_event(0, 0, 0); // SYN
-        std::thread::sleep(std::time::Duration::from_millis(2));
+            self.send_uinput_event(EV_KEY, 47, 0); // KEY_V release
+            self.send_uinput_event(0, 0, 0); // SYN
+            std::thread::sleep(std::time::Duration::from_millis(2));
+
+            self.send_uinput_event(EV_KEY, 42, 0); // KEY_LEFTSHIFT release
+            self.send_uinput_event(EV_KEY, 29, 0); // KEY_LEFTCTRL release
+            self.send_uinput_event(0, 0, 0); // SYN
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        } else {
+            // Send Ctrl+V
+            self.send_uinput_event(EV_KEY, 29, 1); // KEY_LEFTCTRL press
+            self.send_uinput_event(0, 0, 0); // SYN
+            std::thread::sleep(std::time::Duration::from_millis(2));
+
+            self.send_uinput_event(EV_KEY, 47, 1); // KEY_V press
+            self.send_uinput_event(0, 0, 0); // SYN
+            std::thread::sleep(std::time::Duration::from_millis(2));
+
+            self.send_uinput_event(EV_KEY, 47, 0); // KEY_V release
+            self.send_uinput_event(0, 0, 0); // SYN
+            std::thread::sleep(std::time::Duration::from_millis(2));
+
+            self.send_uinput_event(EV_KEY, 29, 0); // KEY_LEFTCTRL release
+            self.send_uinput_event(0, 0, 0); // SYN
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
     }
 
 }
