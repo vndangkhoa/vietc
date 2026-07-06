@@ -539,10 +539,7 @@ impl Tray for VietTray {
             StandardItem {
                 label: "Quit".into(),
                 activate: Box::new(|_| {
-                    let _ = std::process::Command::new("pkill")
-                        .arg("-x")
-                        .arg("vietc")
-                        .status();
+                    crate::stop_daemon();
                     std::process::exit(0);
                 }),
                 ..Default::default()

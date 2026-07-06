@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 mod config;
 mod tray;
+
+static DAEMON_PID: AtomicI32 = AtomicI32::new(0);
 
 fn exe_dir() -> PathBuf {
     std::env::current_exe()
@@ -137,7 +140,9 @@ fn start_daemon() {
         let password = prompt_password();
         if password.is_empty() {
             eprintln!("[vietc-tray] No password provided, starting daemon without root");
-            let _ = std::process::Command::new(&daemon_bin).spawn();
+            if let Ok(child) = std::process::Command::new(&daemon_bin).spawn() {
+                DAEMON_PID.store(child.id() as i32, Ordering::SeqCst);
+            }
         } else {
             // Start daemon with sudo, explicitly passing display/auth environment variables
             let display = std::env::var("DISPLAY").unwrap_or_default();
@@ -168,7 +173,9 @@ fn start_daemon() {
                     eprintln!("[vietc-tray] Failed to start daemon with sudo: {}", e);
                     eprintln!("[vietc-tray] Try: sudo setcap cap_sys_admin+ep $(which vietc-daemon)");
                     eprintln!("[vietc-tray] Or start manually: sudo vietc-daemon &");
-                    let _ = std::process::Command::new(&daemon_bin).spawn();
+                    if let Ok(child) = std::process::Command::new(&daemon_bin).spawn() {
+                        DAEMON_PID.store(child.id() as i32, Ordering::SeqCst);
+                    }
                     return;
                 }
             };
@@ -184,10 +191,25 @@ fn start_daemon() {
                 if exit.success() {
                     let _ = std::fs::write(&flag_path, "1");
                     eprintln!("[vietc-tray] Daemon started with root privileges");
+                    // After sudo execs the daemon, wait briefly and read PID from lock file
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    for uid in &[0usize, unsafe { libc::getuid() as usize }] {
+                        let lock_path = format!("/tmp/vietc-daemon-{}.lock", uid);
+                        if let Ok(pid_str) = std::fs::read_to_string(&lock_path) {
+                            if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                                if pid > 0 && unsafe { libc::kill(pid, 0) } == 0 {
+                                    DAEMON_PID.store(pid, Ordering::SeqCst);
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 } else {
                     eprintln!("[vietc-tray] sudo failed (wrong password?), starting daemon without root");
                     eprintln!("[vietc-tray] Try: sudo setcap cap_sys_admin+ep $(which vietc-daemon)");
-                    let _ = std::process::Command::new(&daemon_bin).spawn();
+                    if let Ok(child) = std::process::Command::new(&daemon_bin).spawn() {
+                        DAEMON_PID.store(child.id() as i32, Ordering::SeqCst);
+                    }
                 }
             }
         }
@@ -196,7 +218,38 @@ fn start_daemon() {
 
     if !is_daemon_running() {
         eprintln!("[vietc-tray] Starting daemon: {}", daemon_bin);
-        let _ = std::process::Command::new(&daemon_bin).spawn();
+        if let Ok(child) = std::process::Command::new(&daemon_bin).spawn() {
+            DAEMON_PID.store(child.id() as i32, Ordering::SeqCst);
+        }
+    }
+}
+
+pub fn stop_daemon() {
+    let pid = DAEMON_PID.load(Ordering::SeqCst);
+    if pid > 0 {
+        eprintln!("[vietc-tray] Stopping daemon (PID {})", pid);
+        unsafe { libc::kill(pid, libc::SIGTERM); }
+        // Wait up to 2s for graceful exit
+        for _ in 0..20 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if unsafe { libc::kill(pid, 0) } != 0 {
+                eprintln!("[vietc-tray] Daemon exited");
+                return;
+            }
+        }
+        // Force kill if still alive
+        eprintln!("[vietc-tray] Daemon still alive, sending SIGKILL");
+        unsafe { libc::kill(pid, libc::SIGKILL); }
+        return;
+    }
+
+    // Fallback: pkill both possible names
+    eprintln!("[vietc-tray] Stopping daemon via pkill");
+    for name in &["vietc-daemon", "vietc"] {
+        let _ = std::process::Command::new("pkill")
+            .arg("-x")
+            .arg(name)
+            .status();
     }
 }
 
@@ -233,4 +286,7 @@ fn main() {
 
     // Run the tray
     tray::run();
+
+    // Tray exited normally — stop the daemon
+    stop_daemon();
 }
