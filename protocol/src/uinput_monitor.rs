@@ -223,7 +223,7 @@ impl KeyInjector for UinputInjector {
         }
 
         // Unicode text: try xdotool type first (works on X11, doesn't touch clipboard)
-        if self.type_via_xdotool(s) {
+        if self.type_via_xdotool(0, s) {
             return InjectResult::Success;
         }
 
@@ -385,23 +385,39 @@ impl UinputInjector {
             return InjectResult::Success;
         }
 
-        // Unicode: backspaces via uinput, then delegate to send_string()
+        // Unicode: try xdotool type with backspaces first (works on X11, doesn't touch clipboard)
+        if self.type_via_xdotool(backspaces, text) {
+            return InjectResult::Success;
+        }
+
+        // Fallback: backspaces via uinput, then clipboard copy + paste (both via uinput)
         if backspaces > 0 {
             for _ in 0..backspaces { let _ = self.send_backspace(); }
         }
-        self.send_string(text);
+        if !self.paste_via_clipboard(text) {
+            eprintln!(
+                "[vietc] send_string failed for '{}' (clipboard unavailable)",
+                text.escape_default()
+            );
+        }
         InjectResult::Success
     }
 
     /// Type Unicode text via xdotool (X11 only). Returns true on success.
     /// More reliable than clipboard paste — doesn't overwrite the user's clipboard
     /// and works with XTest directly for proper Unicode key injection.
-    fn type_via_xdotool(&self, text: &str) -> bool {
+    fn type_via_xdotool(&self, backspaces: usize, text: &str) -> bool {
         let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
         if is_wayland {
             return false;
         }
         let mut cmd = Self::user_cmd("xdotool");
+        if backspaces > 0 {
+            cmd.arg("key");
+            for _ in 0..backspaces {
+                cmd.arg("BackSpace");
+            }
+        }
         cmd.args(["type", "--clearmodifiers", text]);
         cmd.stdout(std::process::Stdio::null());
         cmd.stderr(std::process::Stdio::null());
