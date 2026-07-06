@@ -7,6 +7,8 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; NC='\033[0m'
 
 [ "$EUID" -ne 0 ] && echo -e "${RED}Please run with sudo.${NC}" && exit 1
 
+INSTALLING_USER="${SUDO_USER:-$USER}"
+
 # Parse arguments
 FROM_SOURCE=false
 for arg in "$@"; do
