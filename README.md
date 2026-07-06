@@ -22,6 +22,9 @@
   <a href="README.vi.md">Tiếng Việt</a>
 </p>
 
+> [!WARNING]
+> This project is in active development and operates directly on input devices (`evdev` / `/dev/uinput`). It may crash your system or lock your keyboard in case of critical bugs. Use with caution.
+
 ---
 
 ## What is Viet+?

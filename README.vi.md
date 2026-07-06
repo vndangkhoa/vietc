@@ -22,6 +22,9 @@
   <a href="README.md">English</a>
 </p>
 
+> [!WARNING]
+> Dự án này đang trong giai đoạn phát triển và can thiệp trực tiếp vào thiết bị nhập liệu hệ thống (`evdev` / `/dev/uinput`). Chương trình có thể gây treo hệ thống hoặc khóa bàn phím nếu xảy ra lỗi nghiêm trọng. Hãy thận trọng khi sử dụng.
+
 ---
 
 ## Viet+ là gì?
