@@ -62,7 +62,6 @@ struct X11Lib {
     x_next_event: unsafe extern "C" fn(*mut Display, *mut XEvent),
     x_query_keymap: unsafe extern "C" fn(*mut Display, *mut c_char) -> c_int,
     x_lookup_string: unsafe extern "C" fn(*const XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int,
-    x_utf8_lookup_string: Option<unsafe extern "C" fn(*mut c_void, *const XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int>,
 }
 
 impl X11Lib {
@@ -120,10 +119,6 @@ impl X11Lib {
             let x_next_event = sym!(x11_handle, "XNextEvent");
             let x_query_keymap = sym!(x11_handle, "XQueryKeymap");
             let x_lookup_string = sym!(x11_handle, "XLookupString");
-            let x_utf8_lookup_string = {
-                let p = dlsym(x11_handle, b"Xutf8LookupString\0".as_ptr() as *const c_char);
-                if p.is_null() { None } else { Some(std::mem::transmute(p)) }
-            };
             let x_test_fake_key_event = sym!(xtst_handle, "XTestFakeKeyEvent");
 
             Ok(Self {
@@ -145,7 +140,6 @@ impl X11Lib {
                 x_next_event,
                 x_query_keymap,
                 x_lookup_string,
-                x_utf8_lookup_string,
             })
         }
     }
@@ -665,24 +659,13 @@ impl X11KeymapCapture {
 
             let mut buf = [0u8; 32];
             let mut keysym: KeySym = 0;
-            let len = if let Some(xutf8) = self.lib.x_utf8_lookup_string {
-                xutf8(
-                    std::ptr::null_mut(),
-                    &mut xke as *mut XKeyEvent,
-                    buf.as_mut_ptr() as *mut c_char,
-                    buf.len() as c_int,
-                    &mut keysym,
-                    std::ptr::null_mut(),
-                )
-            } else {
-                (self.lib.x_lookup_string)(
-                    &mut xke as *mut XKeyEvent,
-                    buf.as_mut_ptr() as *mut c_char,
-                    buf.len() as c_int,
-                    &mut keysym,
-                    std::ptr::null_mut(),
-                )
-            };
+            let len = (self.lib.x_lookup_string)(
+                &mut xke as *mut XKeyEvent,
+                buf.as_mut_ptr() as *mut c_char,
+                buf.len() as c_int,
+                &mut keysym,
+                std::ptr::null_mut(),
+            );
             if len > 0 {
                 let s = std::str::from_utf8(&buf[..len as usize]).ok()?;
                 s.chars().next()

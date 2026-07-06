@@ -1066,6 +1066,7 @@ fn run_with_x11(
         if daemon.config.app_state.enabled {
             let class = shared_window_class.lock().unwrap().clone();
             if !class.is_empty() {
+                injector.set_active_window(&class);
                 daemon.check_app_change_with(class);
             }
         }
@@ -1202,6 +1203,7 @@ fn run_with_x11_keymap(
             let class = shared_window_class.lock().unwrap().clone();
             if !class.is_empty() && class != last_window_class {
                 last_window_class = class.clone();
+                injector.set_active_window(&class);
                 daemon.check_app_change_with(class.clone());
             }
         }
@@ -1658,6 +1660,7 @@ fn run_with_evdev(
                                         } else {
                                             class
                                         };
+                                        injector.set_active_window(&class);
                                         daemon.check_app_change_with(class);
                                     }
 
@@ -1673,6 +1676,7 @@ fn run_with_evdev(
                                 } else if daemon.config.app_state.enabled {
                                     let class = shared_window_class.lock().unwrap().clone();
                                     if !class.is_empty() {
+                                        injector.set_active_window(&class);
                                         daemon.check_app_change_with(class);
                                     }
                                 }
@@ -1834,6 +1838,7 @@ fn run_stdin_mode(
         // Check for app changes instantly using the cached state from background thread
         if daemon.config.app_state.enabled {
             let active_window = shared_active_window.lock().unwrap().clone();
+            injector.set_active_window(&active_window);
             daemon.check_app_change_with(active_window);
         }
 
