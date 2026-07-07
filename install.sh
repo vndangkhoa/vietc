@@ -160,9 +160,11 @@ else
         if command -v dpkg-deb &>/dev/null; then
             dpkg-deb -x "$TMPDIR/$DEB" "$INSTALL_DIR"
         else
+            mkdir -p "$TMPDIR/deb"
             ar x "$TMPDIR/$DEB" --output="$TMPDIR/deb" 2>/dev/null
             tar -xzf "$TMPDIR/deb/data.tar.gz" -C "$INSTALL_DIR" 2>/dev/null || \
-            tar -xJf "$TMPDIR/deb/data.tar.xz" -C "$INSTALL_DIR" 2>/dev/null || true
+            tar -xJf "$TMPDIR/deb/data.tar.xz" -C "$INSTALL_DIR" 2>/dev/null || \
+            tar --zstd -xf "$TMPDIR/deb/data.tar.zst" -C "$INSTALL_DIR" 2>/dev/null || true
         fi
         BIN_DIR="$INSTALL_DIR/usr/bin"
         PKG_DIR="$INSTALL_DIR"
