@@ -17,6 +17,7 @@ mod log;
 mod password_detector;
 mod signal;
 mod stdin;
+mod wayland_im;
 
 #[cfg(feature = "x11")]
 mod x11_capture;
@@ -50,9 +51,49 @@ fn boost_thread_priority() {
     }
 }
 
+/// Set when vietc stops a running IBus, so it can be restarted on exit.
+static IBUS_STOPPED: AtomicBool = AtomicBool::new(false);
+
+/// Stop any running IBus daemon so it does not compete with vietc as a second
+/// X11/Wayland input method. A compositor that exposes zwp_input_method_v2
+/// makes IBus auto-yield, but on the X11/XWayland fallback path IBus must be
+/// stopped explicitly or both IMEs will fight over the same keystrokes.
+fn stop_ibus() {
+    match std::process::Command::new("ibus").arg("exit").status() {
+        Ok(status) => {
+            log_info(&format!("[vietc] stopped IBus (status {})", status));
+            IBUS_STOPPED.store(true, Ordering::SeqCst);
+        }
+        Err(_) => {
+            // IBus not installed or not running — nothing to do.
+        }
+    }
+}
+
+/// Restart IBus if vietc stopped it, restoring the user's previous input
+/// method when vietc quits. Best-effort; failures are ignored.
+fn restart_ibus() {
+    if IBUS_STOPPED.load(Ordering::SeqCst) {
+        match std::process::Command::new("ibus-daemon").arg("-d").status() {
+            Ok(_) => log_info("[vietc] restarted IBus"),
+            Err(e) => log_info(&format!("[vietc] could not restart IBus: {}", e)),
+        }
+    }
+}
+
+/// Restarts IBus on drop (i.e. when vietc exits cleanly via signal/return).
+struct IbusRestartGuard;
+impl Drop for IbusRestartGuard {
+    fn drop(&mut self) {
+        restart_ibus();
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     install_signal_handlers();
     ensure_single_instance("vietc-daemon");
+    // Restart IBus on clean exit if we stopped it.
+    let _ibus_guard = IbusRestartGuard;
 
     recover_display_env();
     let config_path = config::find_config_path();
@@ -170,6 +211,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // On Wayland, prefer the compositor input-method protocol: it needs no
+    // root, no evdev grab, no uinput and no input-group udev rule. If the
+    // compositor doesn't expose zwp_input_method_v2, fall back to evdev.
+    #[cfg(feature = "wayland")]
+    if display == display::DisplayServer::Wayland {
+        match wayland_im::run_wayland_im(&daemon.config, engine_enabled.clone(), display) {
+            Ok(()) => {
+                log_info("[vietc] Wayland input method session ended");
+                return Ok(());
+            }
+            Err(e) => {
+                log_info(&format!(
+                    "[vietc] Wayland IM unavailable ({}), falling back to evdev/uinput/X11",
+                    e
+                ));
+                // IBus won't auto-yield here, so stop it to avoid a second IME
+                // competing with the evdev/uinput or X11 fallback paths.
+                stop_ibus();
+            }
+        }
+    }
+
+    // When XWayland is available we use the rootless X11 path (XQueryKeymap +
+    // XTEST), which needs no privileges. Skip the evdev/uinput path there: it
+    // would grab the physical keyboard yet fail to inject without root, leaving
+    // the real keyboard dead. The evdev path is only for non-X11 setups that
+    // grant uinput/setcap.
+    if std::env::var("DISPLAY").is_err() {
     match open_keyboard_devices() {
         Ok(mut devices) => {
             match run_with_evdev(
@@ -197,10 +266,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             log_info(&format!("[vietc] evdev not available: {}", e));
         }
     }
+    } else {
+        log_info("[vietc] DISPLAY available — using rootless X11 path, skipping evdev grab");
+    }
 
     #[cfg(feature = "x11")]
-    if display != display::DisplayServer::Wayland {
-        log_info("[vietc] Trying X11 keymap-based capture");
+    if std::env::var("DISPLAY").is_ok() {
+        log_info("[vietc] Trying X11 keymap-based capture (rootless via XWayland)");
         match x11_capture::run_with_x11_keymap(
             &mut daemon,
             shared_active_window.clone(),

@@ -19,6 +19,15 @@
 
 ---
 
+## 🆕 What's New — Rootless Wayland & Auto-Start
+
+- **Runs with zero privileges.** vietc now operates as a normal user — no root, no `setcap`, no `/dev/uinput`/udev, no `input` group. It speaks `zwp_input_method_v2` when the compositor offers it, and otherwise falls back to the **rootless X11 path** (`XQueryKeymap` + `XTEST` over XWayland), the same approach as `ibus-x11`.
+- **Automatic IBus takeover.** On start, vietc stops IBus; on a *clean* exit it restarts IBus automatically, so it transparently replaces the system IME and restores it when you quit.
+- **systemd user service.** `vietc.service` starts vietc on login (`After=graphical-session.target`, `ConditionEnvironment=DISPLAY`, `KillMode=process` so the respawned IBus survives the stop). Enable once with `systemctl --user enable --now vietc.service`.
+- **Known limitation.** Current Mutter/GNOME Shell does **not** expose `zwp_input_method_manager_v2`, so on this session the X11 path covers X11/XWayland windows only; Wayland-native GTK4/Qt clients are covered automatically once the compositor advertises v2 (no daemon change required). Full details in [`docs/wayland-rootless.md`](docs/wayland-rootless.md).
+
+---
+
 ## 🤔 Why Viet+?
 
 Most Vietnamese IMEs use a **pre-edit buffer** — you type into a temporary buffer with an ugly underline, and the text only becomes real Vietnamese when you commit it. This causes duplicate text, underline distraction, broken copy/paste, and desync between the engine state and what's on screen.

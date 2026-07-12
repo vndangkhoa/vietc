@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fs;
 use std::os::unix::io::AsRawFd;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -28,29 +29,36 @@ pub fn run_with_evdev(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut injector = create_injector(display)?;
 
-    let primary_idx = 0usize;
-    let grabbed = if daemon.grab_enabled && !devices.is_empty() {
-        match devices[primary_idx].0.grab() {
-            Ok(()) => {
-                log_info("[vietc] Keyboard grabbed — race condition eliminated");
-                true
-            }
-            Err(e) => {
-                log_info(&format!(
-                    "[vietc] Could not grab keyboard: {} (run as root for grab)",
-                    e
-                ));
-                log_info("[vietc] Falling back to non-grabbing mode (may have race)");
-                false
+    let mut any_grabbed = false;
+    if daemon.grab_enabled && !devices.is_empty() {
+        for (idx, (dev, _name)) in devices.iter_mut().enumerate() {
+            match dev.grab() {
+                Ok(()) => {
+                    any_grabbed = true;
+                    log_info(&format!("[vietc] Grabbed keyboard device #{}", idx));
+                }
+                Err(e) => {
+                    log_info(&format!(
+                        "[vietc] Could not grab keyboard #{}: {} (run as root for grab)",
+                        idx, e
+                    ));
+                }
             }
         }
-    } else {
-        if !daemon.grab_enabled {
-            log_info("[vietc] Keyboard grab disabled (config grab = false)");
-            log_info("[vietc] Set grab = true in vietc.toml to enable (needs root)");
+        if any_grabbed {
+            log_info("[vietc] All available keyboards grabbed — race condition eliminated");
+        } else {
+            log_info("[vietc] Falling back to non-grabbing mode (may have race)");
         }
-        false
-    };
+    } else if !daemon.grab_enabled {
+        log_info("[vietc] Keyboard grab disabled (config grab = false)");
+        log_info("[vietc] Set grab = true in vietc.toml to enable (needs root)");
+    }
+    let grabbed = any_grabbed;
+
+    // Track known device paths for hotplug discovery.
+    let mut known_paths: HashSet<String> =
+        devices.iter().map(|(_, n)| dev_path_of(n)).collect();
 
     if !grabbed {
         if unsafe { libc::geteuid() } != 0 {
@@ -90,7 +98,9 @@ pub fn run_with_evdev(
     loop {
         if SIGNAL_EXIT.load(Ordering::SeqCst) {
             if grabbed && !devices.is_empty() {
-                let _ = devices[primary_idx].0.ungrab();
+                for (dev, _name) in devices.iter_mut() {
+                    let _ = dev.ungrab();
+                }
                 log_info("[vietc] Signal received — keyboard grab released");
             }
             log_info("[vietc] Exiting on signal");
@@ -131,6 +141,21 @@ pub fn run_with_evdev(
                     daemon.check_app_change_with(last_window_class.clone());
                 }
             }
+            // Hotplug: grab keyboards that appeared after startup (e.g. the
+            // vietc-vk virtual keyboard), so it can drive the engine even if
+            // it was opened after vietc started.
+            let new_devs = discover_new_keyboards(&known_paths);
+            for (mut dev, name) in new_devs {
+                if daemon.grab_enabled {
+                    if dev.grab().is_ok() {
+                        log_info(&format!("[vietc] Hotplug grabbed keyboard: {}", name));
+                    }
+                }
+                known_paths.insert(dev_path_of(&name));
+                let caps = is_caps_lock_on(&dev);
+                devices.push((dev, name.clone()));
+                device_states.push((evdev::AttributeSet::new(), caps));
+            }
             continue;
         }
 
@@ -148,6 +173,7 @@ pub fn run_with_evdev(
         }
 
         // Process events from whichever device(s) have data ready
+        let mut dead: Vec<usize> = Vec::new();
         for (i, pfd) in pfds.iter().enumerate() {
             if (pfd.revents & libc::POLLIN) == 0 {
                 continue;
@@ -164,10 +190,11 @@ pub fn run_with_evdev(
                         continue;
                     }
                     log_info(&format!(
-                        "[vietc] fetch_events error on device {}: {:?} — exiting",
+                        "[vietc] fetch_events error on device {}: {:?} — removing device",
                         i, e
                     ));
-                    return Err(e.into());
+                    dead.push(i);
+                    continue;
                 }
             };
 
@@ -230,11 +257,14 @@ pub fn run_with_evdev(
                     }
                 }
 
-                // Only process the primary device through the engine to avoid
-                // double-processing: non-primary devices aren't grabbed, so their
-                // events reach the app directly — any engine processing would
-                // inject a second copy of every keystroke.
-                if i != 0 {
+                // In non-grabbed mode only the primary device is processed
+                // through the engine, because non-primary devices aren't grabbed
+                // and their events reach the app directly — processing them would
+                // inject a second copy of every keystroke. In grabbed mode every
+                // keyboard is grabbed (originals suppressed), so all devices may
+                // be processed safely. This also lets a uinput virtual keyboard
+                // (e.g. the vietc-vk test tool) drive the engine.
+                if !grabbed && i != 0 {
                     continue;
                 }
 
@@ -475,5 +505,68 @@ pub fn run_with_evdev(
             // Save updated key state back
             device_states[i].0 = key_state;
         }
+
+        // Remove any devices that errored out (e.g. a uinput virtual keyboard
+        // like vietc-vk was closed) so we don't crash the whole daemon.
+        if !dead.is_empty() {
+            dead.sort_unstable();
+            dead.dedup();
+            for &d in dead.iter().rev() {
+                devices.remove(d);
+                device_states.remove(d);
+                known_paths.retain(|p| p != &dev_path_of(&devices_name_at(devices, d)));
+            }
+        }
     }
+}
+
+/// Extract the device path (the part before " (") from a device label of the
+/// form `"<path> (<name>)"` produced by `open_keyboard_devices`.
+fn dev_path_of(label: &str) -> String {
+    label.split(" (").next().unwrap_or(label).to_string()
+}
+
+/// Look up the label for a device index that still exists (used only when
+/// removing devices, where `d` is always < devices.len()).
+fn devices_name_at(devices: &[(evdev::Device, String)], d: usize) -> &str {
+    &devices[d].1
+}
+
+/// Discover keyboard devices present in /dev/input that are not already known.
+/// Used for hotplug so a virtual keyboard (e.g. vietc-vk) opened after vietc
+/// started is still grabbed and can drive the engine.
+fn discover_new_keyboards(existing: &HashSet<String>) -> Vec<(evdev::Device, String)> {
+    let dir = std::path::Path::new("/dev/input");
+    let mut out = Vec::new();
+    let Ok(rd) = fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in rd.flatten() {
+        let name_str = entry.file_name().to_string_lossy().into_owned();
+        if !name_str.starts_with("event") {
+            continue;
+        }
+        let path = entry.path();
+        let p = path.to_string_lossy().to_string();
+        if existing.contains(&p) {
+            continue;
+        }
+        match evdev::Device::open(&path) {
+            Ok(device) => {
+                let dev_name = device.name().unwrap_or("unknown").to_string();
+                // Skip vietc's own injector device.
+                if dev_name.eq_ignore_ascii_case("vietc") {
+                    continue;
+                }
+                if device
+                    .supported_keys()
+                    .is_some_and(|k| k.contains(evdev::Key::KEY_A))
+                {
+                    out.push((device, format!("{} ({})", path.display(), dev_name)));
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+    out
 }

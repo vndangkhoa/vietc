@@ -20,6 +20,10 @@ build-all:
 build-ui:
 	cd ui && cargo build --release
 
+# Build virtual-keyboard test tool (requires libwayland/libx11 dev for winit)
+build-vk:
+	cd vk && cargo build --release
+
 # Build debug
 build-dev:
 	cargo build
@@ -70,6 +74,12 @@ install-ui: build-ui
 	sudo cp ui/target/release/vietc-tray /usr/local/bin/vietc-tray
 	@echo "Installed vietc-tray to /usr/local/bin/"
 
+# Install virtual-keyboard test tool
+install-vk: build-vk
+	sudo cp vk/target/release/vietc-vk /usr/local/bin/vietc-vk
+	sudo setcap cap_dac_override+ep /usr/local/bin/vietc-vk
+	@echo "Installed vietc-vk to /usr/local/bin/"
+
 # Install config to user dir
 install-config:
 	mkdir -p ~/.config/vietc
@@ -85,16 +95,19 @@ deb:
 clean:
 	cargo clean
 	cd ui && cargo clean
+	cd vk && cargo clean
 
 # Format code
 fmt:
 	cargo fmt
 	cd ui && cargo fmt
+	cd vk && cargo fmt
 
 # Lint
 lint:
 	cargo clippy -- -D warnings
 	cd ui && cargo clippy -- -D warnings
+	cd vk && cargo clippy -- -D warnings
 
 # Show project structure
 tree:

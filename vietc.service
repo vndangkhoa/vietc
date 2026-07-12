@@ -1,11 +1,22 @@
 [Unit]
-Description=Viet+ Vietnamese IME Daemon
+Description=Viet+ Vietnamese IME Daemon (rootless)
+PartOf=graphical-session.target
+After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/vietc
+ExecStart=/usr/bin/vietc-daemon
 Restart=on-failure
-RestartSec=5
+RestartSec=3
+# Only kill the daemon on stop; the IBus it respawns (IbusRestartGuard) must
+# survive so input works again after vietc exits.
+KillMode=process
+# Rootless X11 path needs the session-provided DISPLAY (XWayland).
+# GNOME/gdm import DISPLAY into the user manager automatically; if your
+# compositor does not, run once:
+#   systemctl --user import-environment DISPLAY WAYLAND_DISPLAY
+# or drop an EnvironmentFile=/etc/default/vietc with the values.
+ConditionEnvironment=DISPLAY
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target

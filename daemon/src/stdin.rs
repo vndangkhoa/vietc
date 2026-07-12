@@ -7,6 +7,7 @@ use crate::device::open_keyboard_devices;
 use crate::display;
 use crate::inject::{create_injector, execute_commands};
 use crate::log::log_info;
+use crate::signal::SIGNAL_EXIT;
 
 pub fn run_stdin_mode(
     daemon: &mut Daemon,
@@ -27,6 +28,10 @@ pub fn run_stdin_mode(
         log_info("  Then log out and back in.");
 
         loop {
+            if SIGNAL_EXIT.load(Ordering::SeqCst) {
+                log_info("[vietc] Exiting on signal");
+                return Ok(());
+            }
             thread::sleep(std::time::Duration::from_secs(5));
 
             if status_changed.load(Ordering::SeqCst) {

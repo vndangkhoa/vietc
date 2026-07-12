@@ -54,7 +54,8 @@ pub fn create_injector(
     }
 
     #[cfg(feature = "x11")]
-    if display != display::DisplayServer::Wayland {
+    if std::env::var("DISPLAY").is_ok() {
+        // On Wayland-with-XWayland, XTEST injection is rootless (like ibus-x11).
         match vietc_protocol::x11_inject::X11Injector::new() {
             Ok(injector) => {
                 log_info("[vietc] Using X11 injection (fallback)");
