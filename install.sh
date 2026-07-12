@@ -11,11 +11,24 @@ INSTALLING_USER="${SUDO_USER:-$USER}"
 
 # Parse arguments
 FROM_SOURCE=false
+PREBUILT=false
 for arg in "$@"; do
     if [ "$arg" = "--from-source" ] || [ "$arg" = "--local" ]; then
         FROM_SOURCE=true
+    elif [ "$arg" = "--prebuilt" ]; then
+        PREBUILT=true
     fi
 done
+
+# When run from a source tree (git clone), build from source by default so the
+# freshly cloned code (e.g. the rootless Wayland path) is what gets installed,
+# instead of a possibly-stale prebuilt release. Pass --prebuilt to force a
+# release download.
+if [ "$FROM_SOURCE" != true ] && [ "$PREBUILT" != true ] && [ -f Cargo.toml ]; then
+    echo -e "${YELLOW}Source tree detected — building from source.${NC}"
+    echo -e "${YELLOW}(pass --prebuilt to download a release instead)${NC}"
+    FROM_SOURCE=true
+fi
 
 echo -e "${GREEN}=== Viet+ Installer ===${NC}"
 
@@ -128,6 +141,25 @@ if [ "$FROM_SOURCE" = true ]; then
         git clone -b staging https://github.com/vndangkhoa/vietc.git "$TMPDIR/source"
         cd "$TMPDIR/source"
     fi
+
+    # Install build dependencies (needed to compile the daemon)
+    echo "Installing build dependencies..."
+    case "$DISTRO" in
+        ubuntu|debian|linuxmint|mint|pop|neon|zorin|elementary)
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -y
+            apt-get install -y build-essential pkg-config libxkbcommon-dev \
+              libx11-dev libxtst-dev libwayland-dev libevdev-dev libdbus-1-dev libssl-dev
+            ;;
+        fedora|rhel|centos)
+            dnf install -y gcc pkgconf-pkg-config libxkbcommon-devel \
+              libX11-devel libXtst-devel wayland-devel libevdev-devel dbus-devel
+            ;;
+        arch|manjaro|cachyos|endeavouros|garuda|artix)
+            pacman -Sy --needed --noconfirm base-devel pkgconf \
+              libxkbcommon wayland libevdev dbus
+            ;;
+    esac
 
     echo "Building from source..."
     cargo build --release
@@ -281,6 +313,31 @@ ConditionEnvironment=DISPLAY
 [Install]
 WantedBy=graphical-session.target
 EOF
+
+# Prevent a stale user-local unit from shadowing this one (a leftover would
+# point at a binary the cleanup step deletes, causing the service to crash-loop
+# with status=203/EXEC).
+INSTALLING_USER="${SUDO_USER:-$USER}"
+USER_HOME="$(getent passwd "$INSTALLING_USER" 2>/dev/null | cut -d: -f6 || true)"
+if [ -n "$USER_HOME" ] && [ "$INSTALLING_USER" != "root" ]; then
+    rm -f "$USER_HOME/.config/systemd/user/vietc.service" \
+          "$USER_HOME/.config/systemd/user/graphical-session.target.wants/vietc.service" \
+          "$USER_HOME/.config/systemd/user/default.target.wants/vietc.service" 2>/dev/null || true
+    mkdir -p "$USER_HOME/.config/systemd/user/graphical-session.target.wants"
+    ln -sf /usr/lib/systemd/user/vietc.service \
+          "$USER_HOME/.config/systemd/user/graphical-session.target.wants/vietc.service"
+    chown -R "$INSTALLING_USER" "$USER_HOME/.config/systemd/user" 2>/dev/null || true
+    # Best-effort live enable if the user's systemd is running.
+    U_UID="$(id -u "$INSTALLING_USER" 2>/dev/null)"
+    if command -v systemctl >/dev/null 2>&1 && [ -n "$U_UID" ]; then
+        sudo -u "$INSTALLING_USER" XDG_RUNTIME_DIR="/run/user/$U_UID" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$U_UID/bus" \
+            systemctl --user daemon-reload 2>/dev/null || true
+        sudo -u "$INSTALLING_USER" XDG_RUNTIME_DIR="/run/user/$U_UID" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$U_UID/bus" \
+            systemctl --user enable --now vietc.service 2>/dev/null || true
+    fi
+fi
 
 # User setup
 INSTALLING_USER="${SUDO_USER:-$USER}"
