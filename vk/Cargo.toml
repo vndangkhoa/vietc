@@ -1,0 +1,13 @@
+[package]
+name = "vietc-vk"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone virtual-keyboard test tool for Viet+ (vietc)"
+
+[dependencies]
+evdev = "0.12"
+eframe = "0.27"
+egui = "0.27"
+
+[dev-dependencies]
+vietc-engine = { path = "../engine" }

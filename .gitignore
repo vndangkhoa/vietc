@@ -17,3 +17,8 @@ packaging/flatpak/build-dir
 packaging/flatpak/vietc-repo
 packaging/flatpak/repo
 packaging/flatpak/VietPlus-*
+
+# vietc-vk standalone virtual-keyboard test tool (excluded from workspace build)
+vk/target/
+# keep its lockfile (standalone binary needs reproducible builds)
+!vk/Cargo.lock
