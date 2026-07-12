@@ -233,14 +233,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // When XWayland is available we use the rootless X11 path (XQueryKeymap +
-    // XTEST), which needs no privileges. Skip the evdev/uinput path there: it
-    // would grab the physical keyboard yet fail to inject without root, leaving
-    // the real keyboard dead. The evdev path is only for non-X11 setups that
-    // grant uinput/setcap.
-    if std::env::var("DISPLAY").is_err() {
-    match open_keyboard_devices() {
-        Ok(mut devices) => {
+    // Prefer the evdev grab path when the keyboard devices are accessible
+    // (user in the `input` group, or root). A grab suppresses the original
+    // keystrokes, so composition is clean and works for BOTH X11 and
+    // Wayland-native apps. Only fall back to the rootless X11 keymap path
+    // (X11/XWayland windows only) when evdev capture is unavailable.
+    let mut evdev_devices = open_keyboard_devices().ok();
+    if evdev_devices.is_some() {
+        if let Some(mut devices) = evdev_devices.take() {
+            daemon.grab_enabled = true;
+            log_info("[vietc] Keyboard devices accessible — using evdev grab (full X11 + Wayland coverage)");
             match run_with_evdev(
                 &mut devices,
                 &mut daemon,
@@ -262,17 +264,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Err(e) => {
-            log_info(&format!("[vietc] evdev not available: {}", e));
-        }
-    }
     } else {
-        log_info("[vietc] DISPLAY available — using rootless X11 path, skipping evdev grab");
+        log_info("[vietc] evdev not available (no input-group/root) — will use rootless X11 path");
     }
 
     #[cfg(feature = "x11")]
     if std::env::var("DISPLAY").is_ok() {
-        log_info("[vietc] Trying X11 keymap-based capture (rootless via XWayland)");
+        log_info("[vietc] Trying X11 keymap-based capture (rootless via XWayland, X11 apps only)");
         match x11_capture::run_with_x11_keymap(
             &mut daemon,
             shared_active_window.clone(),

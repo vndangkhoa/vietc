@@ -21,7 +21,7 @@
 
 ## 🆕 What's New — Rootless Wayland & Auto-Start
 
-- **Runs with zero privileges.** vietc now operates as a normal user — no root, no `setcap`, no `/dev/uinput`/udev, no `input` group. It speaks `zwp_input_method_v2` when the compositor offers it, and otherwise falls back to the **rootless X11 path** (`XQueryKeymap` + `XTEST` over XWayland), the same approach as `ibus-x11`.
+- **Runs with zero privileges when possible.** On a compositor exposing `zwp_input_method_v2` it uses that (rootless, all apps). Otherwise, if the keyboard is accessible (user in the `input` group or root), it uses the **evdev grab** path — it grabs the physical keyboard so composition is clean and covers **both X11 and Wayland-native apps**. Only when neither is available does it fall back to the rootless X11 keymap path (`XQueryKeymap` + `XTEST`), which covers X11/XWayland windows only.
 - **Automatic IBus takeover.** On start, vietc stops IBus; on a *clean* exit it restarts IBus automatically, so it transparently replaces the system IME and restores it when you quit.
 - **systemd user service.** `vietc.service` starts vietc on login (`After=graphical-session.target`, `ConditionEnvironment=DISPLAY`, `KillMode=process` so the respawned IBus survives the stop). Enable once with `systemctl --user enable --now vietc.service`.
 - **Known limitation.** Current Mutter/GNOME Shell does **not** expose `zwp_input_method_manager_v2`, so on this session the X11 path covers X11/XWayland windows only; Wayland-native GTK4/Qt clients are covered automatically once the compositor advertises v2 (no daemon change required). Full details in [`docs/wayland-rootless.md`](docs/wayland-rootless.md).

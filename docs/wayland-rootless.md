@@ -16,19 +16,25 @@ remains to be done for full Wayland-native coverage.
 
 ## Path selection (in `daemon/src/main.rs`)
 
-1. Build Wayland registry; if `zwp_input_method_manager_v2` is present, use the
-   `zwp_input_method_v2` input-method path (true Wayland-native, rootless).
-2. Otherwise, if `DISPLAY` is set, use the **rootless X11 path**:
-   - keymap capture: `X11KeymapCapture` polling `XQueryKeymap`
-     (`protocol/src/x11_inject.rs`) — no keyboard grab, so no privileges needed.
-   - injection: `X11Injector` using `XTEST` (`protocol/src/x11_inject.rs`) —
-     `XTestFakeKeyEvent`, also rootless (like `ibus-x11`).
-3. Otherwise (headless / pure Wayland without v2), fall back to the
-   privileged `evdev`/`uinput` path (needs `setcap` or `input` group).
+ 1. Build Wayland registry; if `zwp_input_method_manager_v2` is present, use the
+    `zwp_input_method_v2` input-method path (true Wayland-native, rootless).
+ 2. Otherwise, if the keyboard devices are accessible (`input` group or root —
+    i.e. `open_keyboard_devices()` succeeds), use the **evdev grab** path:
+    - vietc grabs the physical keyboard (`EVIOCGRAB`), so the original
+      keystrokes are suppressed and composition is clean. This covers **both
+      X11 and Wayland-native apps** (the grab is at the kernel level, before the
+      compositor routes input).
+    - injection: `uinput` virtual keyboard (`protocol/src/x11_inject.rs`).
+ 3. Otherwise (no `input` group / no root, but `DISPLAY` set), fall back to the
+    **rootless X11 keymap path** (`X11KeymapCapture` polling `XQueryKeymap` +
+    `X11Injector` via `XTEST`) — X11/XWayland windows only; Wayland-native apps
+    are not covered by this fallback.
 
-When `DISPLAY` is available the `evdev` grab is **skipped entirely** (see
-`main.rs`), so the daemon never tries to grab a physical keyboard it has no
-rights to — avoiding the dangerous grab-without-injection failure mode.
+Historically `DISPLAY` caused the evdev grab to be skipped entirely; that was
+changed because the evdev grab is the only path that covers Wayland-native apps
+on a compositor without `zwp_input_method_v2` (e.g. current Mutter). When the
+keyboard is accessible the grab is safe (no root needed with the `input` group)
+and gives full coverage.
 
 ## IBus auto stop / restart
 
