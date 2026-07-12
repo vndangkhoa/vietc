@@ -7,9 +7,8 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 [![Version](https://img.shields.io/badge/Version-0.1.7-purple?style=flat-square)](https://github.com/vndangkhoa/vietc)
 [![Tests](https://img.shields.io/badge/Tests-104_passing-brightgreen?style=flat-square)](https://github.com/vndangkhoa/vietc)
-[![Event Sourcing](https://img.shields.io/badge/Event_Sourcing-%E2%9C%93-blueviolet?style=flat-square)](https://github.com/vndangkhoa/vietc)
 
-[Features](#-features) • [Quick Start](#-quick-start) • [Why Viet+?](#-why-viet) • [Installation](#-installation) • [Configuration](#-configuration) • [Development](#-development) • [Contributing](#-contributing)
+[Why Viet+?](#-why-viet) • [Features](#-features) • [Installation](#-installation) • [Configuration](#-configuration) • [Usage](#-usage) • [Architecture](#-architecture) • [Roadmap](#-roadmap) • [Development](#-development) • [Contributing](#-contributing)
 
 ---
 
@@ -18,82 +17,63 @@
 > [!WARNING]
 > This project is in active development and operates directly on input devices (`evdev` / `/dev/uinput`). It may crash your system or lock your keyboard in case of critical bugs. Use with caution.
 
-## ✨ Features
+---
 
-### ⚡ Direct Input
+## 🤔 Why Viet+?
 
-No pre-edit buffer. Keystrokes are instantly converted to Unicode via uinput injection — what you type is what you see. No buffer, no underline, no duplication.
+Most Vietnamese IMEs use a **pre-edit buffer** — you type into a temporary buffer with an ugly underline, and the text only becomes real Vietnamese when you commit it. This causes duplicate text, underline distraction, broken copy/paste, and desync between the engine state and what's on screen.
 
-### 🔤 VNI & Telex
+Viet+ takes a fundamentally different approach: **Direct Input**. Keystrokes are instantly converted to Unicode via uinput injection — what you type is what you see. No buffer, no underline, no duplication.
 
-Both input methods fully supported, switchable at runtime via **Ctrl+Shift**.
+**What you get:**
 
-### 🎋 Bamboo Engine
+- **Directness** — Keystrokes instantly become Unicode. What you type is what you see.
+- **Cleanliness** — No underline, no buffer, no garbled duplication in any app.
+- **Reliability** — The keyboard grab persists for the whole session, eliminating race-condition garbling.
+- **Freedom** — Open source, MIT-licensed, runs entirely on your machine. No telemetry.
 
-Transformation model with composition, marks, tones, and flexible backtracking.
+### 📖 Backstory
 
-### 🧩 Smart Clusters
+I built Viet+ because every Vietnamese IME on Linux annoyed me with the pre-edit underline and the broken copy/paste that came with it. The buffer approach fundamentally desyncs the engine from what's on screen.
 
-`uo→ươ` with backtrack, `ua→ưa` horn placement — natural, forgiving composition.
+What started as a small uinput experiment became a full Rust daemon with a Bamboo-based composition engine, per-app memory, password detection, a tray icon, and a test harness that verifies on-screen output with real synthetic keystrokes. It runs on my Linux desktop every day.
 
-### 📝 Macro Expansion
-
-`ko → không`, `dc → được`, `vs → với` — and add your own.
-
-### 🔡 Casing Preservation
-
-`Tieengs → Tiếng`, `TIEENGS → TIẾNG`.
-
-### 🧠 App Memory
-
-Per-app Vietnamese/English state, saved to `overrides.toml`.
-
-### ♻️ Hot Reload
-
-Config changes apply without restart.
-
-### 🪟 Window-Switch Reset
-
-Engine clears automatically on Alt+Tab.
-
-### 🚀 CPU Priority
-
-Pinned to P-cores (0-3) + nice(-10) for low-latency input.
-
-### 🖱️ Uinput Injection
-
-`/dev/uinput` for reliable injection on X11 and Wayland.
-
-### 💻 Terminal Support
-
-Works in all major terminals: kitty, alacritty, gnome-terminal, konsole, foot, wezterm, st, urxvt, xterm.
-
-### 🔐 Password Auto-Detection
-
-4 layers: AT-SPI2 → sudo process → window-title → window-class.
-
-### 📊 Tray Icon
-
-Shows current mode: Red VN / Blue TLX / Gray EN.
-
-### 🐚 GNOME/Wayland
-
-Native GNOME Shell D-Bus integration.
+If that resonates, give it a star ⭐ — it helps others find the project.
 
 ---
 
-## 🚀 Quick Start
+## ✨ Features
 
-### One-Command Install
+| Icon | Feature | What it does |
+|------|---------|--------------|
+| ⚡ | **Direct Input** | No pre-edit buffer. Keystrokes instantly become Unicode via uinput injection. |
+| 🔤 | **VNI & Telex** | Both input methods, switchable at runtime via **Ctrl+Shift**. |
+| 🎋 | **Bamboo Engine** | Composition, marks, tones, and flexible backtracking. |
+| 🧩 | **Smart Clusters** | `uo→ươ` with backtrack, `ua→ưa` horn placement. |
+| 📝 | **Macro Expansion** | `ko → không`, `dc → được`, `vs → với` — add your own. |
+| 🔡 | **Casing Preservation** | `Tieengs → Tiếng`, `TIEENGS → TIẾNG`. |
+| 🧠 | **App Memory** | Per-app Vietnamese/English state, saved to `overrides.toml`. |
+| ♻️ | **Hot Reload** | Config changes apply without restart. |
+| 🪟 | **Window-Switch Reset** | Engine clears automatically on Alt+Tab. |
+| 🚀 | **CPU Priority** | Pinned to P-cores (0-3) + nice(-10) for low-latency input. |
+| 🖱️ | **Uinput Injection** | `/dev/uinput` for reliable injection on X11 and Wayland. |
+| 💻 | **Terminal Support** | Works in kitty, alacritty, gnome-terminal, konsole, foot, wezterm, st, urxvt, xterm. |
+| 🔐 | **Password Auto-Detection** | 4 layers: AT-SPI2 → sudo process → window-title → window-class. |
+| 📊 | **Tray Icon** | Shows current mode: Red VN / Blue TLX / Gray EN. |
+| 🐚 | **GNOME/Wayland** | Native GNOME Shell D-Bus integration. |
 
-Works on all ✅ **Supported** distros. The script auto-detects your package manager:
+---
+
+## 📥 Installation
+
+### 🚀 Quick Start (One-Command)
+
+Works on all ✅ **Supported** distros. The script auto-detects your package manager, installs dependencies, compiles, installs to `/usr/bin/`, sets up uinput udev rules, and adds your user to the `input` group.
 
 ```bash
 git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc \
   && cd /tmp/vietc && sudo ./install.sh
 ```
-
-The script installs dependencies, compiles, installs to `/usr/bin/`, sets up uinput udev rules, and adds your user to the `input` group.
 
 **After install:** Log out and log back in, then launch `vietc-tray` from your application menu.
 
@@ -104,124 +84,7 @@ The project is mirrored on GitHub and Forgejo — both stay in sync:
 - **GitHub:** [https://github.com/vndangkhoa/vietc](https://github.com/vndangkhoa/vietc)
 - **Forgejo:** [https://git.khoavo.myds.me/vndangkhoa/vietc](https://git.khoavo.myds.me/vndangkhoa/vietc)
 
----
-
-## 🤔 Why Viet+?
-
-Most Vietnamese IMEs use a **pre-edit buffer** — you type into a temporary buffer with an ugly underline, and the text only becomes real Vietnamese when you commit it. This causes duplicate text, underline distraction, broken copy/paste, and desync between the engine state and what's on screen.
-
-Viet+ gives you:
-
-- **Directness** — Keystrokes are instantly converted to Unicode. What you type is what you see.
-- **Cleanliness** — No underline, no buffer, no garbled duplication in any app.
-- **Reliability** — The keyboard grab persists for the whole session, eliminating race-condition garbling.
-- **Freedom** — Open source, MIT-licensed, runs entirely on your machine. No telemetry.
-
-## 📖 Backstory
-
-I built Viet+ because every Vietnamese IME on Linux annoyed me with the pre-edit underline and the broken copy/paste that came with it. The buffer approach fundamentally desyncs the engine from what's on screen.
-
-What started as a small uinput experiment became a full Rust daemon with a Bamboo-based composition engine, per-app memory, password detection, a tray icon, and a test harness that verifies on-screen output with real synthetic keystrokes. It runs on my Linux desktop every day.
-
-If that resonates, give it a star ⭐ — it helps others find the project.
-
----
-
-## 🏗️ Architecture
-
-Viet+ is a native Linux daemon written in Rust. It captures keystrokes via `evdev`, transforms them through the Bamboo engine, and injects Unicode back through `/dev/uinput`. A tray UI exposes mode state.
-
-Layer
-
-Tech
-
-Role
-
-**Engine**
-
-Rust + Bamboo core
-
-Composition, marks, tones, backtracking
-
-**Capture**
-
-`evdev` / XRecord
-
-Keyboard capture (`/dev/input`)
-
-**Injection**
-
-`/dev/uinput` (XTest fallback)
-
-Unicode keystroke injection
-
-**App State**
-
-AT-SPI2 D-Bus
-
-Per-app VN/EN memory + password detection
-
-**UI**
-
-ksni tray
-
-VN / TLX / EN mode indicator
-
-**Config**
-
-TOML
-
-Hot-reloadable settings + overrides
-
-```
-vietc/
-├── engine/                  # Vietnamese composition engine (bamboo-core port)
-├── protocol/                # Keyboard capture & injection
-│   ├── uinput_monitor.rs    # /dev/uinput injection (primary)
-│   ├── x11_inject.rs        # XTest injection (fallback)
-│   ├── x11_capture.rs       # XRecord key capture
-│   └── wayland_im.rs        # Wayland IM protocol (stub)
-├── daemon/                  # Main daemon process
-│   ├── main.rs              # Entry point, CLI argument parsing
-│   ├── daemon.rs            # Daemon struct: process_key, toggle, replay
-│   ├── config.rs            # TOML config loader + hot reload
-│   ├── app_state.rs         # Per-app VN/EN memory + password detection
-│   ├── event.rs             # Pure event routing functions + grab-render tests
-│   ├── evdev_loop.rs        # evdev poll loop (grabbed & non-grabbed modes)
-│   ├── inject.rs            # Command execution, injector creation
-│   ├── stdin.rs             # Stdin mode with retry loop
-│   ├── x11_capture.rs       # X11 RECORD + keymap capture paths
-│   ├── device.rs            # Keyboard device discovery + permissions
-│   ├── signal.rs            # SIGINT/SIGTERM handler, single-instance lock
-│   ├── env.rs               # DISPLAY/DBUS env recovery from /proc
-│   ├── password_detector.rs # AT-SPI2 D-Bus password field detection
-│   ├── commands.rs          # OutputCommand enum
-│   ├── log.rs               # Log rotation, timestamps
-│   ├── display.rs           # X11/Wayland/compositor detection
-│   └── tests/               # Integration test harness
-│       ├── daemon_suite.rs
-│       └── common/
-│           ├── virtual_keyboard.rs
-│           ├── clipboard.rs
-│           ├── distro.rs
-│           └── mod.rs
-├── ui/                      # System tray icon (ksni)
-│   └── tray.rs              # Tray with VN/TLX/EN mode display
-├── cli/                     # Interactive test harness
-└── uinputd/                 # Privileged uinput socket daemon
-```
-
-### Advantages of the Modular Architecture
-
-The 0.1.7 refactoring split a 2151-line `main.rs` into 11 focused modules, delivering measurable improvements in maintainability, testability, and correctness:
-
-- **Grab Persists Forever** — The grab now persists until the daemon exits, eliminating the root cause of garbled input.
-- **No Double-Input** — Non-primary keyboard devices always skip the engine and forward keys directly, fixing duplicate keystrokes.
-- **Testable Event Routing** — Pure functions in `event.rs` render keystrokes entirely in memory, mirroring the production evdev loop.
-- **Integration Test Harness** — Spawns a real daemon, sends synthetic keystrokes via virtual uinput keyboards, and reads the clipboard to verify output across distros.
-- **Regression Prevention** — Every past bug maps to a documented test scenario in `docs/testing-dictionary.md` (40+ entries).
-
-## 📦 Distro Support
+### 📋 Distro Support
 
 | Tier | Distro | Install Method | Status |
 |------|--------|---------------|--------|
@@ -235,43 +98,17 @@ The 0.1.7 refactoring split a 2151-line `main.rs` into 11 focused modules, deliv
 > - Ubuntu: `sudo apt install gnome-shell-extension-appindicator`
 > - Mint: pre-installed; works out of the box
 
----
+### 🗑️ Uninstall
 
-## 📥 Installation
-
-### One-Command Install
-
-Works on all ✅ **Supported** distros above. The script auto-detects your package manager:
-
-**From GitHub (recommended):**
 ```bash
-git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc \
-  && cd /tmp/vietc && sudo ./install.sh
-```
-
-**From Forgejo (self-hosted):**
-```bash
-git clone https://git.khoavo.myds.me/vndangkhoa/vietc.git /tmp/vietc \
-  && cd /tmp/vietc && sudo ./install.sh
-```
-
-The script installs dependencies, compiles, installs to `/usr/bin/`, sets up uinput udev rules, and adds your user to the `input` group.
-
-**After install:** Log out and log back in, then launch `vietc-tray` from your application menu.
-
-### One-Command Uninstall
-
-**From GitHub:**
-```bash
+# From GitHub
 curl -sSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/uninstall.sh | sudo bash
-```
 
-**From Forgejo:**
-```bash
+# From Forgejo
 curl -sSL https://git.khoavo.myds.me/vndangkhoa/vietc/raw/branch/main/uninstall.sh | sudo bash
 ```
 
-### Manual Build & Run
+### 🔧 Manual Build & Run
 
 ```bash
 # Install dependencies
@@ -299,59 +136,16 @@ sudo ./target/release/vietc
 
 Config file: `~/.config/vietc/config.toml` or `./vietc.toml`
 
-Variable
-
-Default
-
-Description
-
-`input_method`
-
-`"vni"`
-
-`"vni"` or `"telex"`
-
-`toggle_key`
-
-`"space"`
-
-Ctrl+Space to toggle VN/EN
-
-`toggle_method_key`
-
-`"shift"`
-
-Ctrl+Shift to toggle VNI/Telex
-
-`start_enabled`
-
-`true`
-
-Vietnamese by default
-
-`grab`
-
-`true`
-
-Grab keyboard (evdev)
-
-`[auto_restore].enabled`
-
-`false`
-
-Auto-restore English words
-
-`[password_detection].enabled`
-
-`true`
-
-Auto-disable in password fields
-
-`[app_state].terminal_input_method`
-
-`"vni"`
-
-Method used inside terminal apps
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `input_method` | `"vni"` | `"vni"` or `"telex"` |
+| `toggle_key` | `"space"` | Ctrl+Space to toggle VN/EN |
+| `toggle_method_key` | `"shift"` | Ctrl+Shift to toggle VNI/Telex |
+| `start_enabled` | `true` | Vietnamese by default |
+| `grab` | `true` | Grab keyboard (evdev) |
+| `[auto_restore].enabled` | `false` | Auto-restore English words |
+| `[password_detection].enabled` | `true` | Auto-disable in password fields |
+| `[app_state].terminal_input_method` | `"vni"` | Method used inside terminal apps |
 
 ```toml
 input_method = "vni"            # "vni" or "telex"
@@ -388,6 +182,10 @@ ko = "không"
 dc = "được"
 vs = "với"
 ```
+
+---
+
+## 🎮 Usage
 
 ### Input Methods
 
@@ -450,6 +248,69 @@ Viet+ works perfectly in terminals. When running inside a terminal (e.g., gnome-
 Supported terminals: `kitty`, `alacritty`, `gnome-terminal`, `konsole`, `foot`, `wezterm`, `st`, `urxvt`, `xterm`
 
 Type Vietnamese directly — no pre-edit buffer, no underline, no duplication. Just type VNI or Telex digits and see Unicode characters instantly!
+
+---
+
+## 🏗️ Architecture
+
+Viet+ is a native Linux daemon written in Rust. It captures keystrokes via `evdev`, transforms them through the Bamboo engine, and injects Unicode back through `/dev/uinput`. A tray UI exposes mode state.
+
+| Layer | Tech | Role |
+|-------|------|------|
+| **Engine** | Rust + Bamboo core | Composition, marks, tones, backtracking |
+| **Capture** | `evdev` / XRecord | Keyboard capture (`/dev/input`) |
+| **Injection** | `/dev/uinput` (XTest fallback) | Unicode keystroke injection |
+| **App State** | AT-SPI2 D-Bus | Per-app VN/EN memory + password detection |
+| **UI** | ksni tray | VN / TLX / EN mode indicator |
+| **Config** | TOML | Hot-reloadable settings + overrides |
+
+```
+vietc/
+├── engine/                  # Vietnamese composition engine (bamboo-core port)
+├── protocol/                # Keyboard capture & injection
+│   ├── uinput_monitor.rs    # /dev/uinput injection (primary)
+│   ├── x11_inject.rs        # XTest injection (fallback)
+│   ├── x11_capture.rs       # XRecord key capture
+│   └── wayland_im.rs        # Wayland IM protocol (stub)
+├── daemon/                  # Main daemon process
+│   ├── main.rs              # Entry point, CLI argument parsing
+│   ├── daemon.rs            # Daemon struct: process_key, toggle, replay
+│   ├── config.rs            # TOML config loader + hot reload
+│   ├── app_state.rs         # Per-app VN/EN memory + password detection
+│   ├── event.rs             # Pure event routing functions + grab-render tests
+│   ├── evdev_loop.rs        # evdev poll loop (grabbed & non-grabbed modes)
+│   ├── inject.rs            # Command execution, injector creation
+│   ├── stdin.rs             # Stdin mode with retry loop
+│   ├── x11_capture.rs       # X11 RECORD + keymap capture paths
+│   ├── device.rs            # Keyboard device discovery + permissions
+│   ├── signal.rs            # SIGINT/SIGTERM handler, single-instance lock
+│   ├── env.rs               # DISPLAY/DBUS env recovery from /proc
+│   ├── password_detector.rs # AT-SPI2 D-Bus password field detection
+│   ├── commands.rs          # OutputCommand enum
+│   ├── log.rs               # Log rotation, timestamps
+│   ├── display.rs           # X11/Wayland/compositor detection
+│   └── tests/               # Integration test harness
+│       ├── daemon_suite.rs
+│       └── common/
+│           ├── virtual_keyboard.rs
+│           ├── clipboard.rs
+│           ├── distro.rs
+│           └── mod.rs
+├── ui/                      # System tray icon (ksni)
+│   └── tray.rs              # Tray with VN/TLX/EN mode display
+├── cli/                     # Interactive test harness
+└── uinputd/                 # Privileged uinput socket daemon
+```
+
+### Advantages of the Modular Architecture
+
+The 0.1.7 refactoring split a 2151-line `main.rs` into 11 focused modules, delivering measurable improvements in maintainability, testability, and correctness:
+
+- **Grab Persists Forever** — The grab now persists until the daemon exits, eliminating the root cause of garbled input.
+- **No Double-Input** — Non-primary keyboard devices always skip the engine and forward keys directly, fixing duplicate keystrokes.
+- **Testable Event Routing** — Pure functions in `event.rs` render keystrokes entirely in memory, mirroring the production evdev loop.
+- **Integration Test Harness** — Spawns a real daemon, sends synthetic keystrokes via virtual uinput keyboards, and reads the clipboard to verify output across distros.
+- **Regression Prevention** — Every past bug maps to a documented test scenario in `docs/testing-dictionary.md` (40+ entries).
 
 ---
 
