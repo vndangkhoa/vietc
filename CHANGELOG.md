@@ -6,6 +6,14 @@
 
 ## Unreleased
 
+### Rootless Operation
+
+- **Runs with zero privileges**: vietc now operates as a normal user — no root, no `setcap`, no `/dev/uinput`/udev, no `input` group. It speaks `zwp_input_method_v2` when the compositor offers it, and otherwise falls back to the rootless X11 path (`XQueryKeymap` + `XTEST` over XWayland), like `ibus-x11`.
+- **Automatic IBus takeover**: on start vietc stops IBus; on a *clean* exit it restarts IBus automatically (via `IbusRestartGuard`), so it transparently replaces the system IME and restores it when you quit.
+- **systemd user service**: `vietc.service` starts vietc on login (`After=graphical-session.target`, `ConditionEnvironment=DISPLAY`, `KillMode=process` so the respawned IBus survives the stop). Enable once with `systemctl --user enable --now vietc.service`.
+- **Packaging aligned**: `install.sh` and the deb now install the rootless `vietc.service` (running `vietc-daemon` directly) instead of the tray autostart, and ship `grab = false` by default. The privileged evdev/uinput path remains available as a fallback.
+- **Known limitation**: current Mutter/GNOME Shell does not expose `zwp_input_method_manager_v2`, so on that session the X11 path covers X11/XWayland windows only; Wayland-native GTK4/Qt clients are covered automatically once the compositor advertises v2. See `docs/wayland-rootless.md`.
+
 ### Modular Refactoring
 
 - **Monolithic 2151-line main.rs split into 11 focused modules**: Each module has a single responsibility — `event.rs` (pure event routing, testable without I/O), `evdev_loop.rs` (poll loop only), `inject.rs` (command execution), `daemon.rs` (Daemon struct + process_key/toggle/replay), `device.rs` (keyboard discovery + permissions), `signal.rs` (signal handling + single-instance lock), `stdin.rs` (stdin mode with retry), `x11_capture.rs` (X11 RECORD + keymap capture), `env.rs` (DISPLAY/DBUS recovery), `commands.rs` (OutputCommand enum), `log.rs` (log rotation).

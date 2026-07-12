@@ -255,36 +255,31 @@ else
     fi
 fi
 
-# XDG autostart
-mkdir -p /etc/xdg/autostart
-cat > /etc/xdg/autostart/vietc-tray.desktop << 'EOF'
-[Desktop Entry]
-Type=Application
-Name=Viet+ Tray
-Comment=Vietnamese Input Method Tray
-Exec=vietc-tray
-Icon=vietc
-Terminal=false
-Categories=Utility;
-StartupNotify=false
-NoDisplay=true
-EOF
+# XDG autostart for the tray is intentionally NOT installed: the systemd user
+# service below already starts vietc-daemon (rootless). Running the tray's
+# autostart too would spawn a second daemon. The tray is optional UI — run
+# `vietc-tray` manually if you want the menu/status icon.
 
-# Systemd user service
+# Systemd user service (rootless: runs vietc-daemon directly, no grab/setcap)
 mkdir -p /usr/lib/systemd/user
 cat > /usr/lib/systemd/user/vietc.service << 'EOF'
 [Unit]
-Description=Viet+ Vietnamese IME Tray
+Description=Viet+ Vietnamese IME Daemon (rootless)
 PartOf=graphical-session.target
+After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/vietc-tray
+ExecStart=/usr/bin/vietc-daemon
 Restart=on-failure
-RestartSec=5
+RestartSec=3
+# Only kill the daemon on stop; the IBus it respawns (IbusRestartGuard) must
+# survive so input works again after vietc exits.
+KillMode=process
+ConditionEnvironment=DISPLAY
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
 EOF
 
 # User setup
@@ -314,7 +309,7 @@ if [ ! -f /etc/vietc/config.toml ]; then
 input_method = "vni"
 toggle_key = "space"
 start_enabled = true
-grab = true
+grab = false
 
 [app_state]
 enabled = true
@@ -329,23 +324,20 @@ echo -e "${GREEN}  Viet+ installed successfully!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 
-if command -v setcap &>/dev/null && getcap /usr/bin/vietc-daemon 2>/dev/null | grep -q cap_sys_admin; then
-    echo -e "${GREEN}✓ CAP_SYS_ADMIN granted — daemon can grab keyboard without root${NC}"
-    echo ""
-    echo -e "Start the tray now:  ${GREEN}vietc-tray${NC}"
-    echo -e "Or test directly:     ${GREEN}sudo -u $INSTALLING_USER vietc-daemon &${NC}"
-else
-    echo -e "${YELLOW}⚠  Daemon needs root for keyboard grab${NC}"
-    echo ""
-    echo -e "Start the daemon:     ${GREEN}sudo vietc-daemon${NC}"
-    echo -e "Then run the tray:    ${GREEN}vietc-tray${NC}"
-    echo ""
-    echo -e "Or configure passwordless sudo:"
-    echo -e "  ${GREEN}echo \"$INSTALLING_USER ALL=(ALL) NOPASSWD: /usr/bin/vietc-daemon\" | sudo tee /etc/sudoers.d/vietc${NC}"
-fi
-
+echo -e "${GREEN}✓ Installed${NC} vietc-daemon runs as a normal user (rootless)."
+echo -e "  It uses zwp_input_method_v2 when available, else the rootless X11 path"
+echo -e "  (XQueryKeymap + XTEST over XWayland). No setcap/uinput required."
+echo ""
+echo -e "Enable auto-start (as the user, not root):"
+echo -e "  ${GREEN}systemctl --user daemon-reload${NC}"
+echo -e "  ${GREEN}systemctl --user enable --now vietc.service${NC}"
+echo ""
+echo -e "vietc will auto-start on login, stop IBus, and take over input."
+echo -e "On stop it restarts IBus. Optional UI: run ${GREEN}vietc-tray${NC} manually."
 echo ""
 echo -e "Test: type in Vietnamese in any app."
 echo -e "Toggle VN/EN: ${GREEN}Ctrl+Space${NC}  Switch VNI/Telex: ${GREEN}Ctrl+Shift${NC}"
 echo ""
 echo -e "See ${GREEN}vietc.toml${NC} for configuration."
+echo -e "Privileged fallback (evdev/uinput) is still available if neither v2 nor"
+echo -e "X11/XWayland is present — see docs/wayland-rootless.md."

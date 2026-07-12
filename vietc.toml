@@ -1,7 +1,7 @@
 input_method = "vni"
 toggle_key = "space"
 start_enabled = true
-grab = true
+grab = false
 debug = false
 
 [auto_restore]

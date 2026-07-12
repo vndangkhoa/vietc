@@ -52,20 +52,6 @@ cp "$SCRIPT_DIR/vietc.desktop" "$STAGING/usr/share/applications/"
 cp "$PROJECT_ROOT/packaging/99-vietc.rules" "$STAGING/lib/udev/rules.d/"
 
 
-# XDG autostart — launches tray on every login for all users
-cat > "$STAGING/etc/xdg/autostart/vietc-tray.desktop" << 'AUTOSTART'
-[Desktop Entry]
-Type=Application
-Name=Viet+ Tray
-Comment=Vietnamese Input Method Tray
-Exec=vietc-tray
-Icon=vietc
-Terminal=false
-Categories=Utility;
-StartupNotify=false
-NoDisplay=true
-AUTOSTART
-
 # Documentation
 cp "$PROJECT_ROOT/README.md" "$STAGING/usr/share/doc/vietc/"
 cp "$PROJECT_ROOT/LICENSE" "$STAGING/usr/share/doc/vietc/"
@@ -73,20 +59,26 @@ cp "$PROJECT_ROOT/LICENSE" "$STAGING/usr/share/doc/vietc/"
 # Config
 cp "$PROJECT_ROOT/vietc.toml" "$STAGING/etc/vietc/config.toml"
 
-# Systemd user service — tray spawns the daemon internally
+# Systemd user service — rootless: runs vietc-daemon directly (no tray autostart,
+# which would otherwise spawn a second daemon).
 cat > "$STAGING/usr/lib/systemd/user/vietc.service" << 'SERVICE'
 [Unit]
-Description=Viet+ Vietnamese IME Tray
+Description=Viet+ Vietnamese IME Daemon (rootless)
 PartOf=graphical-session.target
+After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/vietc-tray
+ExecStart=/usr/bin/vietc-daemon
 Restart=on-failure
-RestartSec=5
+RestartSec=3
+# Only kill the daemon on stop; the IBus it respawns (IbusRestartGuard) must
+# survive so input works again after vietc exits.
+KillMode=process
+ConditionEnvironment=DISPLAY
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
 SERVICE
 
 # AppStream metadata
@@ -97,7 +89,7 @@ cat > "$STAGING/usr/share/metainfo/io.github.anomalyco.vietc.appdata.xml" << 'XM
   <name>Viet+</name>
   <summary>Vietnamese Input Method for Linux</summary>
   <description>
-    <p>Zero-configuration Vietnamese input method engine supporting Telex and VNI input methods. Works natively on both X11 and Wayland via evdev uinput injection.</p>
+    <p>Zero-configuration Vietnamese input method engine supporting Telex and VNI input methods. Runs rootless as a normal user — native Wayland via zwp_input_method_v2, or the rootless X11 path (XQueryKeymap + XTEST) over XWayland. No root, setcap, or uinput required.</p>
   </description>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
@@ -132,8 +124,9 @@ Recommends: libwayland-client0 (>= 1.20), libx11-6, libxtst6, libdbus-1-3, xclip
 Maintainer: Khoa Vo <vndangkhoa@gmail.com>
 Description: Viet+ — Vietnamese Input Method for Linux
  Zero-configuration Vietnamese input method engine supporting
- Telex and VNI input methods. Works natively on both X11 and
- Wayland via evdev uinput injection.
+ Telex and VNI input methods. Runs rootless as a normal user —
+ native Wayland (zwp_input_method_v2) or the rootless X11 path
+ over XWayland. No root, setcap, or uinput required.
 CONTROL
 sed -i "s/VERSION_PLACEHOLDER/$VERSION/" "$STAGING/DEBIAN/control"
 
