@@ -6,9 +6,51 @@ set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; NC='\033[0m'
 
-[ "$EUID" -ne 0 ] && echo -e "${RED}Please run with sudo.${NC}" && exit 1
+# Language: auto-detect from $LANG, override with --lang vi|en
+LANG_CODE="en"
+case "${LANG:-}" in
+  vi*|*_VN|*VN*) LANG_CODE="vi" ;;
+esac
+LANG_NEXT=0
+for arg in "$@"; do
+    if [ "$LANG_NEXT" = "1" ]; then
+        case "$arg" in
+            vi|vi_VN|vi-VN) LANG_CODE="vi" ;;
+            en) LANG_CODE="en" ;;
+        esac
+        LANG_NEXT=0
+    elif [ "$arg" = "--lang" ]; then
+        LANG_NEXT=1
+    elif [ "$arg" = "--lang=vi" ] || [ "$arg" = "--lang=vi_VN" ] || [ "$arg" = "--lang=vi-VN" ]; then
+        LANG_CODE="vi"
+    elif [ "$arg" = "--lang=en" ]; then
+        LANG_CODE="en"
+    fi
+done
 
-echo -e "${RED}=== Viet+ Uninstaller ===${NC}"
+# t KEY — print the translated (Vietnamese) or English message.
+t() {
+    local key="$1"
+    if [ "$LANG_CODE" = "vi" ]; then
+        case "$key" in
+            sudo) echo -e "${RED}Vui lòng chạy với quyền sudo.${NC}" ;;
+            uninstaller_header) echo -e "${RED}=== Gỡ cài đặt Viet+ ===${NC}" ;;
+            removed) echo -e "${GREEN}=== Đã gỡ cài đặt Viet+ ===${NC}" ;;
+            *) echo -e "$key" ;;
+        esac
+    else
+        case "$key" in
+            sudo) echo -e "${RED}Please run with sudo.${NC}" ;;
+            uninstaller_header) echo -e "${RED}=== Viet+ Uninstaller ===${NC}" ;;
+            removed) echo -e "${GREEN}=== Viet+ removed ===${NC}" ;;
+            *) echo -e "$key" ;;
+        esac
+    fi
+}
+
+[ "$EUID" -ne 0 ] && t sudo && exit 1
+
+t uninstaller_header
 
 # Kill running processes
 pkill -x vietc-tray 2>/dev/null || true
@@ -67,4 +109,4 @@ if command -v systemctl &>/dev/null; then
     systemctl --global daemon-reload 2>/dev/null || true
 fi
 
-echo -e "${GREEN}=== Viet+ removed ===${NC}"
+t removed
