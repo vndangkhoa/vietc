@@ -197,6 +197,15 @@ t() {
     fi
 }
 
+# When run from a source tree (git clone), build from source by default so the
+# freshly cloned code gets installed instead of a possibly-stale prebuilt
+# release. Pass --prebuilt to force a release download (only works if release
+# assets are published), or --from-source explicitly.
+if [ "$FROM_SOURCE" != true ] && [ "$PREBUILT" != true ] && [ -f Cargo.toml ]; then
+    t src_detected
+    FROM_SOURCE=true
+fi
+
 [ "$EUID" -ne 0 ] && t sudo && exit 1
 
 INSTALLING_USER="${SUDO_USER:-$USER}"
