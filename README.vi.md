@@ -143,7 +143,7 @@ Viet+ tích hợp hệ thống nhận diện mật khẩu 4 lớp tự động. 
 
 **Từ GitHub (khuyên dùng):**
 ```bash
-git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc \
+git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc 2>/dev/null || (cd /tmp/vietc && git pull) \
   && cd /tmp/vietc && sudo ./install.sh
 ```
 

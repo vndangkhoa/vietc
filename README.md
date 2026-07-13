@@ -71,7 +71,7 @@ If that resonates, give it a star ⭐ — it helps others find the project.
 Works on all ✅ **Supported** distros. The script auto-detects your package manager, installs dependencies, compiles, installs to `/usr/bin/`, sets up uinput udev rules, and adds your user to the `input` group.
 
 ```bash
-git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc \
+git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc 2>/dev/null || (cd /tmp/vietc && git pull) \
   && cd /tmp/vietc && sudo ./install.sh
 ```
 
