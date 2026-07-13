@@ -19,6 +19,11 @@ pub struct Daemon {
     pub app_state: AppStateManager,
     pub engine_enabled: Arc<AtomicBool>,
     pub grab_enabled: bool,
+    /// When true (X11 keymap / non-grabbed capture), the original keystrokes are
+    /// NOT suppressed, so the app displays the raw typed text. Screen accounting
+    /// must therefore use the raw on-screen length for backspaces. When false
+    /// (grabbed evdev or XRecord), the app only shows the engine output.
+    pub keymap_mode: bool,
     pub event_store: EventStore,
     pub screen_output: String,
 }
@@ -68,6 +73,7 @@ impl Daemon {
             config_modified,
             app_state,
             engine_enabled,
+            keymap_mode: false,
             event_store: EventStore::new(),
             screen_output: String::new(),
         }
@@ -231,6 +237,21 @@ impl Daemon {
         self.app_state.is_current_app_bypassed()
     }
 
+    /// On-screen content of the current word region before we inject, for a
+    /// freshly *forwarded* character `ch`.
+    /// - keymap mode: the last injected/corrected text plus the char just
+    ///   forwarded (originals are not suppressed, so `ch` is already on screen).
+    /// - grabbed mode: only the previously injected output (`ch` was grabbed).
+    fn keymap_screen_string(&self, ch: char) -> String {
+        if self.keymap_mode {
+            let mut s = self.screen_output.clone();
+            s.push(ch);
+            s
+        } else {
+            self.screen_output.clone()
+        }
+    }
+
     pub fn replay_and_inject(&mut self, ch: char) -> Vec<OutputCommand> {
         let mut commands = Vec::new();
         let method = match self.config.input_method.as_str() {
@@ -241,12 +262,20 @@ impl Daemon {
         if is_flush_char(ch) {
             self.event_store.push(InputEvent::Flush(ch));
             let to_commit = self.word_to_commit();
-            if !self.screen_output.is_empty() && to_commit != self.screen_output {
-                let backspaces = self.screen_output.chars().count();
-                commands.push(OutputCommand::Backspace(backspaces));
+            let screen_now = self.keymap_screen_string(ch);
+            let corrected = !self.screen_output.is_empty() && to_commit != self.screen_output;
+            if corrected {
+                let backspaces = screen_now.chars().count();
+                if backspaces > 0 {
+                    commands.push(OutputCommand::Backspace(backspaces));
+                }
                 commands.push(OutputCommand::Type(to_commit));
             }
-            commands.push(OutputCommand::Type(ch.to_string()));
+            // Re-type the flush char only when it was not already forwarded
+            // (grabbed mode) or when we just removed it (keymap correction).
+            if !self.keymap_mode || corrected {
+                commands.push(OutputCommand::Type(ch.to_string()));
+            }
             self.event_store.clear();
             self.screen_output.clear();
             return commands;
@@ -262,9 +291,13 @@ impl Daemon {
 
         if did_flush {
             let to_commit = self.word_to_commit();
-            if !self.screen_output.is_empty() && to_commit != self.screen_output {
-                let backspaces = self.screen_output.chars().count();
-                commands.push(OutputCommand::Backspace(backspaces));
+            let screen_now = self.keymap_screen_string(ch);
+            let corrected = !self.screen_output.is_empty() && to_commit != self.screen_output;
+            if corrected {
+                let backspaces = screen_now.chars().count();
+                if backspaces > 0 {
+                    commands.push(OutputCommand::Backspace(backspaces));
+                }
                 commands.push(OutputCommand::Type(to_commit));
             }
             self.event_store.clear();
@@ -272,16 +305,19 @@ impl Daemon {
             return commands;
         }
 
-        if new_output != self.screen_output {
-            let backspaces = self.screen_output.chars().count();
+        let screen_now = self.keymap_screen_string(ch);
+        if new_output != screen_now {
+            let backspaces = screen_now.chars().count();
             if backspaces > 0 {
                 commands.push(OutputCommand::Backspace(backspaces));
             }
             if !new_output.is_empty() {
                 commands.push(OutputCommand::Type(new_output.clone()));
             }
-            self.screen_output = new_output;
         }
+        // The injected result (or the unchanged text) is what the app now
+        // shows, so track that — never the raw keystrokes.
+        self.screen_output = new_output;
 
         commands
     }
@@ -294,6 +330,11 @@ impl Daemon {
         };
 
         if self.event_store.is_empty() {
+            // In keymap mode the original keystroke was already forwarded and the
+            // app deleted the character on its own, so there is nothing to fix.
+            if self.keymap_mode {
+                return commands;
+            }
             commands.push(OutputCommand::Backspace(1));
             return commands;
         }
@@ -318,7 +359,15 @@ impl Daemon {
             )
         };
 
-        let backspaces = self.screen_output.chars().count();
+        // In keymap mode the user's backspace already removed one *displayed*
+        // character; only the remaining word region needs to be rewritten.
+        // In grabbed mode nothing was forwarded, so the whole region is removed.
+        let displayed_len = self.screen_output.chars().count();
+        let backspaces = if self.keymap_mode {
+            displayed_len.saturating_sub(1)
+        } else {
+            displayed_len
+        };
         if backspaces > 0 {
             commands.push(OutputCommand::Backspace(backspaces));
         }
@@ -356,5 +405,84 @@ impl Daemon {
             _ => InputMethod::Telex,
         };
         self.engine.set_method(engine_method);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+
+    /// Model the keymap capture screen: X forwards every keystroke to the app,
+    /// and the daemon only *injects* corrections. `BS` represents a real
+    /// backspace key that X also forwards (removing one displayed char).
+    const BS: char = '\x08';
+
+    fn apply(screen: &mut String, cmds: &[OutputCommand]) {
+        for cmd in cmds {
+            match cmd {
+                OutputCommand::Backspace(n) => {
+                    let len = screen.chars().count();
+                    let keep = len.saturating_sub(*n);
+                    *screen = screen.chars().take(keep).collect();
+                }
+                OutputCommand::Type(s) => screen.push_str(s),
+                _ => {}
+            }
+        }
+    }
+
+    fn simulate(seq: &str) -> String {
+        let mut d = Daemon::new(
+            Config::default(),
+            PathBuf::from("/tmp/vietc_test_config.toml"),
+            Arc::new(AtomicBool::new(true)),
+        );
+        d.keymap_mode = true;
+        d.engine.set_enabled(true);
+        let mut screen = String::new();
+        for ch in seq.chars() {
+            if ch == BS {
+                screen.pop(); // X forwards the backspace, removing one char
+                let cmds = d.replay_backspace();
+                apply(&mut screen, &cmds);
+            } else {
+                screen.push(ch); // X forwards the raw keystroke
+                let cmds = d.replay_and_inject(ch);
+                apply(&mut screen, &cmds);
+            }
+        }
+        screen
+    }
+
+    #[test]
+    fn keymap_simple_word() {
+        assert_eq!(simulate("to6 "), "tô ");
+        assert_eq!(simulate("tie6ng1 "), "tiếng ");
+        assert_eq!(simulate("d9u7o7ng2 "), "đường ");
+        assert_eq!(simulate("hello "), "hello ");
+    }
+
+    #[test]
+    fn keymap_does_not_delete_previous_char() {
+        // The originally reported bug: typing vietnamese removed the char before.
+        assert_eq!(simulate("to6"), "tô");
+        assert_eq!(simulate("tie6ng1"), "tiếng");
+    }
+
+    #[test]
+    fn keymap_backspace_restores_raw() {
+        assert_eq!(simulate(&format!("to6{BS}")), "to");
+        assert_eq!(simulate(&format!("to6{BS}i")), "toi");
+        // Backspacing the tone '1' reverts "tiếng" to "tiêng".
+        assert_eq!(simulate(&format!("tie6ng1{BS}")), "tiêng");
+    }
+
+    #[test]
+    fn keymap_multiple_words_no_bleed() {
+        assert_eq!(simulate("to6 tie6ng1 "), "tô tiếng ");
+        assert_eq!(simulate("tie6ng1 to6 "), "tiếng tô ");
     }
 }

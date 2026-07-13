@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["engine", "protocol", "daemon", "cli", "uinputd"]
+members = ["engine", "protocol", "daemon", "cli", "uinputd", "vietcctl"]
 exclude = ["ui", "vk"]
 
 [workspace.dependencies]

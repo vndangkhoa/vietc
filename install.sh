@@ -12,11 +12,16 @@ INSTALLING_USER="${SUDO_USER:-$USER}"
 # Parse arguments
 FROM_SOURCE=false
 PREBUILT=false
+MODE="grab"   # grab = original evdev/IBus-engine capture path; bamboo = Bamboo aux-controller
 for arg in "$@"; do
     if [ "$arg" = "--from-source" ] || [ "$arg" = "--local" ]; then
         FROM_SOURCE=true
     elif [ "$arg" = "--prebuilt" ]; then
         PREBUILT=true
+    elif [ "$arg" = "--bamboo" ]; then
+        MODE="bamboo"
+    elif [ "$arg" = "--grab" ]; then
+        MODE="grab"
     fi
 done
 
@@ -218,16 +223,18 @@ if [ "$FROM_SOURCE" = true ]; then
     cp target/release/vietc /usr/bin/vietc-daemon
     cp target/release/vietc-cli /usr/bin/vietc-cli
     cp target/release/vietc-uinputd /usr/bin/vietc-uinputd
-    cp ui/target/release/vietc-tray /usr/bin/vietc-tray
+    cp ui/target/release/vietc-tray /usr/bin/vietc-tray 2>/dev/null || true
     [ -f target/release/vietc-xrecord ] && cp target/release/vietc-xrecord /usr/bin/vietc-xrecord || true
+    [ -f target/release/vietcctl ] && cp target/release/vietcctl /usr/bin/vietcctl || true
 else
     cp "$BIN_DIR/vietc-daemon" /usr/bin/vietc-daemon
     cp "$BIN_DIR/vietc-cli" /usr/bin/vietc-cli
     cp "$BIN_DIR/vietc-uinputd" /usr/bin/vietc-uinputd
-    cp "$BIN_DIR/vietc-tray" /usr/bin/vietc-tray
+    cp "$BIN_DIR/vietc-tray" /usr/bin/vietc-tray 2>/dev/null || true
     [ -f "$BIN_DIR/vietc-xrecord" ] && cp "$BIN_DIR/vietc-xrecord" /usr/bin/vietc-xrecord || true
+    [ -f "$BIN_DIR/vietcctl" ] && cp "$BIN_DIR/vietcctl" /usr/bin/vietcctl || true
 fi
-chmod 755 /usr/bin/vietc-daemon /usr/bin/vietc-cli /usr/bin/vietc-uinputd /usr/bin/vietc-tray 2>/dev/null || true
+chmod 755 /usr/bin/vietc-daemon /usr/bin/vietc-cli /usr/bin/vietc-uinputd /usr/bin/vietc-tray /usr/bin/vietcctl 2>/dev/null || true
 
 # Grant cap_sys_admin so evdev grab works without full root (Linux ≥ 5.8)
 # Also grant cap_dac_override for /dev/uinput access if not in input group
@@ -339,30 +346,139 @@ if [ -n "$USER_HOME" ] && [ "$INSTALLING_USER" != "root" ]; then
     fi
 fi
 
+# Run a command as the installing user with their D-Bus session, so IBus /
+# GNOME settings land in the right dconf and the tray/shortcut apply to them.
+run_as_user() {
+    local u="${INSTALLING_USER:-$USER}"
+    local uid="$(id -u "$u" 2>/dev/null)"
+    sudo -u "$u" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+        XDG_RUNTIME_DIR="/run/user/$uid" "$@"
+}
+
+# Bamboo aux-controller setup: install ibus-bamboo, preload its engines, enable
+# per-app engine memory, and write a sane Bamboo config. Best-effort per distro.
+setup_bamboo() {
+    echo "Bamboo aux-controller mode: installing/verifying ibus-bamboo + IBus config..."
+    case "$DISTRO" in
+        ubuntu|debian|linuxmint|mint|pop|neon|zorin|elementary)
+            if ! command -v ibus-bamboo &>/dev/null && \
+               [ ! -f /usr/lib/ibus/ibus-engine-bamboo ] && \
+               [ ! -f /usr/libexec/ibus/ibus-engine-bamboo ]; then
+                export DEBIAN_FRONTEND=noninteractive
+                add-apt-repository -y ppa:bamboo-engine/ibus-bamboo 2>/dev/null || true
+                apt-get update -y 2>/dev/null || true
+                apt-get install -y ibus-bamboo 2>/dev/null || \
+                    echo -e "${YELLOW}Could not auto-install ibus-bamboo; install manually: https://github.com/BambooEngine/ibus-bamboo${NC}"
+            fi
+            ;;
+        arch|manjaro|cachyos|endeavouros|garuda|artix)
+            if [ ! -f /usr/lib/ibus/ibus-engine-bamboo ]; then
+                (command -v yay &>/dev/null && yay -S --noconfirm ibus-bamboo) || \
+                (command -v paru &>/dev/null && paru -S --noconfirm ibus-bamboo) || \
+                    echo -e "${YELLOW}Install ibus-bamboo manually (AUR).${NC}"
+            fi
+            ;;
+        *)
+            echo -e "${YELLOW}Install ibus-bamboo manually for $DISTRO: https://github.com/BambooEngine/ibus-bamboo${NC}"
+            ;;
+    esac
+
+    # Apply IBus settings as the real user (root's dconf is irrelevant).
+    if [ -n "${INSTALLING_USER:-}" ] && [ "$INSTALLING_USER" != "root" ]; then
+        run_as_user gsettings set org.freedesktop.ibus.general preload-engines "['Bamboo', 'BambooUs']" 2>/dev/null || \
+            run_as_user dconf write /desktop/ibus/general/preload-engines "['Bamboo', 'BambooUs']" 2>/dev/null || true
+        # Per-app engine memory: ptyxis=EN, firefox=VN, etc. (required for
+        # vietc to leave Wayland-native apps alone and keep each app's engine).
+        run_as_user dconf write /desktop/ibus/general/use-global-engine false 2>/dev/null || true
+
+        BAMBOO_HOME="$(getent passwd "$INSTALLING_USER" | cut -d: -f6)/.config/ibus-bamboo"
+        mkdir -p "$BAMBOO_HOME"
+        if [ ! -f "$BAMBOO_HOME/ibus-bamboo.config.json" ]; then
+            cat > "$BAMBOO_HOME/ibus-bamboo.config.json" << 'EOF'
+{
+  "InputMethod": "VNI",
+  "DefaultInputMode": 2
+}
+EOF
+            chown -R "$INSTALLING_USER" "$BAMBOO_HOME" 2>/dev/null || true
+        fi
+    fi
+}
+
 # User setup
 INSTALLING_USER="${SUDO_USER:-$USER}"
+USER_HOME="$(getent passwd "$INSTALLING_USER" 2>/dev/null | cut -d: -f6 || true)"
 if [ -n "$INSTALLING_USER" ] && [ "$INSTALLING_USER" != "root" ]; then
     if command -v usermod &>/dev/null; then
         usermod -aG input "$INSTALLING_USER" 2>/dev/null || true
     elif command -v adduser &>/dev/null; then
         adduser "$INSTALLING_USER" input 2>/dev/null || true
     fi
-    rm -f "$(getent passwd "$INSTALLING_USER" | cut -d: -f6)/.config/vietc/config.toml" 2>/dev/null || true
+    # grab mode keeps the legacy behaviour of dropping the user config so the
+    # built-in/system defaults take over. bamboo mode KEEPS it — that is the
+    # file the daemon actually reads.
+    if [ "$MODE" = "grab" ]; then
+        rm -f "$USER_HOME/.config/vietc/config.toml" 2>/dev/null || true
+    fi
 fi
 
 # Config
 mkdir -p /etc/vietc
-if [ "$FROM_SOURCE" = true ]; then
-    cp vietc.toml /etc/vietc/config.toml
-else
-    if [ -f "$PKG_DIR/config/config.toml" ]; then
-        cp "$PKG_DIR/config/config.toml" /etc/vietc/config.toml
-    elif [ -f "$INSTALL_DIR/etc/vietc/config.toml" ]; then
-        cp "$INSTALL_DIR/etc/vietc/config.toml" /etc/vietc/config.toml
+if [ "$MODE" = "bamboo" ]; then
+    setup_bamboo
+    # The daemon reads ~/.config/vietc/config.toml (NOT /etc/vietc), so write
+    # the controller config where it will actually be used.
+    if [ -n "$USER_HOME" ]; then
+        mkdir -p "$USER_HOME/.config/vietc"
+        cat > "$USER_HOME/.config/vietc/config.toml" << 'EOF'
+input_method = "vni"
+toggle_key = "space"
+start_enabled = true
+grab = false
+debug = false
+ibus_engine = false
+controller_mode = true
+
+[auto_restore]
+enabled = true
+trigger_keys = ["space", "escape"]
+
+[app_state]
+enabled = true
+english_apps = ["code", "jetbrains", "intellij", "pycharm", "webstorm", "vim", "nvim", "kitty", "alacritty", "foot", "ghostty"]
+vietnamese_apps = ["telegram", "discord", "slack", "firefox", "chromium", "thunderbird", "gedit", "gnome-text-editor", "org.gnome.TextEditor"]
+terminal_apps = ["terminal", "kitty", "alacritty", "foot", "wezterm", "konsole", "gnome-terminal", "gnome-terminal-server", "ptyxis", "kgx", "st", "urxvt", "xterm", "terminator", "tilix"]
+bypass_apps = ["steam", "dota", "csgo", "minecraft", "factorio"]
+terminal_input_method = "vni"
+
+[macros]
+bt = "biết"
+vs = "với"
+kc = "không có"
+dc = "được"
+ko = "không"
+rd = "rất"
+nk = "như"
+"ko dc" = "không được"
+lm = "làm"
+ng = "người"
+EOF
+        chown -R "$INSTALLING_USER" "$USER_HOME/.config/vietc" 2>/dev/null || true
     fi
-fi
-if [ ! -f /etc/vietc/config.toml ]; then
-    cat > /etc/vietc/config.toml << 'EOF'
+    # System copy for reference (not read by the daemon).
+    cp "$USER_HOME/.config/vietc/config.toml" /etc/vietc/config.toml 2>/dev/null || true
+else
+    if [ "$FROM_SOURCE" = true ]; then
+        cp vietc.toml /etc/vietc/config.toml
+    else
+        if [ -f "$PKG_DIR/config/config.toml" ]; then
+            cp "$PKG_DIR/config/config.toml" /etc/vietc/config.toml
+        elif [ -f "$INSTALL_DIR/etc/vietc/config.toml" ]; then
+            cp "$INSTALL_DIR/etc/vietc/config.toml" /etc/vietc/config.toml
+        fi
+    fi
+    if [ ! -f /etc/vietc/config.toml ]; then
+        cat > /etc/vietc/config.toml << 'EOF'
 input_method = "vni"
 toggle_key = "space"
 start_enabled = true
@@ -373,6 +489,7 @@ enabled = true
 english_apps = ["code", "vim"]
 vietnamese_apps = ["telegram", "discord", "firefox"]
 EOF
+    fi
 fi
 
 echo ""
@@ -381,19 +498,64 @@ echo -e "${GREEN}  Viet+ installed successfully!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 
-echo -e "${GREEN}✓ Installed${NC} vietc-daemon runs as a normal user (rootless)."
-echo -e "  It uses zwp_input_method_v2 when available, else the rootless X11 path"
-echo -e "  (XQueryKeymap + XTEST over XWayland). No setcap/uinput required."
-echo ""
-echo -e "Enable auto-start (as the user, not root):"
-echo -e "  ${GREEN}systemctl --user daemon-reload${NC}"
-echo -e "  ${GREEN}systemctl --user enable --now vietc.service${NC}"
-echo ""
-echo -e "vietc will auto-start on login, stop IBus, and take over input."
-echo -e "On stop it restarts IBus. Optional UI: run ${GREEN}vietc-tray${NC} manually."
-echo ""
-echo -e "Test: type in Vietnamese in any app."
-echo -e "Toggle VN/EN: ${GREEN}Ctrl+Space${NC}  Switch VNI/Telex: ${GREEN}Ctrl+Shift${NC}"
+# Tray icon + universal mode shortcut
+if command -v vietc-tray &>/dev/null; then
+    mkdir -p /etc/xdg/autostart
+    cat > /etc/xdg/autostart/vietc-tray.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=Viet+ Tray
+Comment=Viet+ input method status indicator
+Exec=/usr/bin/vietc-tray
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=2
+NoDisplay=false
+EOF
+
+    # On GNOME, the tray needs the appindicator extension to be visible.
+    if [ "$DISTRO" = "ubuntu" ] && command -v gnome-shell &>/dev/null; then
+        apt-get install -y gnome-shell-extension-appindicator 2>/dev/null || true
+        if [ -n "${INSTALLING_USER:-}" ] && [ "$INSTALLING_USER" != "root" ]; then
+            run_as_user gnome-extensions enable appindicator@rgcjonas.gmail.com 2>/dev/null || true
+        fi
+    fi
+
+    # Universal mode toggle: Left Ctrl+Space -> vietcctl cycle (EN -> VNI -> TELEX).
+    # Works on Wayland because it is a desktop shortcut, not a grabbed key.
+    if [ "$MODE" = "bamboo" ] && [ -n "${INSTALLING_USER:-}" ] && [ "$INSTALLING_USER" != "root" ]; then
+        KEYPATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/vietc-cycle/"
+        SCHEMA="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding"
+        run_as_user gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings "['$KEYPATH']"
+        run_as_user gsettings set "$SCHEMA:$KEYPATH" name 'Viet+ cycle input mode'
+        run_as_user gsettings set "$SCHEMA:$KEYPATH" command '/usr/bin/vietcctl cycle'
+        run_as_user gsettings set "$SCHEMA:$KEYPATH" binding '<Primary>space'
+        echo -e "${GREEN}✓ Left Ctrl+Space${NC} now cycles EN -> VNI -> TELEX (via vietcctl)."
+    fi
+    echo -e "${GREEN}✓ Tray icon${NC} will start on login (autostart entry installed)."
+fi
+
+if [ "$MODE" = "bamboo" ]; then
+    echo -e "${GREEN}✓ Bamboo aux-controller mode${NC}"
+    echo -e "  vietc switches the Bamboo IBus engine per focused app; Wayland-native"
+    echo -e "  apps (ptyxis, firefox, gedit) are left to their own per-app IBus engine."
+    echo -e "  One-time: focus ptyxis -> set IBus engine to BambooUs (English);"
+    echo -e "  focus firefox/gedit -> Bamboo (Vietnamese)."
+    echo -e "  Cycle typing style anywhere with ${GREEN}Left Ctrl+Space${NC}."
+elif [ "$MODE" = "grab" ]; then
+    echo -e "${GREEN}✓ Installed${NC} vietc-daemon runs as a normal user (rootless)."
+    echo -e "  It uses zwp_input_method_v2 when available, else the rootless X11 path"
+    echo -e "  (XQueryKeymap + XTEST over XWayland). No setcap/uinput required."
+    echo ""
+    echo -e "Enable auto-start (as the user, not root):"
+    echo -e "  ${GREEN}systemctl --user daemon-reload${NC}"
+    echo -e "  ${GREEN}systemctl --user enable --now vietc.service${NC}"
+    echo ""
+    echo -e "vietc will auto-start on login, stop IBus, and take over input."
+    echo -e "On stop it restarts IBus. Optional UI: run ${GREEN}vietc-tray${NC} manually."
+    echo ""
+    echo -e "Test: type in Vietnamese in any app."
+    echo -e "Toggle VN/EN: ${GREEN}Ctrl+Space${NC}  Switch VNI/Telex: ${GREEN}Ctrl+Shift${NC}"
+fi
 echo ""
 echo -e "See ${GREEN}vietc.toml${NC} for configuration."
 echo -e "Privileged fallback (evdev/uinput) is still available if neither v2 nor"

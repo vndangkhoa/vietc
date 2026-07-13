@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 use crate::commands::OutputCommand;
 use crate::daemon::Daemon;
 use crate::display;
-use crate::event::is_vn_control_key;
 use crate::inject::{create_injector, execute_commands};
 use crate::log::log_info;
 use crate::signal::SIGNAL_EXIT;
@@ -152,12 +151,18 @@ pub fn run_with_x11_keymap(
     display: display::DisplayServer,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use vietc_protocol::x11_inject::X11KeymapCapture;
+    use vietc_protocol::x11_inject::set_keymap_suppress;
 
     let mut capture = X11KeymapCapture::new()?;
     let injector = create_injector(display)?;
     let mut last_active_window = String::new();
     let mut last_window_class = String::new();
     let mut key_state: HashSet<u32> = HashSet::new();
+
+    // In keymap mode the original keystrokes stay on screen, so screen
+    // accounting must use the raw on-screen length. This flag also drives the
+    // feedback suppression while we inject our own keystrokes.
+    daemon.keymap_mode = true;
 
     log_info("[vietc] X11 keymap capture active");
     loop {
@@ -262,30 +267,45 @@ pub fn run_with_x11_keymap(
                 continue;
             }
 
+            // Backspace (evdev 14) is not returned by lookup_keycode, so handle
+            // it explicitly: record it in the engine and correct the screen.
+            if *pressed && keycode == 14 {
+                let mut commands = daemon.replay_backspace();
+                if !commands.is_empty() {
+                    set_keymap_suppress(true);
+                    execute_commands(&*injector, &commands);
+                    // Keep suppressing while our injected keystrokes play out,
+                    // resyncing the keymap baseline each poll so they are never
+                    // re-captured. 200ms comfortably covers a short correction.
+                    for _ in 0..40 {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                        capture.poll();
+                    }
+                    set_keymap_suppress(false);
+                }
+                continue;
+            }
+
             if let Some(ch) = capture.lookup_keycode(keycode, mod_state) {
-                let buf_before = daemon.engine.buffer();
-                let mut commands = daemon.process_key(ch);
-                if commands.is_empty()
-                    && daemon.engine.is_enabled()
-                    && is_vn_control_key(daemon.app_state.effective_method(), ch)
-                {
-                    let buf_after = daemon.engine.buffer();
-                    if buf_after != buf_before && !buf_before.is_empty() {
-                        let len = buf_before.chars().count();
-                        commands.push(OutputCommand::Backspace(len + 1));
-                        commands.push(OutputCommand::Type(buf_after));
+                let mut commands = daemon.replay_and_inject(ch);
+
+                if !commands.is_empty() {
+                    // Inject our output, but suppress re-capturing the keystrokes
+                    // we generate (backspace + typed result), which would feed
+                    // back into the engine and corrupt the text.
+                    set_keymap_suppress(true);
+                    execute_commands(&*injector, &commands);
+                    // Resync the keymap baseline so the injected keystrokes are
+                    // discarded rather than re-reported as new events.
+                    // Keep suppressing while our injected keystrokes play out,
+                    // resyncing the keymap baseline each poll so they are never
+                    // re-captured. 200ms comfortably covers a short correction.
+                    for _ in 0..40 {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                        capture.poll();
                     }
+                    set_keymap_suppress(false);
                 }
-                if !commands.is_empty()
-                    && is_vn_control_key(daemon.app_state.effective_method(), ch)
-                {
-                    for cmd in &mut commands {
-                        if let OutputCommand::Backspace(ref mut n) = cmd {
-                            *n += 1;
-                        }
-                    }
-                }
-                execute_commands(&*injector, &commands);
             }
         }
     }

@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Linux-blue?style=flat-square)](https://github.com/vndangkhoa/vietc)
 [![Rust](https://img.shields.io/badge/Rust-1.85-000000?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-0.1.7-purple?style=flat-square)](https://github.com/vndangkhoa/vietc)
+[![Version](https://img.shields.io/badge/Version-0.1.8-purple?style=flat-square)](https://github.com/vndangkhoa/vietc)
 [![Tests](https://img.shields.io/badge/Tests-104_passing-brightgreen?style=flat-square)](https://github.com/vndangkhoa/vietc)
 
 [Why Viet+?](#-why-viet) • [Features](#-features) • [Installation](#-installation) • [Configuration](#-configuration) • [Usage](#-usage) • [Architecture](#-architecture) • [Roadmap](#-roadmap) • [Development](#-development) • [Contributing](#-contributing)
@@ -25,6 +25,37 @@
 - **Automatic IBus takeover.** On start, vietc stops IBus; on a *clean* exit it restarts IBus automatically, so it transparently replaces the system IME and restores it when you quit.
 - **systemd user service.** `vietc.service` starts vietc on login (`After=graphical-session.target`, `ConditionEnvironment=DISPLAY`, `KillMode=process` so the respawned IBus survives the stop). Enable once with `systemctl --user enable --now vietc.service`.
 - **Known limitation.** Current Mutter/GNOME Shell does **not** expose `zwp_input_method_manager_v2`, so on this session the X11 path covers X11/XWayland windows only; Wayland-native GTK4/Qt clients are covered automatically once the compositor advertises v2 (no daemon change required). Full details in [`docs/wayland-rootless.md`](docs/wayland-rootless.md).
+
+---
+
+## 🖥️ GNOME/Wayland: Bamboo Aux Controller (current setup)
+
+On this machine vietc runs as an **aux controller** (`controller_mode = true`,
+`ibus_engine = false`): the system **Bamboo** IBus engine does the Vietnamese
+composition, and vietc only switches the active engine per focused app
+(`Bamboo` ⇄ `BambooUs`) and disables it on password fields. No vietc IBus
+component is registered, so there is no key-doubling.
+
+**Wayland-native apps can't be auto-detected** here (GNOME Shell `Eval` is
+gated off, `xprop` only sees XWayland, AT-SPI2 carries no focus flag/event),
+so the controller **leaves undetectable windows alone** and relies on **IBus
+per-app engine memory**:
+
+```bash
+dconf write /desktop/ibus/general/use-global-engine false   # per-app engines
+```
+
+Then set each app once via the IBus/language indicator (or `ibus engine`
+while the app is focused):
+
+| App | Desired | Set to |
+|-----|---------|--------|
+| ptyxis (Wayland terminal) | English (no VNI garble) | `BambooUs` |
+| firefox / gedit | Vietnamese | `Bamboo` |
+| VS Code, kitty, gnome-terminal (detected) | English | automatic (vietc-driven) |
+
+> With per-app memory on, IBus restores each app's engine on focus and vietc
+> only drives the apps it can see. Rollback: `dconf write /desktop/ibus/general/use-global-engine true`.
 
 ---
 
@@ -252,9 +283,11 @@ Both **VNI** and **Telex** are fully supported. Switch via **Ctrl+LeftShift** or
 
 ### Terminal Usage
 
-Viet+ works perfectly in terminals. When running inside a terminal (e.g., gnome-terminal, kitty), Vietnamese input is automatically enabled using the input method specified by `terminal_input_method` under `[app_state]`.
+Viet+ works perfectly in terminals. When running inside a **detectable** terminal (X11/XWayland — e.g. `kitty`, `alacritty`, `gnome-terminal`), Vietnamese input is automatically disabled (English) because Bamboo's no-underline mode can't do in-place editing inside a terminal and would garble the text.
 
-Supported terminals: `kitty`, `alacritty`, `gnome-terminal`, `konsole`, `foot`, `wezterm`, `st`, `urxvt`, `xterm`
+Supported/detected terminals: `kitty`, `alacritty`, `gnome-terminal`, `konsole`, `foot`, `wezterm`, `st`, `urxvt`, `xterm`, `code` (VS Code).
+
+**Wayland-native terminals** (e.g. **ptyxis**) can't be auto-detected on this GNOME session, so they're handled via IBus **per-app engine memory** (see the *GNOME/Wayland: Bamboo Aux Controller* section above): set ptyxis once to `BambooUs` (English) and it sticks.
 
 Type Vietnamese directly — no pre-edit buffer, no underline, no duplication. Just type VNI or Telex digits and see Unicode characters instantly!
 

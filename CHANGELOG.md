@@ -4,7 +4,7 @@
   <a href="CHANGELOG.vi.md">Tiếng Việt</a>
 </p>
 
-## Unreleased
+## v0.1.8 (2026-07-13)
 
 ### Rootless Operation
 
@@ -13,6 +13,14 @@
 - **systemd user service**: `vietc.service` starts vietc on login (`After=graphical-session.target`, `ConditionEnvironment=DISPLAY`, `KillMode=process` so the respawned IBus survives the stop). Enable once with `systemctl --user enable --now vietc.service`.
 - **Packaging aligned**: `install.sh` and the deb now install the rootless `vietc.service` (running `vietc-daemon` directly) instead of the tray autostart, and ship `grab = false` by default. The privileged evdev/uinput path remains available as a fallback.
 - **Known limitation**: current Mutter/GNOME Shell does not expose `zwp_input_method_manager_v2`, so on that session the X11 path covers X11/XWayland windows only; Wayland-native GTK4/Qt clients are covered automatically once the compositor advertises v2. See `docs/wayland-rootless.md`.
+
+### Aux Controller — Wayland Terminal / Per-App Handling
+
+- **Bamboo aux controller mode**: vietc now runs as an aux controller (`controller_mode = true`) that drives the system **Bamboo** IBus engine per focused app instead of registering its own engine. Vietnamese composition is done by Bamboo; vietc only switches `Bamboo` ⇄ `BambooUs` and handles password fields.
+- **Undetectable (Wayland-native) windows left alone**: on this GNOME/Wayland session no API reports the focused Wayland-native window (GNOME Shell `Eval` is gated off, `xprop` only sees XWayland, AT-SPI2 carries no focus flag/event). When `get_focused_window_class()` returns `None`, the controller now issues **no engine switch** (previously it force-Vietnamese, which garbled Wayland terminals like **ptyxis**).
+- **Per-app engine memory required**: relies on IBus per-application engine memory — set `dconf write /desktop/ibus/general/use-global-engine false` so each app keeps its own IBus engine (ptyxis → `BambooUs`/English, firefox/gedit → `Bamboo`/Vietnamese). One-time manual setup per app; vietc only drives the apps it *can* see (VS Code, X11 terminals).
+- **VNI allow-list**: default `vietnamese_apps` now includes `gedit`, `gnome-text-editor`, `org.gnome.TextEditor`.
+- **Universal typing-style switch (`vietcctl`)**: new `vietcctl` tool cycles the typing style **EN → VNI → TELEX → EN** (and supports `en`/`vni`/`telex`/`status`). It persists the choice to `~/.config/vietc/mode`, rewrites Bamboo's `InputMethod`, and switches the active IBus engine. Install.sh registers **Left Ctrl+Space** as a GNOME custom keybinding (`<Primary>space` → `vietcctl cycle`) so the shortcut works on Wayland too — independent of whether vietc holds the keyboard grab.
 
 ### Modular Refactoring
 

@@ -37,6 +37,42 @@ pub struct Config {
 
     #[serde(default = "default_false")]
     pub debug: bool,
+
+    /// Run vietc as a native IBus engine (compositor-approved input method that
+    /// covers X11/XWayland *and* native-Wayland GNOME apps). Requires an
+    /// ibus-daemon to be available/running on the session bus.
+    #[serde(default = "default_false")]
+    pub ibus_engine: bool,
+
+    /// Aux controller mode: Bamboo (or any external IBus engine) performs the
+    /// Vietnamese composition, and vietc only switches the active IBus engine
+    /// per focused app and password field (app-aware on/off + password
+    /// detection). vietc registers no IBus component in this mode.
+    #[serde(default = "default_false")]
+    pub controller_mode: bool,
+
+    /// Workaround for a stuck/auto-repeating keyboard that emits every keystroke
+    /// twice. When enabled, a keystroke that repeats the previous one within
+    /// `deduplicate_window_ms` is dropped before it reaches the engine. Safe for
+    /// Vietnamese typing because the language has no words with consecutive
+    /// identical letters (digraphs use distinct letters).
+    #[serde(default = "default_false")]
+    pub deduplicate_keys: bool,
+
+    /// When `deduplicate_keys` is on, also drop a key equal to the one two
+    /// positions back (e.g. an IBus double-delivery that arrives as
+    /// `k h k h o h o a a`). This collapses replayed input but also legitimate
+    /// `a-b-a` words ("dad", "tat", "mom", "book", "kayak"), so it is opt-in on
+    /// top of `deduplicate_keys`.
+    #[serde(default = "default_false")]
+    pub deduplicate_two_back: bool,
+
+    #[serde(default = "default_dedup_window_ms")]
+    pub deduplicate_window_ms: u64,
+}
+
+fn default_dedup_window_ms() -> u64 {
+    1000
 }
 
 #[derive(Debug, Deserialize)]
@@ -202,6 +238,7 @@ fn default_terminal_apps() -> Vec<String> {
         "konsole".into(),
         "gnome-terminal".into(),
         "gnome-terminal-server".into(),
+        "ptyxis".into(),
         "kgx".into(),
         "st".into(),
         "urxvt".into(),
@@ -229,6 +266,9 @@ fn default_vietnamese_apps() -> Vec<String> {
         "firefox".into(),
         "chromium".into(),
         "thunderbird".into(),
+        "gedit".into(),
+        "gnome-text-editor".into(),
+        "org.gnome.TextEditor".into(),
     ]
 }
 
@@ -291,6 +331,11 @@ impl Default for Config {
             macros,
             grab: false, // default false so daemon works without root (needs input group for uinput)
             debug: false,
+            ibus_engine: false,
+            controller_mode: false,
+            deduplicate_keys: false,
+            deduplicate_two_back: false,
+            deduplicate_window_ms: default_dedup_window_ms(),
         }
     }
 }

@@ -270,6 +270,13 @@ pub fn get_focused_window_class() -> Option<String> {
         return Some(class);
     }
 
+    // Wayland-native window detection via AT-SPI2 (GNOME Shell `Eval` is gated
+    // off and xprop cannot see Wayland-native windows, so this is the only
+    // reliable source for Firefox/gedit/Ptyxis etc. on this session).
+    if let Some(class) = crate::password_detector::get_focused_window_class_atspi() {
+        return Some(class);
+    }
+
     None
 }
 

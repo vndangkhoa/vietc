@@ -36,7 +36,9 @@ use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
 };
 use xkbcommon::xkb;
 
-use vietc_engine::{Engine, EngineEvent, InputMethod};
+use vietc_engine::{Engine, InputMethod};
+
+use crate::im_plan::{plan_char, ImAction};
 
 use crate::config::Config;
 use crate::display::DisplayServer;
@@ -67,6 +69,10 @@ struct ImState {
     last_serial: u32,
     active: bool,
     forwarded: HashSet<u32>,
+    deduplicate: bool,
+    dedup_two_back: bool,
+    dedup_window_ms: u64,
+    dedup: crate::key_dedup::DedupState,
 }
 
 impl ImState {
@@ -89,6 +95,10 @@ impl ImState {
             last_serial: 0,
             active: false,
             forwarded: HashSet::new(),
+            deduplicate: false,
+            dedup_two_back: false,
+            dedup_window_ms: 250,
+            dedup: crate::key_dedup::DedupState::new(),
         }
     }
 
@@ -191,6 +201,25 @@ impl ImState {
 
         self.last_serial = serial;
 
+        let kc = xkb::Keycode::from(key + 8);
+        let codepoint = xkb.key_get_utf32(kc);
+
+        // Workaround for a stuck/auto-repeating keyboard: drop a keycode that
+        // repeats the previous one (vv -> v, a run of spaces from a stuck
+        // spacebar). Backspace and any non-printable key break the chain so it
+        // never spans word or edit boundaries.
+        if self.deduplicate {
+            let ch = char::from_u32(codepoint);
+            let dedupable = ch.map_or(false, |c| c.is_alphanumeric() || c == ' ');
+            let is_space = ch == Some(' ');
+            if self
+                .dedup
+                .observe(key, dedupable, is_space, self.dedup_two_back, self.dedup_window_ms, std::time::Instant::now())
+            {
+                return;
+            }
+        }
+
         // Ctrl/Alt combos are shortcuts — forward untouched, don't compose.
         let ctrl = xkb.mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_EFFECTIVE);
         let alt = xkb.mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE);
@@ -199,8 +228,6 @@ impl ImState {
             return;
         }
 
-        let kc = xkb::Keycode::from(key + 8);
-        let codepoint = xkb.key_get_utf32(kc);
         if codepoint == 0 {
             // Modifier or non-printable key: forward so the app behaves normally.
             self.forward_press(time, key);
@@ -234,84 +261,6 @@ impl ImState {
             }
         }
     }
-}
-
-fn is_flush_char(ch: char) -> bool {
-    matches!(
-        ch,
-        ' ' | '\t' | '.' | ',' | '!' | '?' | ';' | ':' | '\n'
-    )
-}
-
-/// Result of deciding what to do with a single composed character. Kept as data
-/// so the mapping can be unit-tested without a live Wayland compositor.
-#[derive(Debug, PartialEq, Eq)]
-enum ImAction {
-    /// Show `s` as the in-progress preedit (composing, not committed yet).
-    SetPreedit(String),
-    /// Finalize `s` into the focused app and clear the preedit.
-    Commit(String),
-    /// Forward the raw physical key (already grabbed, so the app needs it).
-    ForwardKey(u32),
-}
-
-/// Decide how to present `ch` (from physical key `key`) to the app, given the
-/// engine state and the current preedit. Mirrors how the evdev/daemon model
-/// treats every raw keystroke as already on screen and the engine events as
-/// corrections: here `None`/`Replace` keep a preedit, while `Flush`/
-/// `AutoRestore`/`UndoTones`/`Paste` finalize, and flush characters commit the
-/// word and let the separator through.
-fn plan_char(
-    enabled: bool,
-    engine: &mut Engine,
-    preedit: &str,
-    ch: char,
-    key: u32,
-) -> Vec<ImAction> {
-    if !enabled {
-        let mut a = Vec::new();
-        if !preedit.is_empty() {
-            a.push(ImAction::Commit(preedit.to_string()));
-        }
-        a.push(ImAction::ForwardKey(key));
-        return a;
-    }
-
-    let is_flush = is_flush_char(ch);
-    let mut actions = Vec::new();
-    match engine.process_key(ch) {
-        Some(EngineEvent::Insert(_)) => {
-            actions.push(ImAction::ForwardKey(key));
-        }
-        Some(EngineEvent::Replace { insert, .. }) => {
-            if is_flush {
-                actions.push(ImAction::Commit(insert));
-                actions.push(ImAction::ForwardKey(key));
-            } else {
-                actions.push(ImAction::SetPreedit(insert));
-            }
-        }
-        Some(EngineEvent::AutoRestore(s))
-        | Some(EngineEvent::UndoTones { restored: s, .. })
-        | Some(EngineEvent::Flush(s))
-        | Some(EngineEvent::Paste(s)) => {
-            actions.push(ImAction::Commit(s));
-            if is_flush {
-                actions.push(ImAction::ForwardKey(key));
-            }
-        }
-        None => {
-            if is_flush {
-                if !preedit.is_empty() {
-                    actions.push(ImAction::Commit(preedit.to_string()));
-                }
-                actions.push(ImAction::ForwardKey(key));
-            } else {
-                actions.push(ImAction::SetPreedit(engine.buffer()));
-            }
-        }
-    }
-    actions
 }
 
 impl Dispatch<WlRegistry, ()> for ImState {
@@ -507,6 +456,13 @@ pub fn run_wayland_im(
 
     let method = parse_method(&config.input_method);
     let mut state = ImState::new(engine_enabled, method);
+    // In the preedit model the composition is previewed before commit, so
+    // auto-restore (which reverts a finished word to raw keystrokes) is never
+    // desirable here — it would destroy deliberate Vietnamese compositions.
+    state.engine.set_auto_restore(false);
+    state.deduplicate = config.deduplicate_keys;
+    state.dedup_two_back = config.deduplicate_two_back;
+    state.dedup_window_ms = config.deduplicate_window_ms;
 
     let _registry = conn.display().get_registry(&qh, ());
 

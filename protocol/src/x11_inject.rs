@@ -2,6 +2,17 @@
 use super::inject::{InjectResult, KeyInjector};
 use std::cell::RefCell;
 use std::ffi::{c_char, c_int, c_void};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Set while vietc is injecting its own (backspace + retyped result) keystrokes
+/// via the keymap capture path. While true, `poll()` resynchronizes the
+/// key-state baseline and reports no events, so injected keystrokes are not
+/// re-captured and re-processed (feedback loop).
+static KEYMAP_SUPPRESS: AtomicBool = AtomicBool::new(false);
+
+pub fn set_keymap_suppress(value: bool) {
+    KEYMAP_SUPPRESS.store(value, Ordering::SeqCst);
+}
 
 type Display = c_void;
 type Window = u64;
@@ -623,6 +634,13 @@ impl X11KeymapCapture {
         let mut keys = [0u8; 32];
         unsafe {
             (self.lib.x_query_keymap)(self.display, keys.as_mut_ptr() as *mut c_char);
+        }
+
+        // While suppressing, resync the baseline and discard any events so that
+        // keystrokes we just injected are not re-captured (feedback loop).
+        if KEYMAP_SUPPRESS.load(Ordering::SeqCst) {
+            self.prev_keys = keys;
+            return Vec::new();
         }
 
         let mut events = Vec::new();

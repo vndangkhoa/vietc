@@ -12,6 +12,7 @@ mod display;
 mod env;
 mod event;
 mod evdev_loop;
+mod im_plan;
 mod inject;
 mod log;
 mod password_detector;
@@ -21,6 +22,11 @@ mod wayland_im;
 
 #[cfg(feature = "x11")]
 mod x11_capture;
+
+mod ibus_engine;
+mod key_dedup;
+mod controller;
+mod ibus_control;
 
 use daemon::Daemon;
 use device::open_keyboard_devices;
@@ -103,6 +109,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     daemon.write_status();
 
+    // Aux controller mode: Bamboo (or another external IBus engine) does the
+    // Vietnamese composition; vietc only switches the active IBus engine by
+    // focused app / password field. vietc registers no IBus component.
+    if daemon.config.controller_mode {
+        log_info("[vietc] Aux controller mode enabled");
+        return controller::run_controller(daemon);
+    }
+
     let display = display::detect_display_server();
     let compositor = display::detect_compositor();
 
@@ -121,6 +135,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "App memory: {}",
         if daemon.config.app_state.enabled { "ON" } else { "OFF" }
     ));
+
+    // Native IBus engine mode: covers every app (incl. native-Wayland GNOME
+    // clients that vietc's capture paths cannot reach). Takes precedence over
+    // the capture paths and must NOT stop the running ibus-daemon.
+    if daemon.config.ibus_engine {
+        log_info("[vietc] IBus engine mode enabled");
+        let method = match daemon.config.input_method.as_str() {
+            "telex" => vietc_engine::InputMethod::Telex,
+            _ => vietc_engine::InputMethod::Vni,
+        };
+        match ibus_engine::run_ibus_engine(
+            method,
+            engine_enabled.clone(),
+            false,
+            daemon.config.deduplicate_keys,
+            daemon.config.deduplicate_two_back,
+            daemon.config.deduplicate_window_ms,
+        ) {
+            Ok(()) => {
+                log_info("[vietc] IBus engine session ended");
+                return Ok(());
+            }
+            Err(e) => log_info(&format!(
+                "[vietc] IBus engine failed ({}); falling back to capture paths",
+                e
+            )),
+        }
+    }
 
     let display_var = std::env::var("DISPLAY").unwrap_or_default();
     let xauth_var = std::env::var("XAUTHORITY").unwrap_or_default();
@@ -228,49 +270,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ));
                 // IBus won't auto-yield here, so stop it to avoid a second IME
                 // competing with the evdev/uinput or X11 fallback paths.
-                stop_ibus();
+                if !daemon.config.ibus_engine {
+                    stop_ibus();
+                }
             }
         }
     }
 
-    // Prefer the evdev grab path when the keyboard devices are accessible
-    // (user in the `input` group, or root). A grab suppresses the original
-    // keystrokes, so composition is clean and works for BOTH X11 and
-    // Wayland-native apps. Only fall back to the rootless X11 keymap path
-    // (X11/XWayland windows only) when evdev capture is unavailable.
-    let mut evdev_devices = open_keyboard_devices().ok();
-    if evdev_devices.is_some() {
-        if let Some(mut devices) = evdev_devices.take() {
-            daemon.grab_enabled = true;
-            log_info("[vietc] Keyboard devices accessible — using evdev grab (full X11 + Wayland coverage)");
-            match run_with_evdev(
-                &mut devices,
-                &mut daemon,
-                shared_active_window.clone(),
-                shared_window_class.clone(),
-                config_changed.clone(),
-                status_changed.clone(),
-                engine_enabled.clone(),
-                display,
-            ) {
-                Ok(()) => {
-                    log_info("[vietc] evdev returned, trying X11 capture as fallback");
+    // On a Wayland session without zwp_input_method_v2 (e.g. current Mutter),
+    // the only capture path that works is the rootless X11 keymap path over
+    // XWayland — it covers X11/XWayland windows. The evdev grab path cannot be
+    // used here: the compositor owns the input seat, so a grab "succeeds" but
+    // receives no events, and keystrokes never reach vietc. So when DISPLAY is
+    // set we use the X11 keymap path and skip evdev. evdev remains the fallback
+    // for headless / pure-Wayland setups that grant uinput/setcap.
+    if std::env::var("DISPLAY").is_err() {
+        match open_keyboard_devices() {
+            Ok(mut devices) => {
+                match run_with_evdev(
+                    &mut devices,
+                    &mut daemon,
+                    shared_active_window.clone(),
+                    shared_window_class.clone(),
+                    config_changed.clone(),
+                    status_changed.clone(),
+                    engine_enabled.clone(),
+                    display,
+                ) {
+                    Ok(()) => {
+                        log_info("[vietc] evdev returned, trying X11 capture as fallback");
+                    }
+                    Err(e) => {
+                        log_info(&format!(
+                            "[vietc] evdev exited with error: {} — trying X11 capture",
+                            e
+                        ));
+                    }
                 }
-                Err(e) => {
-                    log_info(&format!(
-                        "[vietc] evdev exited with error: {} — trying X11 capture",
-                        e
-                    ));
-                }
+            }
+            Err(e) => {
+                log_info(&format!("[vietc] evdev not available: {}", e));
             }
         }
     } else {
-        log_info("[vietc] evdev not available (no input-group/root) — will use rootless X11 path");
+        log_info("[vietc] DISPLAY available — using rootless X11 keymap path (X11/XWayland windows)");
     }
 
     #[cfg(feature = "x11")]
     if std::env::var("DISPLAY").is_ok() {
-        log_info("[vietc] Trying X11 keymap-based capture (rootless via XWayland, X11 apps only)");
+        log_info("[vietc] Trying X11 keymap-based capture (rootless via XWayland)");
         match x11_capture::run_with_x11_keymap(
             &mut daemon,
             shared_active_window.clone(),
