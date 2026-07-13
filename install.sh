@@ -555,6 +555,13 @@ setup_bamboo() {
         # vietc to leave Wayland-native apps alone and keep each app's engine).
         run_as_user dconf write /desktop/ibus/general/use-global-engine false 2>/dev/null || true
 
+        # Make Bamboo selectable as a GNOME input source so Vietnamese works.
+        CUR_SRC="$(run_as_user gsettings get org.gnome.desktop.input-sources sources 2>/dev/null || true)"
+        if ! printf '%s' "$CUR_SRC" | grep -q ibus; then
+            run_as_user gsettings set org.gnome.desktop.input-sources sources \
+                "[('xkb', 'us'), ('ibus', 'Bamboo'), ('ibus', 'BambooUs')]" 2>/dev/null || true
+        fi
+
         BAMBOO_HOME="$(getent passwd "$INSTALLING_USER" | cut -d: -f6)/.config/ibus-bamboo"
         mkdir -p "$BAMBOO_HOME"
         if [ ! -f "$BAMBOO_HOME/ibus-bamboo.config.json" ]; then
@@ -675,10 +682,16 @@ NoDisplay=false
 EOF
 
     # On GNOME, the tray needs the appindicator extension to be visible.
-    if [ "$DISTRO" = "ubuntu" ] && command -v gnome-shell &>/dev/null; then
-        apt-get install -y gnome-shell-extension-appindicator >/dev/null 2>&1 || true
+    if command -v gnome-shell &>/dev/null; then
+        if [ "$DISTRO" = "ubuntu" ]; then
+            apt-get install -y gnome-shell-extension-appindicator >/dev/null 2>&1 || true
+            APPIND="ubuntu-appindicators@ubuntu.com"
+        else
+            APPIND="appindicator@rgcjonas.gmail.com"
+        fi
         if [ -n "${INSTALLING_USER:-}" ] && [ "$INSTALLING_USER" != "root" ]; then
-            run_as_user gnome-extensions enable appindicator@rgcjonas.gmail.com 2>/dev/null || true
+            run_as_user gnome-extensions enable "$APPIND" 2>/dev/null || \
+                run_as_user gnome-extensions enable appindicator@rgcjonas.gmail.com 2>/dev/null || true
         fi
     fi
 
