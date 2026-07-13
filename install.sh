@@ -5,16 +5,23 @@ set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; NC='\033[0m'
 
-[ "$EUID" -ne 0 ] && echo -e "${RED}Please run with sudo.${NC}" && exit 1
-
-INSTALLING_USER="${SUDO_USER:-$USER}"
-
-# Parse arguments
+# Defaults + argument parsing (so --lang takes effect before any output)
 FROM_SOURCE=false
 PREBUILT=false
 MODE="grab"   # grab = original evdev/IBus-engine capture path; bamboo = Bamboo aux-controller
+LANG_CODE="en"
+case "${LANG:-}" in
+  vi*|*_VN|*VN*) LANG_CODE="vi" ;;
+esac
+LANG_NEXT=0
 for arg in "$@"; do
-    if [ "$arg" = "--from-source" ] || [ "$arg" = "--local" ]; then
+    if [ "$LANG_NEXT" = "1" ]; then
+        case "$arg" in
+            vi|vi_VN|vi-VN) LANG_CODE="vi" ;;
+            en) LANG_CODE="en" ;;
+        esac
+        LANG_NEXT=0
+    elif [ "$arg" = "--from-source" ] || [ "$arg" = "--local" ]; then
         FROM_SOURCE=true
     elif [ "$arg" = "--prebuilt" ]; then
         PREBUILT=true
@@ -22,33 +29,190 @@ for arg in "$@"; do
         MODE="bamboo"
     elif [ "$arg" = "--grab" ]; then
         MODE="grab"
+    elif [ "$arg" = "--lang" ]; then
+        LANG_NEXT=1
+    elif [ "$arg" = "--lang=vi" ] || [ "$arg" = "--lang=vi_VN" ] || [ "$arg" = "--lang=vi-VN" ]; then
+        LANG_CODE="vi"
+    elif [ "$arg" = "--lang=en" ]; then
+        LANG_CODE="en"
     fi
 done
 
-# When run from a source tree (git clone), build from source by default so the
-# freshly cloned code (e.g. the rootless Wayland path) is what gets installed,
-# instead of a possibly-stale prebuilt release. Pass --prebuilt to force a
-# release download.
-if [ "$FROM_SOURCE" != true ] && [ "$PREBUILT" != true ] && [ -f Cargo.toml ]; then
-    echo -e "${YELLOW}Source tree detected — building from source.${NC}"
-    echo -e "${YELLOW}(pass --prebuilt to download a release instead)${NC}"
-    FROM_SOURCE=true
-fi
+# t KEY [args...] — print the translated (Vietnamese) or English message.
+t() {
+    local key="$1"; shift
+    if [ "$LANG_CODE" = "vi" ]; then
+        case "$key" in
+            sudo) echo -e "${RED}Vui lòng chạy với quyền sudo.${NC}" ;;
+            welcome) echo -e "${GREEN}=== Trình cài đặt Viet+ ===${NC}" ;;
+            src_detected) echo -e "${YELLOW}Đã phát hiện cây mã nguồn — đang biên dịch từ mã nguồn.${NC}" ;;
+            src_prebuilt_hint) echo -e "${YELLOW}(truyền --prebuilt để tải bản phát hành thay thế)${NC}" ;;
+            unsupported_arch) echo -e "${RED}Kiến trúc không được hỗ trợ: $1${NC}" ;;
+            detected) echo -e "Đã phát hiện: $1 ($2)" ;;
+            distro_fallback) echo -e "Không nhận diện rõ ID distro. Chuyển sang trình quản lý gói: $1" ;;
+            install_build_runtime_deps) echo -e "Đang cài đặt thư viện phụ thuộc biên dịch và chạy..." ;;
+            install_build_deps) echo -e "Đang cài đặt thư viện phụ thuộc biên dịch..." ;;
+            unsupported_distro) echo -e "${YELLOW}Không hỗ trợ: $1. Hãy cài đặt thủ công các thư viện phụ thuộc.${NC}" ;;
+            install_runtime_deps) echo -e "Đang cài đặt thư viện phụ thuộc chạy..." ;;
+            install_rust) echo -e "Đang cài đặt Rust..." ;;
+            cloning) echo -e "Đang clone nhánh staging để biên dịch..." ;;
+            building) echo -e "Đang biên dịch từ mã nguồn..." ;;
+            fetching_release) echo -e "Đang tải thông tin bản phát hành mới nhất..." ;;
+            fetch_failed) echo -e "${RED}Không thể tải thông tin bản phát hành mới nhất.${NC}" ;;
+            latest_version) echo -e "Phiên bản mới nhất: v$1" ;;
+            downloading_tarball) echo -e "Đang tải tệp nén tarball..." ;;
+            downloading_deb) echo -e "Đang tải gói .deb..." ;;
+            no_prebuilt) echo -e "${RED}Không tìm thấy tệp nhị phân dựng sẵn cho v$1 ($2).${NC}" ;;
+            visit_releases) echo -e "${YELLOW}Truy cập https://github.com/vndangkhoa/vietc/releases${NC}" ;;
+            installing_bins) echo -e "Đang cài đặt vào /usr/bin/..." ;;
+            setcap_ok) echo -e "${GREEN}setcap: vietc-daemon có thể chiếm bàn phím mà không cần quyền root đầy đủ${NC}" ;;
+            setcap_fail) echo -e "${YELLOW}setcap thất bại — hãy chạy với sudo để chiếm bàn phím${NC}" ;;
+            bamboo_setup) echo -e "Chế độ bộ điều khiển phụ Bamboo: đang cài đặt/kiểm tra ibus-bamboo + cấu hình IBus..." ;;
+            bamboo_install_manual) echo -e "${YELLOW}Không thể tự động cài ibus-bamboo; hãy cài thủ công: https://github.com/BambooEngine/ibus-bamboo${NC}" ;;
+            bamboo_aur) echo -e "${YELLOW}Hãy cài ibus-bamboo thủ công (AUR).${NC}" ;;
+            bamboo_manual_distro) echo -e "${YELLOW}Hãy cài ibus-bamboo thủ công cho $1: https://github.com/BambooEngine/ibus-bamboo${NC}" ;;
+            success_title)
+                echo -e "${GREEN}========================================${NC}"
+                echo -e "${GREEN}  Viet+ đã cài đặt thành công!${NC}"
+                echo -e "${GREEN}========================================${NC}" ;;
+            cycle_key) echo -e "${GREEN}✓ Ctrl+Space trái${NC} giờ xoay vòng EN -> VNI -> TELEX (qua vietcctl)." ;;
+            tray_autostart) echo -e "${GREEN}✓ Biểu tượng khay${NC} sẽ khởi chạy khi đăng nhập (đã cài mục tự khởi chạy)." ;;
+            bamboo_mode) echo -e "${GREEN}✓ Chế độ bộ điều khiển phụ Bamboo${NC}" ;;
+            bamboo_info)
+                echo -e "  vietc chuyển đổi engine IBus Bamboo theo từng ứng dụng đang được focus;"
+                echo -e "  các ứng dụng thuần Wayland (ptyxis, firefox, gedit) giữ nguyên engine"
+                echo -e "  IBus riêng của chúng."
+                echo -e "  Một lần duy nhất: focus ptyxis -> đặt engine IBus thành BambooUs (Tiếng Anh);"
+                echo -e "  focus firefox/gedit -> Bamboo (Tiếng Việt)."
+                echo -e "  Xoay vòng kiểu gõ ở mọi nơi bằng ${GREEN}Ctrl+Space trái${NC}." ;;
+            grab_info)
+                echo -e "${GREEN}✓ Đã cài đặt${NC} vietc-daemon chạy với tư cách người dùng bình thường (rootless)."
+                echo -e "  Sử dụng zwp_input_method_v2 khi có sẵn, nếu không dùng đường truyền X11 rootless"
+                echo -e "  (XQueryKeymap + XTEST qua XWayland). Không cần setcap/uinput."
+                echo ""
+                echo -e "Bật tự khởi chạy (với người dùng, không phải root):"
+                echo -e "  ${GREEN}systemctl --user daemon-reload${NC}"
+                echo -e "  ${GREEN}systemctl --user enable --now vietc.service${NC}"
+                echo ""
+                echo -e "vietc sẽ tự khởi chạy khi đăng nhập, dừng IBus và tiếp quản đầu vào."
+                echo -e "Khi dừng, nó khởi động lại IBus. Giao diện tùy chọn: chạy ${GREEN}vietc-tray${NC} thủ công."
+                echo ""
+                echo -e "Thử nghiệm: gõ tiếng Việt trong bất kỳ ứng dụng nào."
+                echo -e "Bật/tắt VN/EN: ${GREEN}Ctrl+Space${NC}  Chuyển VNI/Telex: ${GREEN}Ctrl+Shift${NC}" ;;
+            see_config) echo -e "Xem ${GREEN}vietc.toml${NC} để biết cách cấu hình." ;;
+            fallback_note)
+                echo -e "Chế độ dự phòng đặc quyền (evdev/uinput) vẫn khả dụng nếu không có v2"
+                echo -e "cũng như X11/XWayland — xem docs/wayland-rootless.md." ;;
+            next_steps_header) echo -e "${GREEN}► Các bước tiếp theo:${NC}" ;;
+            ns_logout) echo -e "  1. Đăng xuất rồi đăng nhập lại (hoặc khởi động lại) để mục tự khởi chạy" ;;
+            ns_logout2) echo -e "     khay và cài đặt IBus có hiệu lực." ;;
+            ns_tray) echo -e "  2. Mở 'Viet+ Tray' từ menu ứng dụng để xem biểu tượng trạng thái." ;;
+            ns_bamboo) echo -e "  3. (Chế độ Bamboo) Thiết lập mỗi ứng dụng một lần:" ;;
+            ns_bamboo2) echo -e "     ptyxis -> BambooUs (Tiếng Anh), firefox/gedit -> Bamboo (Tiếng Việt)." ;;
+            ns_bamboo3) echo -e "     Sau đó nhấn Ctrl+Space trái ở bất kỳ đâu để xoay vòng EN -> VNI -> TELEX." ;;
+            ns_grab) echo -e "  3. (Chế độ Grab) Đầu vào đã hoạt động. Bật/tắt VN/EN bằng Ctrl+Space," ;;
+            ns_grab2) echo -e "     chuyển VNI/Telex bằng Ctrl+Shift." ;;
+            ns_active) echo -e "Đầu vào đã hoạt động trong phiên này. Để khởi động lại sau này:" ;;
+            ns_manage) echo -e "  ${GREEN}systemctl --user restart vietc.service${NC}" ;;
+            ns_uninstall_hdr) echo -e "Để gỡ cài đặt:" ;;
+            ns_uninstall) echo -e "  ${GREEN}curl -sSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/uninstall.sh | sudo bash${NC}" ;;
+            *) echo -e "$key" ;;
+        esac
+    else
+        case "$key" in
+            sudo) echo -e "${RED}Please run with sudo.${NC}" ;;
+            welcome) echo -e "${GREEN}=== Viet+ Installer ===${NC}" ;;
+            src_detected) echo -e "${YELLOW}Source tree detected — building from source.${NC}" ;;
+            src_prebuilt_hint) echo -e "${YELLOW}(pass --prebuilt to download a release instead)${NC}" ;;
+            unsupported_arch) echo -e "${RED}Unsupported architecture: $1${NC}" ;;
+            detected) echo -e "Detected: $1 ($2)" ;;
+            distro_fallback) echo -e "Distro ID not explicitly recognized. Falling back to package manager: $1" ;;
+            install_build_runtime_deps) echo -e "Installing build and runtime dependencies..." ;;
+            install_build_deps) echo -e "Installing build dependencies..." ;;
+            unsupported_distro) echo -e "${YELLOW}Unsupported: $1. Install deps manually.${NC}" ;;
+            install_runtime_deps) echo -e "Installing runtime dependencies..." ;;
+            install_rust) echo -e "Installing Rust..." ;;
+            cloning) echo -e "Cloning staging branch to build..." ;;
+            building) echo -e "Building from source..." ;;
+            fetching_release) echo -e "Fetching latest release..." ;;
+            fetch_failed) echo -e "${RED}Failed to fetch latest release info.${NC}" ;;
+            latest_version) echo -e "Latest version: v$1" ;;
+            downloading_tarball) echo -e "Downloading tarball..." ;;
+            downloading_deb) echo -e "Downloading .deb package..." ;;
+            no_prebuilt) echo -e "${RED}No prebuilt binary found for v$1 ($2).${NC}" ;;
+            visit_releases) echo -e "${YELLOW}Visit https://github.com/vndangkhoa/vietc/releases${NC}" ;;
+            installing_bins) echo -e "Installing to /usr/bin/..." ;;
+            setcap_ok) echo -e "${GREEN}setcap: vietc-daemon can grab keyboard without full root${NC}" ;;
+            setcap_fail) echo -e "${YELLOW}setcap failed — run with sudo for grab${NC}" ;;
+            bamboo_setup) echo -e "Bamboo aux-controller mode: installing/verifying ibus-bamboo + IBus config..." ;;
+            bamboo_install_manual) echo -e "${YELLOW}Could not auto-install ibus-bamboo; install manually: https://github.com/BambooEngine/ibus-bamboo${NC}" ;;
+            bamboo_aur) echo -e "${YELLOW}Install ibus-bamboo manually (AUR).${NC}" ;;
+            bamboo_manual_distro) echo -e "${YELLOW}Install ibus-bamboo manually for $1: https://github.com/BambooEngine/ibus-bamboo${NC}" ;;
+            success_title)
+                echo -e "${GREEN}========================================${NC}"
+                echo -e "${GREEN}  Viet+ installed successfully!${NC}"
+                echo -e "${GREEN}========================================${NC}" ;;
+            cycle_key) echo -e "${GREEN}✓ Left Ctrl+Space${NC} now cycles EN -> VNI -> TELEX (via vietcctl)." ;;
+            tray_autostart) echo -e "${GREEN}✓ Tray icon${NC} will start on login (autostart entry installed)." ;;
+            bamboo_mode) echo -e "${GREEN}✓ Bamboo aux-controller mode${NC}" ;;
+            bamboo_info)
+                echo -e "  vietc switches the Bamboo IBus engine per focused app; Wayland-native"
+                echo -e "  apps (ptyxis, firefox, gedit) are left to their own per-app IBus engine."
+                echo -e "  One-time: focus ptyxis -> set IBus engine to BambooUs (English);"
+                echo -e "  focus firefox/gedit -> Bamboo (Vietnamese)."
+                echo -e "  Cycle typing style anywhere with ${GREEN}Left Ctrl+Space${NC}." ;;
+            grab_info)
+                echo -e "${GREEN}✓ Installed${NC} vietc-daemon runs as a normal user (rootless)."
+                echo -e "  It uses zwp_input_method_v2 when available, else the rootless X11 path"
+                echo -e "  (XQueryKeymap + XTEST over XWayland). No setcap/uinput required."
+                echo ""
+                echo -e "Enable auto-start (as the user, not root):"
+                echo -e "  ${GREEN}systemctl --user daemon-reload${NC}"
+                echo -e "  ${GREEN}systemctl --user enable --now vietc.service${NC}"
+                echo ""
+                echo -e "vietc will auto-start on login, stop IBus, and take over input."
+                echo -e "On stop it restarts IBus. Optional UI: run ${GREEN}vietc-tray${NC} manually."
+                echo ""
+                echo -e "Test: type in Vietnamese in any app."
+                echo -e "Toggle VN/EN: ${GREEN}Ctrl+Space${NC}  Switch VNI/Telex: ${GREEN}Ctrl+Shift${NC}" ;;
+            see_config) echo -e "See ${GREEN}vietc.toml${NC} for configuration." ;;
+            fallback_note)
+                echo -e "Privileged fallback (evdev/uinput) is still available if neither v2 nor"
+                echo -e "X11/XWayland is present — see docs/wayland-rootless.md." ;;
+            next_steps_header) echo -e "${GREEN}► Next steps:${NC}" ;;
+            ns_logout) echo -e "  1. Log out and log back in (or reboot) so the tray autostart" ;;
+            ns_logout2) echo -e "     and IBus settings take effect." ;;
+            ns_tray) echo -e "  2. Open 'Viet+ Tray' from your app menu to see the status icon." ;;
+            ns_bamboo) echo -e "  3. (Bamboo mode) Set each app once:" ;;
+            ns_bamboo2) echo -e "     ptyxis -> BambooUs (English), firefox/gedit -> Bamboo (Vietnamese)." ;;
+            ns_bamboo3) echo -e "     Then press Left Ctrl+Space anywhere to cycle EN -> VNI -> TELEX." ;;
+            ns_grab) echo -e "  3. (Grab mode) Input is active now. Toggle VN/EN with Ctrl+Space," ;;
+            ns_grab2) echo -e "     switch VNI/Telex with Ctrl+Shift." ;;
+            ns_active) echo -e "Input is active in this session. To restart later:" ;;
+            ns_manage) echo -e "  ${GREEN}systemctl --user restart vietc.service${NC}" ;;
+            ns_uninstall_hdr) echo -e "To uninstall:" ;;
+            ns_uninstall) echo -e "  ${GREEN}curl -sSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/uninstall.sh | sudo bash${NC}" ;;
+            *) echo -e "$key" ;;
+        esac
+    fi
+}
 
-echo -e "${GREEN}=== Viet+ Installer ===${NC}"
+[ "$EUID" -ne 0 ] && t sudo && exit 1
+
+INSTALLING_USER="${SUDO_USER:-$USER}"
 
 # Architecture
 ARCH=$(uname -m)
 case "$ARCH" in
     x86_64) ARCH="amd64" ;;
     aarch64) ARCH="arm64" ;;
-    *) echo -e "${RED}Unsupported architecture: $ARCH${NC}"; exit 1 ;;
+    *) t unsupported_arch "$ARCH"; exit 1 ;;
 esac
 
 # Distro
 [ -f /etc/os-release ] && . /etc/os-release
 DISTRO="${ID:-unknown}"
-echo "Detected: $DISTRO ($ARCH)"
+t detected "$DISTRO" "$ARCH"
 
 install_deps() {
     # Check if distro is explicitly supported
@@ -72,12 +236,12 @@ install_deps() {
             matched=true
         fi
         if [ "$matched" = true ]; then
-            echo "Distro ID not explicitly recognized. Falling back to package manager: $DISTRO"
+            t distro_fallback "$DISTRO"
         fi
     fi
 
     if [ "$FROM_SOURCE" = true ]; then
-        echo "Installing build and runtime dependencies..."
+        t install_build_runtime_deps
         case "$DISTRO" in
             ubuntu|debian|linuxmint|mint|pop|neon|zorin|elementary)
                 export DEBIAN_FRONTEND=noninteractive
@@ -97,11 +261,11 @@ install_deps() {
                   libevdev libx11 libxtst dbus wayland xclip wl-clipboard curl
                 ;;
             *)
-                echo -e "${YELLOW}Unsupported: $DISTRO. Install deps manually.${NC}"
+                t unsupported_distro "$DISTRO"
                 ;;
         esac
     else
-        echo "Installing runtime dependencies..."
+        t install_runtime_deps
         case "$DISTRO" in
             ubuntu|debian|linuxmint|mint|pop|neon|zorin|elementary)
                 export DEBIAN_FRONTEND=noninteractive
@@ -117,7 +281,7 @@ install_deps() {
                   wayland xclip wl-clipboard curl
                 ;;
             *)
-                echo -e "${YELLOW}Unsupported: $DISTRO. Install deps manually.${NC}"
+                t unsupported_distro "$DISTRO"
                 ;;
         esac
     fi
@@ -132,7 +296,7 @@ trap cleanup EXIT
 if [ "$FROM_SOURCE" = true ]; then
     # Install Rust if missing
     if ! command -v cargo &>/dev/null; then
-        echo "Installing Rust..."
+        t install_rust
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         export PATH="$HOME/.cargo/bin:$PATH"
         if [ -n "${SUDO_USER:-}" ] && [ -d "/home/$SUDO_USER/.cargo/bin" ]; then
@@ -142,13 +306,13 @@ if [ "$FROM_SOURCE" = true ]; then
 
     # Clone staging if not in repo
     if [ ! -f Cargo.toml ] || [ ! -d .git ]; then
-        echo "Cloning staging branch to build..."
+        t cloning
         git clone -b staging https://github.com/vndangkhoa/vietc.git "$TMPDIR/source"
         cd "$TMPDIR/source"
     fi
 
     # Install build dependencies (needed to compile the daemon)
-    echo "Installing build dependencies..."
+    t install_build_deps
     case "$DISTRO" in
         ubuntu|debian|linuxmint|mint|pop|neon|zorin|elementary)
             export DEBIAN_FRONTEND=noninteractive
@@ -166,18 +330,18 @@ if [ "$FROM_SOURCE" = true ]; then
             ;;
     esac
 
-    echo "Building from source..."
+    t building
     cargo build --release
     (cd ui && cargo build --release)
 else
-    echo "Fetching latest release..."
+    t fetching_release
     RELEASE_JSON=$(curl -sSfL "https://api.github.com/repos/vndangkhoa/vietc/releases/latest" 2>/dev/null || echo "")
     TAG=$(echo "$RELEASE_JSON" | grep '"tag_name"' | sed 's/.*"v\(.*\)",/\1/')
     if [ -z "$TAG" ]; then
-        echo -e "${RED}Failed to fetch latest release info.${NC}"
+        t fetch_failed
         exit 1
     fi
-    echo "Latest version: v$TAG"
+    t latest_version "$TAG"
 
     # Try tarball first, then .deb
     TARBALL="vietc_${TAG}_linux_${ARCH}.tar.gz"
@@ -188,12 +352,12 @@ else
     mkdir -p "$INSTALL_DIR"
 
     if curl -sSfL -o "$TMPDIR/$TARBALL" "$TARBALL_URL" 2>/dev/null; then
-        echo "Downloading tarball..."
+        t downloading_tarball
         tar -xzf "$TMPDIR/$TARBALL" -C "$INSTALL_DIR"
         BIN_DIR="$INSTALL_DIR/vietc_${TAG}_linux_${ARCH}/bin"
         PKG_DIR="$INSTALL_DIR/vietc_${TAG}_linux_${ARCH}"
     elif curl -sSfL -o "$TMPDIR/$DEB" "$DEB_URL" 2>/dev/null; then
-        echo "Downloading .deb package..."
+        t downloading_deb
         if command -v dpkg-deb &>/dev/null; then
             dpkg-deb -x "$TMPDIR/$DEB" "$INSTALL_DIR"
         else
@@ -206,8 +370,8 @@ else
         BIN_DIR="$INSTALL_DIR/usr/bin"
         PKG_DIR="$INSTALL_DIR"
     else
-        echo -e "${RED}No prebuilt binary found for v$TAG ($ARCH).${NC}"
-        echo -e "${YELLOW}Visit https://github.com/vndangkhoa/vietc/releases${NC}"
+        t no_prebuilt "$TAG" "$ARCH"
+        t visit_releases
         exit 1
     fi
 fi
@@ -218,7 +382,7 @@ pkill -x vietc-daemon 2>/dev/null || true
 pkill -x vietc 2>/dev/null || true
 
 # Install binaries
-echo "Installing to /usr/bin/..."
+t installing_bins
 if [ "$FROM_SOURCE" = true ]; then
     cp target/release/vietc /usr/bin/vietc-daemon
     cp target/release/vietc-cli /usr/bin/vietc-cli
@@ -240,8 +404,8 @@ chmod 755 /usr/bin/vietc-daemon /usr/bin/vietc-cli /usr/bin/vietc-uinputd /usr/b
 # Also grant cap_dac_override for /dev/uinput access if not in input group
 if command -v setcap &>/dev/null; then
     setcap cap_sys_admin,cap_dac_override+ep /usr/bin/vietc-daemon 2>/dev/null && \
-        echo -e "${GREEN}setcap: vietc-daemon can grab keyboard without full root${NC}" || \
-        echo -e "${YELLOW}setcap failed — run with sudo for grab${NC}"
+        t setcap_ok || \
+        t setcap_fail
 fi
 
 # Clean old /usr/local/bin/ binaries
@@ -358,7 +522,7 @@ run_as_user() {
 # Bamboo aux-controller setup: install ibus-bamboo, preload its engines, enable
 # per-app engine memory, and write a sane Bamboo config. Best-effort per distro.
 setup_bamboo() {
-    echo "Bamboo aux-controller mode: installing/verifying ibus-bamboo + IBus config..."
+    t bamboo_setup
     case "$DISTRO" in
         ubuntu|debian|linuxmint|mint|pop|neon|zorin|elementary)
             if ! command -v ibus-bamboo &>/dev/null && \
@@ -368,18 +532,18 @@ setup_bamboo() {
                 add-apt-repository -y ppa:bamboo-engine/ibus-bamboo 2>/dev/null || true
                 apt-get update -y 2>/dev/null || true
                 apt-get install -y ibus-bamboo 2>/dev/null || \
-                    echo -e "${YELLOW}Could not auto-install ibus-bamboo; install manually: https://github.com/BambooEngine/ibus-bamboo${NC}"
+                    t bamboo_install_manual
             fi
             ;;
         arch|manjaro|cachyos|endeavouros|garuda|artix)
             if [ ! -f /usr/lib/ibus/ibus-engine-bamboo ]; then
                 (command -v yay &>/dev/null && yay -S --noconfirm ibus-bamboo) || \
                 (command -v paru &>/dev/null && paru -S --noconfirm ibus-bamboo) || \
-                    echo -e "${YELLOW}Install ibus-bamboo manually (AUR).${NC}"
+                    t bamboo_aur
             fi
             ;;
         *)
-            echo -e "${YELLOW}Install ibus-bamboo manually for $DISTRO: https://github.com/BambooEngine/ibus-bamboo${NC}"
+            t bamboo_manual_distro "$DISTRO"
             ;;
     esac
 
@@ -493,9 +657,7 @@ EOF
 fi
 
 echo ""
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}  Viet+ installed successfully!${NC}"
-echo -e "${GREEN}========================================${NC}"
+t success_title
 echo ""
 
 # Tray icon + universal mode shortcut
@@ -514,7 +676,7 @@ EOF
 
     # On GNOME, the tray needs the appindicator extension to be visible.
     if [ "$DISTRO" = "ubuntu" ] && command -v gnome-shell &>/dev/null; then
-        apt-get install -y gnome-shell-extension-appindicator 2>/dev/null || true
+        apt-get install -y gnome-shell-extension-appindicator >/dev/null 2>&1 || true
         if [ -n "${INSTALLING_USER:-}" ] && [ "$INSTALLING_USER" != "root" ]; then
             run_as_user gnome-extensions enable appindicator@rgcjonas.gmail.com 2>/dev/null || true
         fi
@@ -529,34 +691,31 @@ EOF
         run_as_user gsettings set "$SCHEMA:$KEYPATH" name 'Viet+ cycle input mode'
         run_as_user gsettings set "$SCHEMA:$KEYPATH" command '/usr/bin/vietcctl cycle'
         run_as_user gsettings set "$SCHEMA:$KEYPATH" binding '<Primary>space'
-        echo -e "${GREEN}✓ Left Ctrl+Space${NC} now cycles EN -> VNI -> TELEX (via vietcctl)."
+        t cycle_key
     fi
-    echo -e "${GREEN}✓ Tray icon${NC} will start on login (autostart entry installed)."
+    t tray_autostart
 fi
 
 if [ "$MODE" = "bamboo" ]; then
-    echo -e "${GREEN}✓ Bamboo aux-controller mode${NC}"
-    echo -e "  vietc switches the Bamboo IBus engine per focused app; Wayland-native"
-    echo -e "  apps (ptyxis, firefox, gedit) are left to their own per-app IBus engine."
-    echo -e "  One-time: focus ptyxis -> set IBus engine to BambooUs (English);"
-    echo -e "  focus firefox/gedit -> Bamboo (Vietnamese)."
-    echo -e "  Cycle typing style anywhere with ${GREEN}Left Ctrl+Space${NC}."
-elif [ "$MODE" = "grab" ]; then
-    echo -e "${GREEN}✓ Installed${NC} vietc-daemon runs as a normal user (rootless)."
-    echo -e "  It uses zwp_input_method_v2 when available, else the rootless X11 path"
-    echo -e "  (XQueryKeymap + XTEST over XWayland). No setcap/uinput required."
-    echo ""
-    echo -e "Enable auto-start (as the user, not root):"
-    echo -e "  ${GREEN}systemctl --user daemon-reload${NC}"
-    echo -e "  ${GREEN}systemctl --user enable --now vietc.service${NC}"
-    echo ""
-    echo -e "vietc will auto-start on login, stop IBus, and take over input."
-    echo -e "On stop it restarts IBus. Optional UI: run ${GREEN}vietc-tray${NC} manually."
-    echo ""
-    echo -e "Test: type in Vietnamese in any app."
-    echo -e "Toggle VN/EN: ${GREEN}Ctrl+Space${NC}  Switch VNI/Telex: ${GREEN}Ctrl+Shift${NC}"
+    t bamboo_mode
+fi
+
+echo ""
+t next_steps_header
+t ns_logout
+t ns_logout2
+t ns_tray
+if [ "$MODE" = "bamboo" ]; then
+    t ns_bamboo
+    t ns_bamboo2
+    t ns_bamboo3
+else
+    t ns_grab
+    t ns_grab2
 fi
 echo ""
-echo -e "See ${GREEN}vietc.toml${NC} for configuration."
-echo -e "Privileged fallback (evdev/uinput) is still available if neither v2 nor"
-echo -e "X11/XWayland is present — see docs/wayland-rootless.md."
+t ns_active
+t ns_manage
+echo ""
+t ns_uninstall_hdr
+t ns_uninstall
