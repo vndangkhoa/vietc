@@ -8,7 +8,7 @@
 [![Version](https://img.shields.io/badge/Version-0.1.8-purple?style=flat-square)](https://github.com/vndangkhoa/vietc)
 [![Tests](https://img.shields.io/badge/Tests-104_passing-brightgreen?style=flat-square)](https://github.com/vndangkhoa/vietc)
 
-[Why Viet+?](#-why-viet) • [Features](#-features) • [Installation](#-installation) • [Configuration](#-configuration) • [Usage](#-usage) • [Architecture](#-architecture) • [Roadmap](#-roadmap) • [Development](#-development) • [Contributing](#-contributing)
+[Why Viet+?](#-why-viet) • [Features](#-features) • [Installation](#-installation) • [Configuration](#-configuration) • [Usage](#-usage) • [Architecture](#-architecture) • [Development](#-development) • [Contributing](#-contributing)
 
 ---
 
@@ -16,15 +16,6 @@
 
 > [!WARNING]
 > This project is in active development and operates directly on input devices (`evdev` / `/dev/uinput`). It may crash your system or lock your keyboard in case of critical bugs. Use with caution.
-
----
-
-## 🆕 What's New — Rootless Wayland & Auto-Start
-
-- **Runs with zero privileges when possible.** On a compositor exposing `zwp_input_method_v2` it uses that (rootless, all apps). Otherwise, if the keyboard is accessible (user in the `input` group or root), it uses the **evdev grab** path — it grabs the physical keyboard so composition is clean and covers **both X11 and Wayland-native apps**. Only when neither is available does it fall back to the rootless X11 keymap path (`XQueryKeymap` + `XTEST`), which covers X11/XWayland windows only.
-- **Automatic IBus takeover.** On start, vietc stops IBus; on a *clean* exit it restarts IBus automatically, so it transparently replaces the system IME and restores it when you quit.
-- **systemd user service.** `vietc.service` starts vietc on login (`After=graphical-session.target`, `ConditionEnvironment=DISPLAY`, `KillMode=process` so the respawned IBus survives the stop). Enable once with `systemctl --user enable --now vietc.service`.
-- **Known limitation.** Current Mutter/GNOME Shell does **not** expose `zwp_input_method_manager_v2`, so on this session the X11 path covers X11/XWayland windows only; Wayland-native GTK4/Qt clients are covered automatically once the compositor advertises v2 (no daemon change required). Full details in [`docs/wayland-rootless.md`](docs/wayland-rootless.md).
 
 ---
 
@@ -322,18 +313,6 @@ The 0.1.7 refactoring split a 2151-line `main.rs` into 11 focused modules, deliv
 - **Testable Event Routing** — Pure functions in `event.rs` render keystrokes entirely in memory, mirroring the production evdev loop.
 - **Integration Test Harness** — Spawns a real daemon, sends synthetic keystrokes via virtual uinput keyboards, and reads the clipboard to verify output across distros.
 - **Regression Prevention** — Every past bug maps to a documented test scenario in `docs/testing-dictionary.md` (40+ entries).
-
----
-
-## 🗺️ Roadmap
-
-### v0.1.22
-- [ ] Wayland input method protocol (`zwp_input_method_v2`) — eliminates clipboard + backspace race, fixes missing spaces permanently
-- [ ] Event-based AT-SPI2 focus monitoring (subscribe to a11y focus events, no polling)
-
-### v0.1.23
-- [ ] GitHub Actions CI for automated .deb builds
-- [ ] Flatpak re-add for immutable distros
 
 ---
 
