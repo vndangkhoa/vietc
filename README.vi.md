@@ -132,6 +132,8 @@ Viet+ tích hợp hệ thống nhận diện mật khẩu 4 lớp tự động. 
 > **⚠️ Lưu ý về biểu tượng khay hệ thống:** Môi trường GNOME (Ubuntu) và Cinnamon (Mint) cần có phần mềm theo dõi StatusNotifier để hiển thị khay hệ thống:
 > - Ubuntu: `sudo apt install gnome-shell-extension-appindicator`
 > - Mint: Đã được tích hợp sẵn, hoạt động ngay sau khi cài đặt
+>
+> `vietc-tray` được cài đặt bởi `./install.sh` — hãy chạy trình cài đặt trước, *sau đó* mới khởi chạy khay. Trên Ubuntu, trình cài đặt cũng tự động thiết lập tiện ích mở rộng appindicator.
 
 ---
 

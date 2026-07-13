@@ -97,6 +97,8 @@ The project is mirrored on GitHub and Forgejo — both stay in sync:
 > **⚠️ Tray icon note:** GNOME (Ubuntu) and Cinnamon (Mint) need a StatusNotifier watcher for the tray to appear:
 > - Ubuntu: `sudo apt install gnome-shell-extension-appindicator`
 > - Mint: pre-installed; works out of the box
+>
+> `vietc-tray` is installed by `./install.sh` — run the installer first, *then* launch the tray. On Ubuntu the installer also sets up the appindicator extension automatically.
 
 ### 🗑️ Uninstall
 
