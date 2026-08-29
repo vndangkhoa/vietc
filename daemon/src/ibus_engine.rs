@@ -807,14 +807,19 @@ fn handle_process_key_event(
     }
 
     // IBus GDK mask: Shift=1, Ctrl=4, Alt=8, Super=64.
+    const SHIFT: u32 = 1;
     const CTRL: u32 = 4;
     const ALT: u32 = 8;
     const SUPER: u32 = 64;
 
     // Ctrl+Shift cycles ENG -> VNI -> TELEX -> ENG.
-    // IBus delivers Shift_L (0xFFE1) / Shift_R (0xFFE2) with Ctrl held.
+    // Handles both Ctrl-then-Shift and Shift-then-Ctrl.
     let is_shift_key = keyval == 0xFFE1 || keyval == 0xFFE2 || keyval == 65505 || keyval == 65506;
-    if is_shift_key && (state_flags & CTRL) != 0 {
+    let is_ctrl_key = keyval == 0xFFE3 || keyval == 0xFFE4 || keyval == 65507 || keyval == 65508;
+    let is_ctrl_shift = (is_shift_key && (state_flags & CTRL) != 0)
+        || (is_ctrl_key && (state_flags & SHIFT) != 0);
+
+    if is_ctrl_shift {
         let is_enabled = state.engine_enabled.load(Ordering::SeqCst);
         let mut method_guard = state.method.lock().unwrap();
 
@@ -842,8 +847,10 @@ fn handle_process_key_event(
         emit_update_preedit(conn, path, "");
 
         if let Some(dir) = dirs::config_dir() {
+            let config_vietc = dir.join("vietc");
+            let _ = std::fs::create_dir_all(&config_vietc);
             let _ = std::fs::write(
-                dir.join("vietc").join("status"),
+                config_vietc.join("status"),
                 if new_enabled { "vn" } else { "en" },
             );
             if new_enabled {
@@ -851,7 +858,7 @@ fn handle_process_key_event(
                     InputMethod::Telex => "telex",
                     InputMethod::Vni => "vni",
                 };
-                let _ = std::fs::write(dir.join("vietc").join("method"), method_str);
+                let _ = std::fs::write(config_vietc.join("method"), method_str);
             }
         }
 
@@ -864,13 +871,11 @@ fn handle_process_key_event(
         return false;
     }
     // Don't compose while Alt/Super is held, or Ctrl with a non-toggle key.
-    // Shift alone is NOT blocked (needed for uppercase and Telex `w`). The
-    // Ctrl+Space / Ctrl+Shift toggles above already returned, so they are not
-    // affected. Any other Ctrl combo (Ctrl+C, Ctrl+V, etc.) is forwarded.
+    // Shift alone is NOT blocked (needed for uppercase and Telex `w`).
     if state_flags & (ALT | SUPER) != 0 {
         return false;
     }
-    if (state_flags & CTRL) != 0 && !is_shift_key {
+    if (state_flags & CTRL) != 0 && !is_shift_key && !is_ctrl_key {
         return false;
     }
     let mut guard = state.contexts.lock().unwrap();
@@ -878,52 +883,72 @@ fn handle_process_key_event(
         Some(c) => c,
         None => return false,
     };
+
     if !ctx.enabled {
         return false;
     }
 
-    // Workaround for a stuck/auto-repeating keyboard that emits every keystroke
-    // twice. Drop a keyval that repeats the previous one (vv -> v, oo -> o, 44
-    // -> 4, or a run of spaces from a stuck spacebar). Only printable
-    // letters/digits and spaces are considered; Backspace/arrows/modifiers break
-    // the chain so it can't span word or edit boundaries. Safe for Vietnamese.
-        if state.deduplicate {
-            let now = std::time::Instant::now();
-            let ch = keyval_to_char(keyval);
-            let dedupable = ch.map_or(false, |c| c.is_alphanumeric() || c == ' ');
-            let is_space = ch == Some(' ');
-            if ctx
-                .dedup
-                .observe(keyval, dedupable, is_space, state.dedup_two_back, state.dedup_window_ms, now)
-            {
-                return true;
-            }
+    if state.deduplicate {
+        let now = std::time::Instant::now();
+        let ch = keyval_to_char(keyval);
+        let dedupable = ch.map_or(false, |c| c.is_alphanumeric() || c == ' ');
+        let is_space = ch == Some(' ');
+        if ctx
+            .dedup
+            .observe(keyval, dedupable, is_space, state.dedup_two_back, state.dedup_window_ms, now)
+        {
+            return true;
         }
+    }
 
-    // Enter / Return: reset engine buffer and pass key through
+    // Enter / Return: if composing in preedit, commit word before newline; then pass key through
     if keyval == 0xFF0D || keyval == 0xFF8D {
+        if !ctx.preedit.is_empty() {
+            let word = ctx.preedit.clone();
+            ctx.preedit.clear();
+            emit_update_preedit(conn, path, "");
+            emit_commit_text(conn, path, &word);
+        }
         ctx.engine.reset();
         return false;
     }
 
-    // Escape: reset engine buffer and pass Escape through
+    // Escape: if composing in preedit, cancel preedit; pass Escape through
     if keyval == 0xFF1B {
+        if !ctx.preedit.is_empty() {
+            ctx.preedit.clear();
+            emit_update_preedit(conn, path, "");
+        }
         ctx.engine.reset();
         return false;
     }
 
     // Navigation keys (Arrows, Home, End, PageUp/Down, Delete, Tab):
-    // reset engine buffer so cursor moves freely in the document.
+    // Commit any active preedit word and let cursor move freely in document.
     let is_nav = (keyval >= 0xFF50 && keyval <= 0xFF58) || keyval == 0xFFFF || keyval == 0xFF09;
     if is_nav {
+        if !ctx.preedit.is_empty() {
+            let word = ctx.preedit.clone();
+            ctx.preedit.clear();
+            emit_update_preedit(conn, path, "");
+            emit_commit_text(conn, path, &word);
+        }
         ctx.engine.reset();
         return false;
     }
 
-    // Backspace: update engine internal buffer and let application delete character directly.
+    // Backspace: if composing in preedit, delete character in preedit; otherwise forward to app
     if keyval == 0xFF08 {
-        ctx.engine.process_key('\x08');
-        return false;
+        if !ctx.preedit.is_empty() {
+            ctx.engine.process_key('\x08');
+            let new_preedit = ctx.engine.buffer();
+            ctx.preedit = new_preedit.clone();
+            emit_update_preedit(conn, path, &new_preedit);
+            return true;
+        } else {
+            ctx.engine.reset();
+            return false;
+        }
     }
 
     let ch = match keyval_to_char(keyval) {
@@ -932,13 +957,20 @@ fn handle_process_key_event(
     };
 
     if is_flush_char(ch) {
-        if let Some(EngineEvent::Replace { backspaces, insert }) = ctx.engine.process_key(ch) {
-            for _ in 0..backspaces {
-                emit_forward_key_event(conn, path, 0xFF08, 0, 0);
-                emit_forward_key_event(conn, path, 0xFF08, 0, 1 << 30);
+        let word = if !ctx.preedit.is_empty() {
+            if let Some(EngineEvent::Replace { insert, .. }) = ctx.engine.process_key(ch) {
+                insert
+            } else {
+                ctx.preedit.clone()
             }
-            emit_delete_surrounding_text(conn, path, -(backspaces as i32), backspaces as u32);
-            emit_commit_text(conn, path, &format!("{insert}{ch}"));
+        } else {
+            String::new()
+        };
+
+        ctx.preedit.clear();
+        emit_update_preedit(conn, path, "");
+        if !word.is_empty() {
+            emit_commit_text(conn, path, &format!("{}{}", word, ch));
         } else {
             emit_commit_text(conn, path, &ch.to_string());
         }
@@ -946,32 +978,12 @@ fn handle_process_key_event(
         return true;
     }
 
-    match ctx.engine.process_key(ch) {
-        Some(EngineEvent::Replace { backspaces, insert }) => {
-            for _ in 0..backspaces {
-                emit_forward_key_event(conn, path, 0xFF08, 0, 0);
-                emit_forward_key_event(conn, path, 0xFF08, 0, 1 << 30);
-            }
-            emit_delete_surrounding_text(conn, path, -(backspaces as i32), backspaces as u32);
-            emit_commit_text(conn, path, &insert);
-            true
-        }
-        Some(EngineEvent::AutoRestore(s))
-        | Some(EngineEvent::UndoTones { restored: s, .. })
-        | Some(EngineEvent::Flush(s))
-        | Some(EngineEvent::Paste(s)) => {
-            emit_commit_text(conn, path, &s);
-            true
-        }
-        Some(EngineEvent::Insert(s)) => {
-            emit_commit_text(conn, path, &s);
-            true
-        }
-        None => {
-            emit_commit_text(conn, path, &ch.to_string());
-            true
-        }
-    }
+    // Composing character: update engine and display preedit in-place
+    let _ = ctx.engine.process_key(ch);
+    let new_preedit = ctx.engine.buffer();
+    ctx.preedit = new_preedit.clone();
+    emit_update_preedit(conn, path, &new_preedit);
+    true
 }
 
 fn emit_forward_key_event(conn: &Connection, path: &str, keyval: u32, keycode: u32, state: u32) {
