@@ -239,12 +239,12 @@ fn ibus_attr_no_underline(start: u32, end: u32) -> MessageItem {
     ])
 }
 
-fn ibus_attr_list(byte_count: usize) -> MessageItem {
+fn ibus_attr_list(char_count: usize) -> MessageItem {
     // IBusAttrList serializes as (s a{sv} av)
-    let attrs = if byte_count > 0 {
+    let attrs = if char_count > 0 {
         vec![MessageItem::Variant(Box::new(ibus_attr_no_underline(
             0,
-            byte_count as u32,
+            char_count as u32,
         )))]
     } else {
         vec![]
@@ -258,12 +258,12 @@ fn ibus_attr_list(byte_count: usize) -> MessageItem {
 
 fn ibus_text_struct(text: &str) -> MessageItem {
     // IBusText serializes as (s a{sv} s v)
-    let byte_count = text.len();
+    let char_count = text.chars().count();
     MessageItem::Struct(vec![
         MessageItem::Str("IBusText".into()),
         empty_dict(),
         MessageItem::Str(text.into()),
-        MessageItem::Variant(Box::new(ibus_attr_list(byte_count))),
+        MessageItem::Variant(Box::new(ibus_attr_list(char_count))),
     ])
 }
 
