@@ -50,33 +50,7 @@ fn current_im() -> String {
     config::Config::load().input_method
 }
 
-fn draw_line(data: &mut [u8], x0: i32, y0: i32, x1: i32, y1: i32, color: [u8; 4]) {
-    let dx = (x1 - x0).abs();
-    let dy = (y1 - y0).abs();
-    let sx = if x0 < x1 { 1 } else { -1 };
-    let sy = if y0 < y1 { 1 } else { -1 };
-    let mut err = dx - dy;
-    let mut x = x0;
-    let mut y = y0;
-    loop {
-        if x >= 0 && x < 32 && y >= 0 && y < 32 {
-            let idx = ((y * 32 + x) * 4) as usize;
-            data[idx..idx + 4].copy_from_slice(&color);
-        }
-        if x == x1 && y == y1 {
-            break;
-        }
-        let e2 = 2 * err;
-        if e2 > -dy {
-            err -= dy;
-            x += sx;
-        }
-        if e2 < dx {
-            err += dx;
-            y += sy;
-        }
-    }
-}
+
 
 fn ensure_icons() {
     // SVG content for Viet+ icons
@@ -290,97 +264,7 @@ impl Tray for VietTray {
     }
 
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
-        let is_vn = self.mode == "vn";
-        let is_tlx = self.mode == "vn" && self.im == "telex";
-        let bg_color = if is_vn && !is_tlx {
-            [255, 224, 36, 36] // Red for VNI
-        } else if is_tlx {
-            [255, 37, 99, 235] // Blue for Telex
-        } else {
-            [255, 75, 85, 99]  // Gray for English
-        };
-        let fg_color = [255, 255, 255, 255];
-
-        let mut data = vec![0u8; 32 * 32 * 4];
-        for y in 0..32 {
-            for x in 0..32 {
-                let mut inside = true;
-                if x < 7 && y < 7 {
-                    if (x - 7) * (x - 7) + (y - 7) * (y - 7) > 36 {
-                        inside = false;
-                    }
-                } else if x > 24 && y < 7 {
-                    if (x - 24) * (x - 24) + (y - 7) * (y - 7) > 36 {
-                        inside = false;
-                    }
-                } else if x < 7 && y > 24 {
-                    if (x - 7) * (x - 7) + (y - 24) * (y - 24) > 36 {
-                        inside = false;
-                    }
-                } else if x > 24 && y > 24 {
-                    if (x - 24) * (x - 24) + (y - 24) * (y - 24) > 36 {
-                        inside = false;
-                    }
-                }
-
-                let idx = ((y * 32 + x) * 4) as usize;
-                if inside {
-                    data[idx] = bg_color[0];
-                    data[idx + 1] = bg_color[1];
-                    data[idx + 2] = bg_color[2];
-                    data[idx + 3] = bg_color[3];
-                }
-            }
-        }
-
-        if is_tlx {
-            // T
-            draw_line(&mut data, 6, 10, 15, 10, fg_color);
-            draw_line(&mut data, 6, 11, 15, 11, fg_color);
-            draw_line(&mut data, 10, 10, 10, 21, fg_color);
-            draw_line(&mut data, 11, 10, 11, 21, fg_color);
-            // X
-            draw_line(&mut data, 18, 10, 26, 21, fg_color);
-            draw_line(&mut data, 19, 10, 27, 21, fg_color);
-            draw_line(&mut data, 26, 10, 18, 21, fg_color);
-            draw_line(&mut data, 27, 10, 19, 21, fg_color);
-        } else if is_vn {
-            // V
-            draw_line(&mut data, 6, 10, 11, 21, fg_color);
-            draw_line(&mut data, 7, 10, 12, 21, fg_color);
-            draw_line(&mut data, 11, 21, 15, 10, fg_color);
-            draw_line(&mut data, 12, 21, 16, 10, fg_color);
-            // N
-            draw_line(&mut data, 18, 10, 18, 21, fg_color);
-            draw_line(&mut data, 19, 10, 19, 21, fg_color);
-            draw_line(&mut data, 18, 10, 26, 21, fg_color);
-            draw_line(&mut data, 19, 10, 27, 21, fg_color);
-            draw_line(&mut data, 26, 10, 26, 21, fg_color);
-            draw_line(&mut data, 27, 10, 27, 21, fg_color);
-        } else {
-            // E
-            draw_line(&mut data, 6, 10, 6, 21, fg_color);
-            draw_line(&mut data, 7, 10, 7, 21, fg_color);
-            draw_line(&mut data, 6, 10, 15, 10, fg_color);
-            draw_line(&mut data, 6, 11, 15, 11, fg_color);
-            draw_line(&mut data, 6, 15, 13, 15, fg_color);
-            draw_line(&mut data, 6, 16, 13, 16, fg_color);
-            draw_line(&mut data, 6, 20, 15, 20, fg_color);
-            draw_line(&mut data, 6, 21, 15, 21, fg_color);
-            // N
-            draw_line(&mut data, 18, 10, 18, 21, fg_color);
-            draw_line(&mut data, 19, 10, 19, 21, fg_color);
-            draw_line(&mut data, 18, 10, 26, 21, fg_color);
-            draw_line(&mut data, 19, 10, 27, 21, fg_color);
-            draw_line(&mut data, 26, 10, 26, 21, fg_color);
-            draw_line(&mut data, 27, 10, 27, 21, fg_color);
-        }
-
-        vec![ksni::Icon {
-            width: 32,
-            height: 32,
-            data,
-        }]
+        vec![]
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
@@ -576,19 +460,26 @@ pub fn run() {
     *handle_holder.lock().unwrap() = Some(handle.clone());
     service.spawn();
 
-    // Poll for changes (shorter interval for faster icon updates)
+    // Poll for changes
     std::thread::spawn(move || {
+        let mut last_mode = String::new();
+        let mut last_im = String::new();
+        let mut last_autostart = false;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(100));
             let mode = read_status();
             let im = read_method();
             let autostart = config::is_autostart_installed();
-            let _ = handle.update(move |t| {
-                t.mode = mode;
-                t.im = im;
-                t.autostart = autostart;
-                // Force icon redraw on update by updating pixmap-related state
-            });
+            if mode != last_mode || im != last_im || autostart != last_autostart {
+                last_mode = mode.clone();
+                last_im = im.clone();
+                last_autostart = autostart;
+                let _ = handle.update(move |t| {
+                    t.mode = mode;
+                    t.im = im;
+                    t.autostart = autostart;
+                });
+            }
         }
     });
 

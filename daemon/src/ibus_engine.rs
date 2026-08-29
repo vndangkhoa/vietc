@@ -900,54 +900,30 @@ fn handle_process_key_event(
             }
         }
 
-    // Enter / Return: if composing in preedit, commit word before newline; then pass key through
+    // Enter / Return: reset engine buffer and pass key through
     if keyval == 0xFF0D || keyval == 0xFF8D {
-        if !ctx.preedit.is_empty() {
-            let word = ctx.preedit.clone();
-            ctx.preedit.clear();
-            emit_update_preedit(conn, path, "");
-            emit_commit_text(conn, path, &word);
-        }
         ctx.engine.reset();
         return false;
     }
 
-    // Escape: if composing in preedit, cancel preedit; pass Escape through
+    // Escape: reset engine buffer and pass Escape through
     if keyval == 0xFF1B {
-        if !ctx.preedit.is_empty() {
-            ctx.preedit.clear();
-            emit_update_preedit(conn, path, "");
-        }
         ctx.engine.reset();
         return false;
     }
 
     // Navigation keys (Arrows, Home, End, PageUp/Down, Delete, Tab):
-    // Commit any active preedit word and let cursor move freely in document.
+    // reset engine buffer so cursor moves freely in the document.
     let is_nav = (keyval >= 0xFF50 && keyval <= 0xFF58) || keyval == 0xFFFF || keyval == 0xFF09;
     if is_nav {
-        if !ctx.preedit.is_empty() {
-            let word = ctx.preedit.clone();
-            ctx.preedit.clear();
-            emit_update_preedit(conn, path, "");
-            emit_commit_text(conn, path, &word);
-        }
         ctx.engine.reset();
         return false;
     }
 
-    // Backspace: if composing in preedit, delete character in preedit; otherwise forward to app
+    // Backspace: update engine internal buffer and let application delete character directly.
     if keyval == 0xFF08 {
-        if !ctx.preedit.is_empty() {
-            ctx.engine.process_key('\x08');
-            let new_preedit = ctx.engine.buffer();
-            ctx.preedit = new_preedit.clone();
-            emit_update_preedit(conn, path, &new_preedit);
-            return true;
-        } else {
-            ctx.engine.reset();
-            return false;
-        }
+        ctx.engine.process_key('\x08');
+        return false;
     }
 
     let ch = match keyval_to_char(keyval) {
@@ -956,20 +932,13 @@ fn handle_process_key_event(
     };
 
     if is_flush_char(ch) {
-        let word = if !ctx.preedit.is_empty() {
-            if let Some(EngineEvent::Replace { insert, .. }) = ctx.engine.process_key(ch) {
-                insert
-            } else {
-                ctx.preedit.clone()
+        if let Some(EngineEvent::Replace { backspaces, insert }) = ctx.engine.process_key(ch) {
+            for _ in 0..backspaces {
+                emit_forward_key_event(conn, path, 0xFF08, 0, 0);
+                emit_forward_key_event(conn, path, 0xFF08, 0, 1 << 30);
             }
-        } else {
-            String::new()
-        };
-
-        ctx.preedit.clear();
-        emit_update_preedit(conn, path, "");
-        if !word.is_empty() {
-            emit_commit_text(conn, path, &format!("{}{}", word, ch));
+            emit_delete_surrounding_text(conn, path, -(backspaces as i32), backspaces as u32);
+            emit_commit_text(conn, path, &format!("{insert}{ch}"));
         } else {
             emit_commit_text(conn, path, &ch.to_string());
         }
@@ -977,12 +946,40 @@ fn handle_process_key_event(
         return true;
     }
 
-    // Composing character: update engine and display preedit in-place
-    let _ = ctx.engine.process_key(ch);
-    let new_preedit = ctx.engine.buffer();
-    ctx.preedit = new_preedit.clone();
-    emit_update_preedit(conn, path, &new_preedit);
-    true
+    match ctx.engine.process_key(ch) {
+        Some(EngineEvent::Replace { backspaces, insert }) => {
+            for _ in 0..backspaces {
+                emit_forward_key_event(conn, path, 0xFF08, 0, 0);
+                emit_forward_key_event(conn, path, 0xFF08, 0, 1 << 30);
+            }
+            emit_delete_surrounding_text(conn, path, -(backspaces as i32), backspaces as u32);
+            emit_commit_text(conn, path, &insert);
+            true
+        }
+        Some(EngineEvent::AutoRestore(s))
+        | Some(EngineEvent::UndoTones { restored: s, .. })
+        | Some(EngineEvent::Flush(s))
+        | Some(EngineEvent::Paste(s)) => {
+            emit_commit_text(conn, path, &s);
+            true
+        }
+        Some(EngineEvent::Insert(s)) => {
+            emit_commit_text(conn, path, &s);
+            true
+        }
+        None => {
+            emit_commit_text(conn, path, &ch.to_string());
+            true
+        }
+    }
+}
+
+fn emit_forward_key_event(conn: &Connection, path: &str, keyval: u32, keycode: u32, state: u32) {
+    let m = engine_signal(path, "ForwardKeyEvent")
+        .append1(MessageItem::UInt32(keyval))
+        .append1(MessageItem::UInt32(keycode))
+        .append1(MessageItem::UInt32(state));
+    let _ = conn.send(m);
 }
 
 fn emit_delete_surrounding_text(conn: &Connection, path: &str, offset: i32, nchars: u32) {
