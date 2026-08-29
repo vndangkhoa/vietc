@@ -726,8 +726,6 @@ EOF2
     if [ -n "${INSTALLING_USER:-}" ] && [ "$INSTALLING_USER" != "root" ]; then
         run_as_user gsettings set org.freedesktop.ibus.general preload-engines "['vietc']" 2>/dev/null || true
         run_as_user gsettings set org.gnome.desktop.input-sources sources "[('ibus', 'vietc')]" 2>/dev/null || true
-        # Ensure IBus is actually running and reloads engines
-        run_as_user /usr/bin/ibus-daemon -d --desktop=gnome 2>/dev/null || true
         run_as_user ibus restart 2>/dev/null || true
         run_as_user ibus engine vietc 2>/dev/null || true
     fi
