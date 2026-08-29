@@ -1,8 +1,15 @@
 input_method = "vni"
 toggle_key = "space"
+toggle_method_key = "shift"
 start_enabled = true
 grab = false
 debug = false
+# Ubuntu GNOME Wayland: auto-enable native IBus engine where
+# zwp_input_method_v2 is unavailable (Mutter). Mirrors Funput's
+# strategy: be an IBus engine. Set false to force legacy path.
+auto_ibus = true
+ibus_engine = false
+controller_mode = false
 
 [auto_restore]
 enabled = true
@@ -33,7 +40,35 @@ vietnamese_apps = [
     "firefox",
     "chromium",
     "thunderbird",
+    "gedit",
+    "gnome-text-editor",
+    "org.gnome.TextEditor",
 ]
+terminal_apps = [
+    "terminal",
+    "kitty",
+    "alacritty",
+    "foot",
+    "wezterm",
+    "konsole",
+    "gnome-terminal",
+    "gnome-terminal-server",
+    "ptyxis",
+    "kgx",
+    "st",
+    "urxvt",
+    "xterm",
+    "terminator",
+    "tilix",
+]
+bypass_apps = [
+    "steam",
+    "dota",
+    "csgo",
+    "minecraft",
+    "factorio",
+]
+terminal_input_method = "vni"
 
 [macros]
 bt = "biết"

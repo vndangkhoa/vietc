@@ -69,6 +69,14 @@ pub struct Config {
 
     #[serde(default = "default_dedup_window_ms")]
     pub deduplicate_window_ms: u64,
+
+    /// Auto-enable IBus engine on Ubuntu GNOME Wayland where zwp_input_method_v2
+    /// is unavailable (Mutter). When true (default), vietc will prefer the IBus
+    /// path on GNOME Wayland even if `ibus_engine` is not explicitly set. This
+    /// mirrors Funput's strategy on Ubuntu: be an IBus engine, don't fight it.
+    /// Set to `false` to force the legacy X11/evdev path.
+    #[serde(default = "default_true")]
+    pub auto_ibus: bool,
 }
 
 fn default_dedup_window_ms() -> u64 {
@@ -336,6 +344,7 @@ impl Default for Config {
             deduplicate_keys: false,
             deduplicate_two_back: false,
             deduplicate_window_ms: default_dedup_window_ms(),
+            auto_ibus: true,
         }
     }
 }
@@ -371,6 +380,76 @@ pub fn find_config_path() -> PathBuf {
 
     // Default to current directory
     PathBuf::from("vietc.toml")
+}
+
+/// Heuristic: should vietc prefer the native IBus engine on this session?
+/// This is the Ubuntu/GNOME Wayland fix: Mutter does NOT expose
+/// `zwp_input_method_v2`, so the Wayland IM path can never work. The
+/// compositor-approved replacement is IBus (which GNOME already runs).
+/// We mirror Funput's Linux strategy: on GNOME Wayland, be an IBus engine.
+pub fn should_use_ibus_engine(config: &Config) -> bool {
+    if config.controller_mode {
+        return false;
+    }
+    if config.ibus_engine {
+        return true;
+    }
+    if !config.auto_ibus {
+        return false;
+    }
+    // Respect explicit env override for testing / debugging.
+    if let Ok(v) = std::env::var("VIETC_FORCE_IBUS") {
+        match v.to_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => return true,
+            "0" | "false" | "no" | "off" => return false,
+            _ => {}
+        }
+    }
+    is_gnome_wayland_session() || is_ubuntu_wayland_session()
+}
+
+fn is_gnome_wayland_session() -> bool {
+    // Check WAYLAND_DISPLAY + GNOME markers (Ubuntu default)
+    let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok()
+        || std::env::var("XDG_SESSION_TYPE")
+            .map(|v| v.to_lowercase().contains("wayland"))
+            .unwrap_or(false);
+    if !is_wayland {
+        return false;
+    }
+    if std::env::var("XDG_CURRENT_DESKTOP")
+        .map(|v| v.to_lowercase().contains("gnome"))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    // Fallback: gnome-shell running implies GNOME session
+    if std::process::Command::new("pgrep")
+        .args(["-x", "gnome-shell"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    false
+}
+
+fn is_ubuntu_wayland_session() -> bool {
+    let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok()
+        || std::env::var("XDG_SESSION_TYPE")
+            .map(|v| v.to_lowercase().contains("wayland"))
+            .unwrap_or(false);
+    if !is_wayland {
+        return false;
+    }
+    if let Ok(content) = std::fs::read_to_string("/etc/os-release") {
+        let lower = content.to_lowercase();
+        if lower.contains("id=ubuntu") || lower.contains("id=debian") || lower.contains("id=linuxmint") {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]

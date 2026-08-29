@@ -139,8 +139,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Native IBus engine mode: covers every app (incl. native-Wayland GNOME
     // clients that vietc's capture paths cannot reach). Takes precedence over
     // the capture paths and must NOT stop the running ibus-daemon.
-    if daemon.config.ibus_engine {
-        log_info("[vietc] IBus engine mode enabled");
+    //
+    // On Ubuntu GNOME Wayland (Mutter), zwp_input_method_v2 is unavailable
+    // (docs/wayland-rootless.md:55), so the compositor-approved path is IBus.
+    // We auto-enable it when `auto_ibus` is true — mirroring Funput's Linux
+    // strategy: be an IBus engine instead of fighting it with evdev/X11.
+    let should_use_ibus = crate::config::should_use_ibus_engine(&daemon.config);
+    if should_use_ibus {
+        if daemon.config.ibus_engine {
+            log_info("[vietc] IBus engine mode enabled (explicit)");
+        } else {
+            log_info("[vietc] IBus engine mode auto-enabled for GNOME Wayland (Ubuntu fix)");
+            log_info("[vietc] Set auto_ibus=false in config.toml to force legacy path");
+        }
         let method = match daemon.config.input_method.as_str() {
             "telex" => vietc_engine::InputMethod::Telex,
             _ => vietc_engine::InputMethod::Vni,
@@ -270,7 +281,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ));
                 // IBus won't auto-yield here, so stop it to avoid a second IME
                 // competing with the evdev/uinput or X11 fallback paths.
-                if !daemon.config.ibus_engine {
+                // Don't stop IBus if we already tried (or will try) the native
+                // IBus engine path — that path *requires* ibus-daemon.
+                if !should_use_ibus {
                     stop_ibus();
                 }
             }

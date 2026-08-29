@@ -191,7 +191,7 @@ struct EngineContext {
 struct IBusState {
     contexts: Mutex<HashMap<String, EngineContext>>,
     counter: Mutex<u32>,
-    method: InputMethod,
+    method: Mutex<InputMethod>,
     engine_enabled: Arc<AtomicBool>,
     auto_restore: bool,
     deduplicate: bool,
@@ -495,7 +495,7 @@ pub fn run_ibus_engine(
     let state = Arc::new(IBusState {
         contexts: Mutex::new(HashMap::new()),
         counter: Mutex::new(0),
-        method,
+        method: Mutex::new(method),
         engine_enabled,
         auto_restore,
         deduplicate,
@@ -688,7 +688,8 @@ fn create_engine(state: &IBusState, conn: &Connection, _name: &str) -> String {
     let mut counter = state.counter.lock().unwrap();
     *counter += 1;
     let path = format!("/org/freedesktop/IBus/Engine/{}", *counter);
-    let mut engine = Engine::new(state.method);
+    let method = *state.method.lock().unwrap();
+    let mut engine = Engine::new(method);
     engine.set_auto_restore(state.auto_restore);
     let ctx = EngineContext {
         engine,
@@ -742,13 +743,80 @@ fn handle_process_key_event(
     _keycode: u32,
     state_flags: u32,
 ) -> bool {
+    // Ctrl+Space toggles VN/EN even when engine is currently disabled — this is
+    // the primary way to re-enable Vietnamese on Ubuntu GNOME Wayland where
+    // evdev grab is unavailable. Must be checked before the master-off return.
+    // IBus GDK mask: Shift=1, Ctrl=4, Alt=8, Super=64.
+    const CTRL: u32 = 4;
+    const ALT: u32 = 8;
+    const SUPER: u32 = 64;
+    // Space with Ctrl (Ctrl+Space) -> toggle VN/EN
+    if keyval == 32 && (state_flags & CTRL) != 0 && (state_flags & (ALT | SUPER)) == 0 {
+        let new_state = !state.engine_enabled.load(Ordering::SeqCst);
+        state.engine_enabled.store(new_state, Ordering::SeqCst);
+        // Write status file like the daemon does so vietc-tray updates instantly
+        if let Some(dir) = dirs::config_dir() {
+            let _ = std::fs::write(dir.join("vietc").join("status"), if new_state { "vn" } else { "en" });
+        }
+        // Clear composition in all contexts so no stale preedit leaks after toggle
+        let mut contexts = state.contexts.lock().unwrap();
+        for (ctx_path, ctx) in contexts.iter_mut() {
+            ctx.engine.reset();
+            if !ctx.preedit.is_empty() {
+                ctx.preedit.clear();
+                emit_update_preedit(conn, ctx_path, "");
+            }
+        }
+        // Also clear current context if it wasn't in the map yet
+        emit_update_preedit(conn, path, "");
+        crate::log::log_info(&format!("[vietc-ibus] Ctrl+Space toggle -> {}", if new_state { "VN" } else { "EN" }));
+        return true; // consume the toggle key
+    }
+    // Ctrl+Shift toggles VNI/Telex. IBus delivers Shift_L (0xFFE1) / Shift_R (0xFFE2)
+    // with Ctrl held. Also handle the case where the modifier mask already contains
+    // both Ctrl+Shift for a printable key (fallback).
+    let is_shift_key = keyval == 0xFFE1 || keyval == 0xFFE2 || keyval == 65505 || keyval == 65506;
+    if is_shift_key && (state_flags & CTRL) != 0 {
+        let mut method_guard = state.method.lock().unwrap();
+        let new_method = match *method_guard {
+            InputMethod::Telex => InputMethod::Vni,
+            InputMethod::Vni => InputMethod::Telex,
+        };
+        *method_guard = new_method;
+        // Update all existing engine instances
+        let mut contexts = state.contexts.lock().unwrap();
+        for (ctx_path, ctx) in contexts.iter_mut() {
+            ctx.engine.set_method(new_method);
+            ctx.engine.reset();
+            if !ctx.preedit.is_empty() {
+                ctx.preedit.clear();
+                emit_update_preedit(conn, ctx_path, "");
+            }
+        }
+        emit_update_preedit(conn, path, "");
+        if let Some(dir) = dirs::config_dir() {
+            let method_str = match new_method {
+                InputMethod::Telex => "telex",
+                InputMethod::Vni => "vni",
+            };
+            let _ = std::fs::write(dir.join("vietc").join("method"), method_str);
+        }
+        crate::log::log_info(&format!("[vietc-ibus] Ctrl+Shift toggle method -> {:?}", new_method));
+        return true;
+    }
+
     // Master toggle off -> let every key pass through untouched.
     if !state.engine_enabled.load(Ordering::SeqCst) {
         return false;
     }
-    // Don't compose while a modifier combo (Ctrl/Alt/Super) is held; those are
-    // app shortcuts and must reach the client unchanged.
-    if state_flags & (4 | 8 | 64) != 0 {
+    // Don't compose while Alt/Super is held, or Ctrl with a non-toggle key.
+    // Shift alone is NOT blocked (needed for uppercase and Telex `w`). The
+    // Ctrl+Space / Ctrl+Shift toggles above already returned, so they are not
+    // affected. Any other Ctrl combo (Ctrl+C, Ctrl+V, etc.) is forwarded.
+    if state_flags & (ALT | SUPER) != 0 {
+        return false;
+    }
+    if (state_flags & CTRL) != 0 && !is_shift_key {
         return false;
     }
     let mut guard = state.contexts.lock().unwrap();
@@ -814,14 +882,19 @@ fn handle_process_key_event(
     for action in actions {
         match action {
             ImAction::SetPreedit(s) => {
-                // Hide the preedit: keep the internal composition state but do
-                // NOT send UpdatePreeditText, so the app shows no composing
-                // underline. The user sees the word only once it is committed.
+                // Show preedit with underline (IBus standard) for instant visual
+                // feedback. This is the Ubuntu smooth-input fix: the user sees
+                // "ă", "tiếng" while typing, not only after space. Mirrors
+                // Funput's preedit model on Linux and Wayland's set_preedit_string.
                 ctx.preedit = s.clone();
+                emit_update_preedit(conn, path, &s);
             }
             ImAction::Commit(s) => {
-                // The composed word is finalized via CommitText. No preedit to
-                // clear since we never display it.
+                // Clear visible preedit before committing the finalized word.
+                // Prevents stale underline from lingering after commit.
+                if !ctx.preedit.is_empty() {
+                    emit_update_preedit(conn, path, "");
+                }
                 ctx.preedit.clear();
                 commit_text = Some(s);
             }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Copy, Check, Terminal, Shield, Cpu, RefreshCw, Layers, GitBranch, Hammer } from 'lucide-react';
+import { Copy, Check, Terminal, Shield, Cpu, RefreshCw, Layers, GitBranch, Hammer, Info, Sparkles } from 'lucide-react';
 import { SetupStep } from '../types';
 
 type TabId = 'mint_ubuntu' | 'arch' | 'fedora' | 'dev';
@@ -19,32 +19,55 @@ export default function SetupGuide() {
     mint_ubuntu: [
       {
         id: 1,
-        title: "Cài đặt VietC (Pre-built)",
-        description: "Chạy lệnh dưới đây để tự động tải về, cài đặt phụ thuộc và biên dịch VietC trên hệ thống của bạn.",
+        title: "Cài đặt VietC (một lệnh)",
+        description: "Script tự phát hiện distro, cài đặt dependencies, build và cài đặt vào /usr/bin/. Trên Ubuntu 24.04+ Wayland (GNOME) sẽ tự động bật chế độ IBus engine mượt mà — không cần evdev, không cần input group cho Wayland-native apps.",
         command: `git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc \\
   && cd /tmp/vietc && sudo ./install.sh`,
-        notes: "Script tự động phát hiện distro, cài đặt dependencies, build và cấu hình udev rules cho uinput."
+        notes: "Tự động: phát hiện apt/dnf/pacman, cài deps, build release, cài udev rules (uinput), thêm bạn vào nhóm input, cài vietc.service (user), cấu hình IBus preload-engines ['vietc'] trên Ubuntu."
       },
       {
         id: 2,
+        title: "Kích hoạt service (Ubuntu Wayland)",
+        description: "Trên Ubuntu 24.04+/Mint Wayland, VietC chạy như IBus engine (giống Funput) để gõ mượt trong mọi app Wayland-native (Firefox, GNOME Text Editor, Ptyxis). Service không cần DISPLAY, nhưng cần import env lần đầu.",
+        command: `systemctl --user daemon-reload
+systemctl --user enable --now vietc.service
+# kiểm tra
+journalctl --user -u vietc.service -f
+# nên thấy: [vietc] IBus engine mode auto-enabled for GNOME Wayland
+ibus engine # -> vietc`,
+        notes: "Nếu vừa cài, chạy thêm một lần: systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP IBUS_ADDRESS. Trên Mint X11/evdev: logout rồi login lại để nhóm input có hiệu lực."
+      },
+      {
+        id: 3,
         title: "Gỡ cài đặt (Uninstall)",
-        description: "Xoá hoàn toàn VietC khỏi hệ thống, bao gồm binary, service và udev rules.",
+        description: "Xoá hoàn toàn VietC khỏi hệ thống, bao gồm binary, service và udev rules. IBus sẽ được khởi động lại nếu trước đó bị thay thế.",
         command: `curl -sSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/uninstall.sh | sudo bash`,
-        notes: "Lệnh này sẽ xoá /usr/local/bin/vietc, systemd service và các file cấu hình."
+        notes: "Xoá /usr/bin/vietc-daemon, /usr/lib/systemd/user/vietc.service, /etc/udev/rules.d/99-vietc.rules và ~/.config/vietc/. Có thể giữ lại config bằng cách sao lưu trước."
       }
     ],
     arch: [
       {
         id: 1,
-        title: "Cài đặt VietC (Pre-built)",
-        description: "Tự động clone, build và cài đặt VietC trên Arch Linux.",
+        title: "Cài đặt VietC trên Arch",
+        description: "Tự động clone, build và cài đặt VietC. Trên Arch X11, mặc định dùng evdev+uinput 0ms direct. Trên Arch GNOME Wayland cũng hỗ trợ IBus nếu bạn để auto_ibus=true.",
         command: `git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc \\
   && cd /tmp/vietc && sudo ./install.sh`,
-        notes: "Script hỗ trợ pacman, tự động cài đặt base-devel và các thư viện cần thiết."
+        notes: "Hỗ trợ pacman, tự cài base-devel, libx11, libxkbcommon, wayland. Có thể ép chế độ: sudo ./install.sh --bamboo (dùng ibus-bamboo per-app) hoặc --grab (ép evdev)."
       },
       {
         id: 2,
-        title: "Gỡ cài đặt (Uninstall)",
+        title: "Tuỳ chọn: ép chế độ",
+        description: "VietC tự chọn đường dẫn tối ưu, nhưng bạn có thể ép buộc nếu cần test hoặc dùng wm đặc biệt (Sway/Hyprland hỗ trợ zwp_input_method_v2).",
+        command: `# Ép dùng IBus engine (kể cả trên X11)
+VIETC_FORCE_IBUS=1 vietc-daemon
+# Hoặc sửa ~/.config/vietc/config.toml:
+# auto_ibus = true
+# ibus_engine = true`,
+        notes: "Xem docs/wayland-rootless.md để hiểu thứ tự ưu tiên: IBus -> zwp_input_method_v2 -> evdev -> X11 keymap."
+      },
+      {
+        id: 3,
+        title: "Gỡ cài đặt",
         description: "Xoá VietC hoàn toàn khỏi hệ thống Arch.",
         command: `curl -sSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/uninstall.sh | sudo bash`,
       }
@@ -52,16 +75,24 @@ export default function SetupGuide() {
     fedora: [
       {
         id: 1,
-        title: "Cài đặt VietC (Pre-built)",
-        description: "Tự động clone, build và cài đặt VietC trên Fedora.",
+        title: "Cài đặt VietC trên Fedora",
+        description: "Tự động cài đặt VietC trên Fedora/RHEL. Hỗ trợ dnf, tự cài Development Tools và thư viện Wayland/X11.",
         command: `git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc \\
   && cd /tmp/vietc && sudo ./install.sh`,
-        notes: "Script hỗ trợ dnf, tự động cài đặt Development Tools và thư viện X11."
+        notes: "Tương tự Ubuntu nhưng dùng dnf. Trên Fedora GNOME Wayland cũng tự bật IBus engine nếu auto_ibus=true."
       },
       {
         id: 2,
-        title: "Gỡ cài đặt (Uninstall)",
-        description: "Xoá VietC hoàn toàn khỏi hệ thống Fedora.",
+        title: "Kích hoạt & kiểm tra",
+        description: "Bật service và kiểm tra xem VietC đang dùng đường dẫn nào (IBus / evdev / X11).",
+        command: `systemctl --user enable --now vietc.service
+journalctl --user -u vietc.service --since today | grep -E "Display|IBus|evdev|X11"`,
+        notes: "Kỳ vọng trên Fedora Wayland: [vietc] Wayland input method ... hoặc IBus engine mode auto-enabled. Toggle VN/EN: Ctrl+Space, đổi VNI/Telex: Ctrl+Shift."
+      },
+      {
+        id: 3,
+        title: "Gỡ cài đặt",
+        description: "Xoá VietC hoàn toàn khỏi Fedora.",
         command: `curl -sSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/uninstall.sh | sudo bash`,
       }
     ]
@@ -71,14 +102,14 @@ export default function SetupGuide() {
     {
       id: 1,
       title: "Clone mã nguồn",
-      description: "Nhánh main chứa code mới nhất.",
+      description: "Nhánh main chứa code mới nhất với fix Ubuntu IBus.",
       command: `git clone https://github.com/vndangkhoa/vietc.git
 cd vietc`,
     },
     {
       id: 2,
       title: "Cài đặt Rust (nếu chưa có)",
-      description: "Dùng rustup để cài Rust toolchain mới nhất.",
+      description: "Dùng rustup để cài Rust toolchain mới nhất (cần >=1.85).",
       command: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source "$HOME/.cargo/env"`,
       notes: "Kiểm tra với 'rustc --version' và 'cargo --version'."
@@ -86,42 +117,53 @@ source "$HOME/.cargo/env"`,
     {
       id: 3,
       title: "Cài đặt hệ thống phụ thuộc",
-      description: "Thư viện dev cho X11, evdev và dbus.",
+      description: "Thư viện dev cho X11, evdev, dbus và Wayland (cần cho cả ba đường dẫn: IBus, zwp v2, evdev).",
       command: `sudo apt install build-essential pkg-config libx11-dev libxtst-dev \\
-  libevdev-dev libdbus-1-dev libwayland-dev wl-clipboard`,
-      notes: "Trên Fedora: dnf install; trên Arch: pacman -S. Xem install.sh để biết chi tiết."
+  libevdev-dev libdbus-1-dev libwayland-dev libxkbcommon-dev wl-clipboard
+# Trên Fedora: sudo dnf install gcc pkgconfig libxkbcommon-devel libX11-devel libXtst-devel wayland-devel libevdev-devel dbus-devel
+# Trên Arch: sudo pacman -S base-devel pkgconf libxkbcommon wayland libevdev dbus`,
+      notes: "libxkbcommon-dev là bắt buộc để build Wayland IM (xkbcommon). Xem install.sh để biết danh sách chính xác theo distro."
     },
     {
       id: 4,
       title: "Biên dịch (debug)",
-      description: "Build nhanh không tối ưu, phù hợp khi phát triển.",
-      command: `cargo build`,
-      notes: "Binary ở target/debug/vietc. Chạy thử: ./target/debug/vietc"
+      description: "Build nhanh không tối ưu, phù hợp khi phát triển và test IBus/wayland_im.",
+      command: `cargo build
+# Test toàn bộ
+cargo test -p vietc-engine -p vietc-daemon`,
+      notes: "Chạy thử IBus engine trực tiếp: VIETC_FORCE_IBUS=1 cargo run --bin vietc —ดูđể ép đường IBus trên máy X11."
     },
     {
       id: 5,
       title: "Biên dịch (release - tối ưu)",
-      description: "Build với tối ưu hóa cho hiệu năng cao nhất.",
-      command: `cargo build --release`,
-      notes: "Binary ở target/release/vietc. Chạy thử: ./target/release/vietc"
+      description: "Build với tối ưu hóa cho hiệu năng cao nhất (LTO, strip).",
+      command: `cargo build --release
+# UI tray (tách workspace)
+(cd ui && cargo build --release)`,
+      notes: "Binary ở target/release/vietc (daemon) và ui/target/release/vietc-tray. Dùng cho install.sh --from-source."
     },
     {
       id: 6,
-      title: "Cấp quyền uinput",
-      description: "VietC cần quyền ghi /dev/uinput. Thêm user vào group input và uinput.",
+      title: "Cấp quyền uinput (chỉ cần cho evdev/X11)",
+      description: "Nếu bạn test đường evdev trực tiếp (grab=true), cần quyền ghi /dev/uinput. Đường IBus trên Ubuntu Wayland KHÔNG cần bước này.",
       command: `sudo gpasswd -a $USER input
 sudo groupadd -f uinput
 sudo gpasswd -a $USER uinput
 echo 'KERNEL=="uinput", GROUP="uinput", MODE="0660", OPTIONS+="static_node=uinput"' | sudo tee /etc/udev/rules.d/99-vietc.rules
 sudo udevadm control --reload-rules && sudo udevadm trigger`,
-      notes: "Đăng xuất và đăng nhập lại (hoặc reboot) để group có hiệu lực."
+      notes: "Đăng xuất và đăng nhập lại (hoặc reboot) để group có hiệu lực. Trên Ubuntu Wayland với IBus, có thể bỏ qua bước này hoàn toàn."
     },
     {
       id: 7,
       title: "Chạy thử (không cần cài đặt)",
-      description: "Chạy trực tiếp từ thư mục build, không cần systemd service.",
-      command: `./target/release/vietc`,
-      notes: "Tắt bằng Ctrl+C. Có thể chạy ở chế độ nền với '&' và dùng 'fg' để đưa lên foreground."
+      description: "Chạy trực tiếp từ thư mục build, không cần systemd service. Tự chọn đường dẫn theo session.",
+      command: `# Tự động chọn IBus trên GNOME Wayland, evdev trên X11
+./target/release/vietc
+# Ép đường IBus để test Ubuntu fix
+VIETC_FORCE_IBUS=1 ./target/release/vietc
+# Xem log chi tiết
+journalctl --user -f -u vietc.service  # nếu chạy qua service`,
+      notes: "Tắt bằng Ctrl+C. Config đọc từ ~/.config/vietc/config.toml (auto_ibus=true mặc định). Sửa config và daemon sẽ hot-reload."
     }
   ];
 
@@ -145,7 +187,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger`,
             className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono mb-4"
           >
             <Terminal size={12} className="text-emerald-400" />
-            <span>NATIVE LINUX INTEGRATION</span>
+            <span>NATIVE LINUX INTEGRATION — HYBRID ENGINE</span>
           </motion.div>
           <motion.h2
             initial={{ opacity: 0, y: 15 }}
@@ -157,8 +199,13 @@ sudo udevadm control --reload-rules && sudo udevadm trigger`,
             Hướng Dẫn Cài Đặt <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-400 italic">VietC</span>
           </motion.h2>
           <p className="mt-4 text-slate-400 text-sm sm:text-base">
-            Vì VietC là bộ gõ mức thấp (System & Application level) không phụ thuộc IBus hay Fcitx5, việc cài đặt sẽ tác động trực tiếp lên driver uinput hệ thống để đạt tốc độ gõ tuyệt đối.
+            VietC <span className="text-emerald-400 font-semibold">tự chọn đường gõ thông minh</span>: <span className="text-slate-200">IBus engine</span> mượt mà trên Ubuntu 24.04+ Wayland (học từ Funput, có preedit gạch chân, hoạt động trong mọi app Wayland-native như Firefox/ptyxis) và <span className="text-slate-200">evdev+uinput direct 0ms</span> trên Mint/Arch/X11. Một lệnh cài đặt cho mọi distro.
           </p>
+          <div className="mt-4 flex flex-wrap justify-center gap-2 text-[11px] font-mono">
+            <span className="px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">Ubuntu 24.04+ Wayland: IBus auto</span>
+            <span className="px-2 py-1 rounded bg-white/5 border border-white/10 text-slate-400">Mint / Arch: evdev direct</span>
+            <span className="px-2 py-1 rounded bg-white/5 border border-white/10 text-slate-400">Hyprland/Sway: zwp_v2</span>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -189,8 +236,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger`,
               <h3 className="text-lg font-semibold text-slate-100">Build từ mã nguồn (dành cho Developer)</h3>
             </div>
             <p className="text-slate-400 text-sm mb-8 max-w-3xl">
-              Các bước dưới đây hướng dẫn bạn tự biên dịch VietC từ source, chạy thử mà không cần cài đặt
-              system-wide. Phù hợp cho developer muốn đóng góp hoặc tùy chỉnh.
+              Tự biên dịch VietC từ source. Mặc định <code className="text-emerald-400 font-mono">auto_ibus=true</code> nên trên GNOME Wayland sẽ tự dùng IBus engine — không cần setcap/evdev để test Wayland-native.
             </p>
 
             <div className="space-y-6">
@@ -331,6 +377,21 @@ sudo udevadm control --reload-rules && sudo udevadm trigger`,
                 </div>
               </motion.div>
             ))}
+            {activeTab === 'mint_ubuntu' && (
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-950/10 p-5 flex gap-3">
+                <Info size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                <div className="text-xs leading-relaxed">
+                  <div className="font-semibold text-amber-300 mb-1 flex items-center gap-2">
+                    <Sparkles size={12} /> Tại sao Ubuntu Wayland cần IBus?
+                  </div>
+                  <p className="text-amber-200/80">
+                    Mutter (GNOME Wayland) không hỗ trợ <code className="font-mono text-amber-300">zwp_input_method_v2</code> — đường Wayland thuần không thể kích hoạt. 
+                    VietC học từ <span className="text-amber-300 font-semibold">Funput</span>: trên Ubuntu Wayland, tự chuyển thành <span className="text-white font-semibold">IBus engine</span> gốc (qua D-Bus <code className="font-mono">org.freedesktop.IBus</code>), có preedit gạch chân mượt, hoạt động trong mọi app Wayland-native (Firefox, Text Editor, Ptyxis) mà đường X11 không thấy. <br/>
+                    <span className="text-slate-400">Trên Mint X11/evdev vẫn giữ direct 0ms không IBus.</span> Đổi hành vi bằng <code className="font-mono text-white">auto_ibus=false</code> trong <code className="font-mono">~/.config/vietc/config.toml</code> hoặc <code className="font-mono">VIETC_FORCE_IBUS=1</code>.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -338,38 +399,44 @@ sudo udevadm control --reload-rules && sudo udevadm trigger`,
         <div className="mt-16 bg-gradient-to-br from-white/[0.03] to-transparent p-6 sm:p-8 rounded-3xl border border-white/10">
           <h3 className="text-lg sm:text-xl font-semibold text-slate-100 flex items-center gap-2 mb-6">
             <Layers className="text-emerald-400" size={18} />
-            <span>Mô Hình Hoạt Động Khác Biệt của VietC</span>
+            <span>Kiến trúc Hybrid thông minh của VietC</span>
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="p-5 rounded-2xl bg-[#0d0e12] border border-white/5">
-              <div className="w-8 h-8 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center font-bold text-xs mb-3">
-                OLD
+              <div className="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center font-bold text-xs mb-3">
+                IBUS
               </div>
-              <h4 className="text-sm font-semibold text-slate-200 mb-2">IBus / Fcitx5</h4>
+              <h4 className="text-sm font-semibold text-slate-200 mb-2">Ubuntu 24.04+ Wayland</h4>
               <p className="text-slate-400 text-xs leading-relaxed">
-                Hoạt động ở Application Layer qua cơ chế giao tiếp DBus phức tạp. Khi gõ trong Terminal ảo, các lệnh Backspace/Delete giả lập thường bị trễ hoặc nuốt ký tự gây lỗi nhân đôi hoặc mất chữ.
+                Chạy như <code className="text-sky-400 font-mono">IBus engine</code> gốc qua D-Bus (học từ Funput). Có preedit gạch chân, <code className="text-slate-300">Ctrl+Space</code> mượt, bao phủ 100% app Wayland-native (Firefox, ptyxis, gedit) mà evdev/X11 không thấy.
               </p>
+              <div className="mt-3 text-[10px] font-mono text-sky-400 bg-sky-950/20 px-2 py-1 rounded border border-sky-500/10">GNOME Wayland → org.freedesktop.IBus</div>
             </div>
             
             <div className="p-5 rounded-2xl bg-[#0d0e12] border border-white/5">
               <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs mb-3">
-                NEW
+                EVDEV
               </div>
-              <h4 className="text-sm font-semibold text-slate-200 mb-2">VietC (uinput + evdev)</h4>
+              <h4 className="text-sm font-semibold text-slate-200 mb-2">Mint / Arch / X11</h4>
               <p className="text-slate-400 text-xs leading-relaxed">
-                Chặn (grab) sự kiện gốc từ bàn phím vật lý thông qua driver <code className="text-emerald-400 font-mono">evdev</code>, sau đó tự tính toán bằng State Machine và xuất ra bàn phím ảo mới thông qua <code className="text-emerald-400 font-mono">uinput</code>.
+                Chặn (grab) sự kiện gốc từ bàn phím qua <code className="text-emerald-400 font-mono">evdev</code>, tính toán bằng State Machine và xuất ra bàn phím ảo <code className="text-emerald-400 font-mono">uinput</code>.
               </p>
+              <div className="mt-3 text-[10px] font-mono text-emerald-400 bg-emerald-950/20 px-2 py-1 rounded border border-emerald-500/10">0ms direct — không IBus</div>
             </div>
 
             <div className="p-5 rounded-2xl bg-emerald-950/15 border border-emerald-500/20">
               <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-300 flex items-center justify-center font-bold text-xs mb-3">
-                WIN
+                AUTO
               </div>
-              <h4 className="text-sm font-semibold text-emerald-300 mb-2">Trải Nghiệm "Như Bay"</h4>
+              <h4 className="text-sm font-semibold text-emerald-300 mb-2">Tự động chọn</h4>
               <p className="text-emerald-400/80 text-xs leading-relaxed">
-                Độ trễ phản hồi phím <span className="text-white font-semibold">Keystroke: 0ms</span> và giải phóng nút <span className="text-white font-semibold">&lt;1ms</span>. Gõ tiếng Việt gốc 100% không bị lag, không kén Terminal nào (Alacritty, Kitty, GNOME Terminal, v.v.).
+                <code className="text-white font-mono">auto_ibus=true</code> tự phát hiện GNOME Wayland và chọn đường mượt nhất. Dev có thể ép <code className="text-white font-mono">VIETC_FORCE_IBUS=1</code> hoặc <code className="text-white font-mono">ibus_engine=true</code> trong config.
               </p>
+              <div className="mt-3 text-[10px] font-mono text-emerald-300 bg-emerald-500/10 px-2 py-1 rounded border border-emerald-500/20">Thứ tự: IBus → zwp_v2 → evdev → X11</div>
             </div>
+          </div>
+          <div className="mt-6 text-center text-[11px] font-mono text-slate-500">
+            Xem <code className="text-emerald-400">docs/wayland-rootless.md</code> và <code className="text-emerald-400">daemon/src/main.rs</code> để hiểu thứ tự thử đường dẫn chi tiết.
           </div>
         </div>
 

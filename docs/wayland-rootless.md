@@ -4,37 +4,51 @@ This document records how vietc runs as a normal user (no root, no `setcap`,
 no `uinput`/udev, no `input` group) on a Mutter/GNOME Wayland session, and what
 remains to be done for full Wayland-native coverage.
 
-## TL;DR
+## TL;DR — Updated 2024-08 Ubuntu fix (Funput-style IBus)
 
-- vietc auto-detects the session: it tries `zwp_input_method_v2` first, then
-  falls back to the **rootless X11 path** (X11/XWayland) when `DISPLAY` is set.
-- On this machine (Mutter 50.1 / GNOME Shell, `WAYLAND_DISPLAY=wayland-0`,
-  `DISPLAY=:0`) it runs **rootless via X11** — no privileges at all.
-- vietc **stops IBus on start** and **restarts IBus on clean exit**, so it
-  transparently replaces the system IME.
-- Auto-start is handled by a systemd **user** service (`vietc.service`).
+- vietc auto-detects the session: **IBus engine first on GNOME Wayland** (Ubuntu
+  default), then `zwp_input_method_v2`, then X11/XWayland.
+- On **Ubuntu GNOME Wayland** (`WAYLAND_DISPLAY=wayland-0`, `DISPLAY=:0`, Mutter
+  without `zwp_input_method_v2`) vietc now runs as a **native IBus engine**
+  (`org.freedesktop.IBus` over D-Bus) — rootless, no privileges, covers **every**
+  app including native Wayland `Firefox`/`GNOME Text Editor`/`Ptyxis` (which the
+  X11 path cannot). This mirrors Funput's Linux strategy: be an IBus engine,
+  don't fight it.
+- On non-GNOME or X11 sessions it still uses the **rootless X11 path** or
+  privileged `evdev`+`uinput` as before.
+- When not using IBus, vietc **stops IBus on start** and **restarts IBus on clean exit**.
+- Auto-start is handled by a systemd **user** service (`vietc.service`) with no
+  `ConditionEnvironment=DISPLAY` so it starts on Wayland-native sessions too.
 
 ## Path selection (in `daemon/src/main.rs`)
 
- 1. Build Wayland registry; if `zwp_input_method_manager_v2` is present, use the
-    `zwp_input_method_v2` input-method path (true Wayland-native, rootless).
- 2. Otherwise, if the keyboard devices are accessible (`input` group or root —
+ 0. If `controller_mode` is set, run as Bamboo aux-controller (switches IBus
+    engines per-app, no own composition).
+ 1. If `config::should_use_ibus_engine()` is true (**auto `true` on Ubuntu/Debian
+    GNOME Wayland** where `zwp_input_method_v2` is absent — `auto_ibus=true`),
+    run the **native IBus engine** (`daemon/src/ibus_engine.rs`). This is the
+    default on Ubuntu and covers every app (X11/XWayland + native Wayland) via
+    the compositor-approved `org.freedesktop.IBus` D-Bus path. Takes precedence
+    and does NOT stop `ibus-daemon`. Toggle with `Ctrl+Space` and method with
+    `Ctrl+Shift`; preedit is now visible (smooth, like Funput).
+ 2. Otherwise, build Wayland registry; if `zwp_input_method_manager_v2` is present,
+    use the `zwp_input_method_v2` input-method path (true Wayland-native, rootless).
+ 3. Otherwise, if the keyboard devices are accessible (`input` group or root —
     i.e. `open_keyboard_devices()` succeeds), use the **evdev grab** path:
     - vietc grabs the physical keyboard (`EVIOCGRAB`), so the original
       keystrokes are suppressed and composition is clean. This covers **both
       X11 and Wayland-native apps** (the grab is at the kernel level, before the
       compositor routes input).
     - injection: `uinput` virtual keyboard (`protocol/src/x11_inject.rs`).
- 3. Otherwise (no `input` group / no root, but `DISPLAY` set), fall back to the
-    **rootless X11 keymap path** (`X11KeymapCapture` polling `XQueryKeymap` +
+ 4. Otherwise (no `input` group / no root, but `DISPLAY` set), fall back to the
+     **rootless X11 keymap path** (`X11KeymapCapture` polling `XQueryKeymap` +
     `X11Injector` via `XTEST`) — X11/XWayland windows only; Wayland-native apps
     are not covered by this fallback.
 
-Historically `DISPLAY` caused the evdev grab to be skipped entirely; that was
-changed because the evdev grab is the only path that covers Wayland-native apps
-on a compositor without `zwp_input_method_v2` (e.g. current Mutter). When the
-keyboard is accessible the grab is safe (no root needed with the `input` group)
-and gives full coverage.
+Historically `DISPLAY` caused the evdev grab to be skipped entirely; on modern
+Ubuntu the IBus path above is preferred because `evdev` grab receives no events
+when the Wayland compositor owns the seat, and X11 path cannot see native
+Wayland clients.
 
 ## IBus auto stop / restart
 
@@ -52,20 +66,28 @@ and gives full coverage.
 - SIGKILL bypasses `Drop`, so force-killing vietc will NOT restart IBus (by
   design — only a clean exit restores it).
 
-## Known blocker: Mutter lacks `zwp_input_method_v2`
+## Known blocker: Mutter lacks `zwp_input_method_v2` — Solved via IBus
 
 Enumerating globals on this session shows `zwp_text_input_manager_v3` but
 **not** `zwp_input_method_manager_v2`. Mutter does not currently implement the
-input-method-unstable-v2 protocol, so the fully Wayland-native path cannot
-activate here and vietc always uses X11.
+input-method-unstable-v2 protocol, so the pure Wayland-native `v2` path cannot
+activate and previously vietc fell back to X11-only.
 
-Consequences of the X11-only path:
+**Fix (Funput-style):** On Ubuntu GNOME this is no longer a blocker. When
+`auto_ibus=true` (default) vietc auto-selects the **IBus engine path** (point 1
+above) which uses the compositor-approved `org.freedesktop.IBus` interface that
+GNOME already runs — the same interface GNOME Shell itself uses to talk to IBus.
+IBus routes keystrokes from *every* client (X11/XWayland + native Wayland) to
+vietc, so Wayland-native `Firefox`/`GNOME Text Editor`/`Ptyxis` are now covered.
 
-- Covers **X11 / XWayland windows** (most GTK3 apps, X11 apps, java, electron,
-  etc. when run under XWayland).
-- Does **NOT** cover Wayland-native clients that bypass XWayland (GTK4/Qt apps
-  running on the native Wayland surface) — those still receive IBus/normal
-  input and won't be composed by vietc until the v2 path is usable.
+Consequences **before** the fix (X11-only fallback):
+
+- Covered **X11 / XWayland windows** only.
+- Did **NOT** cover Wayland-native clients (GTK4/Qt on native Wayland).
+- Required `ibus exit` hack which broke other languages.
+
+**After** the fix: IBus path covers all clients; no `ibus exit`, no `input`
+group, no `setcap` needed on Ubuntu.
 
 ### What is already ready for the v2 path
 
@@ -90,7 +112,7 @@ advertised by the compositor.
 
 ## Auto-start (systemd user service)
 
-File: `vietc.service` (repo root, also generated by `vietc-setup.sh` into
+File: `vietc.service` (repo root, also generated by `install.sh` into
 `/usr/lib/systemd/user/vietc.service`):
 
 ```
@@ -98,16 +120,16 @@ File: `vietc.service` (repo root, also generated by `vietc-setup.sh` into
 Description=Viet+ Vietnamese IME Daemon (rootless)
 PartOf=graphical-session.target
 After=graphical-session.target
+# No ConditionEnvironment=DISPLAY — IBus path needs no DISPLAY and must
+# start on Wayland-native sessions too.
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/vietc-daemon
 Restart=on-failure
 RestartSec=3
-# Only kill the daemon on stop; the IBus it respawns (IbusRestartGuard) must
-# survive so input works again after vietc exits.
 KillMode=process
-ConditionEnvironment=DISPLAY
+EnvironmentFile=-/etc/default/vietc
 
 [Install]
 WantedBy=graphical-session.target

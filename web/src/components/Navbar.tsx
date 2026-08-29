@@ -1,24 +1,10 @@
 import React from 'react';
-import { motion } from 'motion/react';
-import { Github, Key, Terminal, Code, Home, Sparkles } from 'lucide-react';
+import { Github, Terminal } from 'lucide-react';
 import DragonMascot from './DragonMascot';
 
-interface NavbarProps {
-  activeView: 'home' | 'keycaps';
-  setActiveView: (view: 'home' | 'keycaps') => void;
-}
-
-export default function Navbar({ activeView, setActiveView }: NavbarProps) {
+export default function Navbar() {
   const scrollToId = (id: string) => {
-    // Switch to home first if on keycaps and clicking scroll targets
-    if (activeView !== 'home') {
-      setActiveView('home');
-      setTimeout(() => {
-        document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
-      }, 150);
-    } else {
-      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
-    }
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
   };
 
   return (
@@ -28,7 +14,7 @@ export default function Navbar({ activeView, setActiveView }: NavbarProps) {
         {/* LOGO AND BRANDING */}
         <div
           className="flex items-center gap-3 cursor-pointer select-none group"
-          onClick={() => { setActiveView('home'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
         >
           <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.35)] transition-transform group-hover:scale-105 duration-300">
             <DragonMascot size={32} interactive={false} />
@@ -47,64 +33,38 @@ export default function Navbar({ activeView, setActiveView }: NavbarProps) {
         <div className="hidden md:flex items-center gap-8 text-xs font-semibold tracking-widest uppercase text-slate-400">
           
           <button
-            onClick={() => { setActiveView('home'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={`hover:text-emerald-400 cursor-pointer transition-colors pb-1 border-b-2 ${
-              activeView === 'home' ? 'text-emerald-400 border-emerald-400 font-bold' : 'border-transparent'
-            }`}
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            className="hover:text-emerald-400 cursor-pointer transition-colors pb-1 border-b-2 border-transparent text-emerald-400 border-emerald-400 font-bold"
           >
             Giới Thiệu
           </button>
 
-          {activeView === 'home' && (
-            <>
-              <button
-                onClick={() => scrollToId('features')}
-                className="hover:text-emerald-400 cursor-pointer transition-colors pb-1 border-b-2 border-transparent"
-              >
-                Tính Năng
-              </button>
+          <button
+            onClick={() => scrollToId('features')}
+            className="hover:text-emerald-400 cursor-pointer transition-colors pb-1 border-b-2 border-transparent"
+          >
+            Tính Năng
+          </button>
               
-              <button
-                onClick={() => scrollToId('demo')}
-                className="hover:text-emerald-400 cursor-pointer transition-colors pb-1 border-b-2 border-transparent flex items-center gap-1.5"
-              >
-                <Terminal size={12} className="text-emerald-500" />
-                Giả Lập Demo
-              </button>
-
-              <button
-                onClick={() => scrollToId('setup-guide')}
-                className="hover:text-emerald-400 cursor-pointer transition-colors pb-1 border-b-2 border-transparent"
-              >
-                Setup Guide
-              </button>
-            </>
-          )}
+          <button
+            onClick={() => scrollToId('demo')}
+            className="hover:text-emerald-400 cursor-pointer transition-colors pb-1 border-b-2 border-transparent flex items-center gap-1.5"
+          >
+            <Terminal size={12} className="text-emerald-500" />
+            Giả Lập Demo
+          </button>
 
           <button
-            onClick={() => setActiveView('keycaps')}
-            className={`hover:text-emerald-400 cursor-pointer transition-all flex items-center gap-1.5 px-3 py-1.5 rounded-full border ${
-              activeView === 'keycaps'
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 font-bold'
-                : 'border-white/10 text-slate-400 hover:border-emerald-500/30'
-            }`}
+            onClick={() => scrollToId('setup-guide')}
+            className="hover:text-emerald-400 cursor-pointer transition-colors pb-1 border-b-2 border-transparent"
           >
-            <Sparkles size={11} className={activeView === 'keycaps' ? 'animate-pulse text-emerald-400' : 'text-slate-500'} />
-            Artisan Keycaps
+            Setup Guide
           </button>
 
         </div>
 
         {/* EXTERNAL GITHUB BUTTON */}
         <div className="flex items-center gap-2">
-          {/* Mobile view toggle */}
-          <button
-            onClick={() => setActiveView(activeView === 'home' ? 'keycaps' : 'home')}
-            className="md:hidden text-[10px] font-bold px-3 py-1.5 rounded-md bg-white/5 border border-white/10 text-slate-300"
-          >
-            {activeView === 'home' ? 'Keycaps 3D' : 'Bộ Gõ VietC'}
-          </button>
-
           <a
             href="https://github.com/vndangkhoa/vietc"
             target="_blank"

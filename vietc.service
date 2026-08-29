@@ -2,12 +2,15 @@
 Description=Viet+ Vietnamese IME Daemon (rootless)
 PartOf=graphical-session.target
 After=graphical-session.target
-# Rootless X11 path needs the session-provided DISPLAY (XWayland).
-# GNOME/gdm import DISPLAY into the user manager automatically; if your
-# compositor does not, run once:
+# IBus engine path (Ubuntu GNOME Wayland fix) needs no DISPLAY — it talks
+# to ibus-daemon over D-Bus and covers native Wayland apps. The legacy
+# rootless X11 path (XQueryKeymap+XTEST) still needs DISPLAY/XWayland.
+# We use no ConditionEnvironment so the service starts on Wayland-native
+# sessions too. The daemon itself probes for zwp_input_method_v2, then IBus,
+# then X11, so it gracefully handles either environment.
+# If your compositor does not import DISPLAY, run once:
 #   systemctl --user import-environment DISPLAY WAYLAND_DISPLAY
 # or drop an EnvironmentFile=/etc/default/vietc with the values.
-ConditionEnvironment=DISPLAY
 
 [Service]
 Type=simple

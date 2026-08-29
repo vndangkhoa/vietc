@@ -1,13 +1,9 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Terminal, ArrowRight, Sparkles, Shield, Cpu, Zap, Download } from 'lucide-react';
+import { Terminal, ArrowRight } from 'lucide-react';
 import DragonMascot from './DragonMascot';
 
-interface HeroProps {
-  setActiveView: (view: 'home' | 'keycaps') => void;
-}
-
-export default function Hero({ setActiveView }: HeroProps) {
+export default function Hero() {
   const scrollToDemo = () => {
     document.getElementById('demo')?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -35,7 +31,7 @@ export default function Hero({ setActiveView }: HeroProps) {
             className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-semibold"
           >
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>VietC v1.2.0 - Native Linux Input Mode</span>
+            <span>VietC v0.1.9 — Ubuntu 24.04+ Wayland Ready (IBus engine)</span>
           </motion.div>
 
           <motion.h1
@@ -52,22 +48,22 @@ export default function Hero({ setActiveView }: HeroProps) {
           </motion.h1>
 
           <p className="text-slate-400 text-sm sm:text-base leading-relaxed max-w-lg">
-            VietC là giải pháp nhập liệu mã nguồn mở hiện đại cho môi trường Linux, tối ưu hóa tốc độ và sự đơn giản với linh vật chú rồng con Long-kun. Không qua IBus/Fcitx5 phức tạp, giải quyết triệt để lỗi nuốt phím và lag chữ.
+            VietC là bộ gõ tiếng Việt mã nguồn mở cho Linux — <span className="text-emerald-400 font-semibold">hybrid</span>: <span className="text-slate-200">IBus engine mượt mà trên Ubuntu 24.04+ Wayland</span> (giống Funput, preedit có gạch chân, <span className="text-slate-200">Ctrl+Space</span> mượt) và <span className="text-slate-200">evdev+uinput direct</span> trên Mint/Arch/X11 cho độ trễ 0ms. Tự động chọn đường dẫn tối ưu.
           </p>
 
           {/* Quick Metrics */}
           <div className="grid grid-cols-3 gap-3 max-w-md pt-2">
             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col items-center">
-              <span className="text-xs text-slate-500 font-mono">Keystroke</span>
-              <span className="text-sm font-bold text-emerald-400 font-mono">0ms</span>
+              <span className="text-xs text-slate-500 font-mono">Ubuntu Wayland</span>
+              <span className="text-sm font-bold text-emerald-400 font-mono">IBus preedit</span>
             </div>
             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col items-center">
-              <span className="text-xs text-slate-500 font-mono">IBus/Fcitx5</span>
-              <span className="text-sm font-bold text-emerald-300 font-mono">Bypass</span>
+              <span className="text-xs text-slate-500 font-mono">Mint / X11</span>
+              <span className="text-sm font-bold text-emerald-300 font-mono">0ms direct</span>
             </div>
             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col items-center">
-              <span className="text-xs text-slate-500 font-mono">Trễ Phím</span>
-              <span className="text-sm font-bold text-emerald-400 font-mono">Giảm 20x</span>
+              <span className="text-xs text-slate-500 font-mono">Tương thích</span>
+              <span className="text-sm font-bold text-emerald-400 font-mono">Firefox/ptyxis</span>
             </div>
           </div>
 
@@ -82,11 +78,11 @@ export default function Hero({ setActiveView }: HeroProps) {
             </button>
 
             <button
-              onClick={() => setActiveView('keycaps')}
+              onClick={scrollToDemo}
               className="px-6 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white font-sans font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
-              <Sparkles size={14} className="text-emerald-400 animate-pulse" />
-              Artisan Keycaps 3D
+              <Terminal size={14} className="text-emerald-400" />
+              Thử Giả Lập Demo
             </button>
           </div>
 
