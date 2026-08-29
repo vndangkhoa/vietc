@@ -444,6 +444,7 @@ fi
 # Kill old processes (use -x to match exact binary names without killing install.sh)
 pkill -9 -x vietc-tray 2>/dev/null || true
 pkill -9 -x vietc-daemon 2>/dev/null || true
+pkill -9 -x vietc 2>/dev/null || true
 pkill -9 -x vietcctl 2>/dev/null || true
 pkill -9 -x vietc-uinputd 2>/dev/null || true
 pkill -9 -x vietc-cli 2>/dev/null || true

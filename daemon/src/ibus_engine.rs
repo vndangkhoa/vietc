@@ -756,27 +756,35 @@ fn create_engine(state: &IBusState, conn: &Connection, _name: &str) -> String {
     path
 }
 
+fn flush_preedit(ctx: &mut EngineContext, conn: &Connection, path: &str) {
+    if !ctx.preedit.is_empty() {
+        let word = ctx.preedit.clone();
+        ctx.preedit.clear();
+        emit_update_preedit(conn, path, "");
+        emit_commit_text(conn, path, &word);
+    }
+    ctx.engine.reset();
+}
+
 fn set_focus(state: &IBusState, path: &str, focused: bool, conn: &Connection) {
     if let Some(ctx) = state.contexts.lock().unwrap().get_mut(path) {
         ctx.focus_id = focused;
-        if !focused && !ctx.preedit.is_empty() {
-            let word = ctx.preedit.clone();
-            ctx.preedit.clear();
-            emit_update_preedit(conn, path, "");
-            emit_commit_text(conn, path, &word);
+        if !focused {
+            flush_preedit(ctx, conn, path);
+        } else {
+            ctx.engine.reset();
         }
-        ctx.engine.reset();
     }
 }
 
 fn set_enabled(state: &IBusState, path: &str, enabled: bool, conn: &Connection) {
     if let Some(ctx) = state.contexts.lock().unwrap().get_mut(path) {
         ctx.enabled = enabled;
-        if !ctx.preedit.is_empty() {
-            ctx.preedit.clear();
-            emit_update_preedit(conn, path, "");
+        if !enabled {
+            flush_preedit(ctx, conn, path);
+        } else {
+            ctx.engine.reset();
         }
-        ctx.engine.reset();
     }
 }
 
@@ -870,14 +878,21 @@ fn handle_process_key_event(
     if !state.engine_enabled.load(Ordering::SeqCst) {
         return false;
     }
-    // Don't compose while Alt/Super is held, or Ctrl with a non-toggle key.
-    // Shift alone is NOT blocked (needed for uppercase and Telex `w`).
-    if state_flags & (ALT | SUPER) != 0 {
+
+    // Don't compose while Alt/Super is held, or Ctrl with a non-toggle key (e.g. Ctrl+A, Ctrl+C).
+    // Auto-commit any in-progress preedit text before passing the shortcut through so
+    // document operations like "Select All" include the word just typed.
+    let is_shortcut = (state_flags & (ALT | SUPER) != 0)
+        || ((state_flags & CTRL) != 0 && !is_shift_key && !is_ctrl_key);
+
+    if is_shortcut {
+        let mut guard = state.contexts.lock().unwrap();
+        if let Some(ctx) = guard.get_mut(path) {
+            flush_preedit(ctx, conn, path);
+        }
         return false;
     }
-    if (state_flags & CTRL) != 0 && !is_shift_key && !is_ctrl_key {
-        return false;
-    }
+
     let mut guard = state.contexts.lock().unwrap();
     let ctx = match guard.get_mut(path) {
         Some(c) => c,
@@ -903,13 +918,7 @@ fn handle_process_key_event(
 
     // Enter / Return: if composing in preedit, commit word before newline; then pass key through
     if keyval == 0xFF0D || keyval == 0xFF8D {
-        if !ctx.preedit.is_empty() {
-            let word = ctx.preedit.clone();
-            ctx.preedit.clear();
-            emit_update_preedit(conn, path, "");
-            emit_commit_text(conn, path, &word);
-        }
-        ctx.engine.reset();
+        flush_preedit(ctx, conn, path);
         return false;
     }
 
@@ -927,13 +936,7 @@ fn handle_process_key_event(
     // Commit any active preedit word and let cursor move freely in document.
     let is_nav = (keyval >= 0xFF50 && keyval <= 0xFF58) || keyval == 0xFFFF || keyval == 0xFF09;
     if is_nav {
-        if !ctx.preedit.is_empty() {
-            let word = ctx.preedit.clone();
-            ctx.preedit.clear();
-            emit_update_preedit(conn, path, "");
-            emit_commit_text(conn, path, &word);
-        }
-        ctx.engine.reset();
+        flush_preedit(ctx, conn, path);
         return false;
     }
 
@@ -953,7 +956,11 @@ fn handle_process_key_event(
 
     let ch = match keyval_to_char(keyval) {
         Some(c) => c,
-        None => return false,
+        None => {
+            // Function keys (F1-F12), Insert, etc.: commit active preedit before passing through
+            flush_preedit(ctx, conn, path);
+            return false;
+        }
     };
 
     if is_flush_char(ch) {
@@ -1143,4 +1150,50 @@ mod tests {
         let press_event_state: u32 = 0;
         assert_eq!(press_event_state & IBUS_RELEASE_MASK, 0);
     }
+
+    #[test]
+    fn shortcut_modifier_detection() {
+        const SHIFT: u32 = 1;
+        const CTRL: u32 = 4;
+        const ALT: u32 = 8;
+        const SUPER: u32 = 64;
+
+        let is_shift_key = false;
+        let is_ctrl_key = false;
+
+        // Ctrl+A is a shortcut
+        let ctrl_a_flags = CTRL;
+        let is_shortcut = (ctrl_a_flags & (ALT | SUPER) != 0)
+            || ((ctrl_a_flags & CTRL) != 0 && !is_shift_key && !is_ctrl_key);
+        assert!(is_shortcut);
+
+        // Alt+Tab is a shortcut
+        let alt_tab_flags = ALT;
+        let is_shortcut = (alt_tab_flags & (ALT | SUPER) != 0)
+            || ((alt_tab_flags & CTRL) != 0 && !is_shift_key && !is_ctrl_key);
+        assert!(is_shortcut);
+
+        // Plain Shift+A (capital letter) is NOT a shortcut
+        let shift_a_flags = SHIFT;
+        let is_shortcut = (shift_a_flags & (ALT | SUPER) != 0)
+            || ((shift_a_flags & CTRL) != 0 && !is_shift_key && !is_ctrl_key);
+        assert!(!is_shortcut);
+    }
+
+    #[test]
+    fn flush_chars_include_symbols() {
+        assert!(is_flush_char(' '));
+        assert!(is_flush_char('\t'));
+        assert!(is_flush_char('\n'));
+        assert!(is_flush_char('.'));
+        assert!(is_flush_char(','));
+        assert!(is_flush_char('('));
+        assert!(is_flush_char(')'));
+        assert!(is_flush_char('['));
+        assert!(is_flush_char(']'));
+        assert!(is_flush_char('/'));
+        assert!(is_flush_char('-'));
+        assert!(is_flush_char('_'));
+    }
 }
+

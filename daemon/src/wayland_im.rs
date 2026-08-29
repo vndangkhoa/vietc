@@ -220,10 +220,12 @@ impl ImState {
             }
         }
 
-        // Ctrl/Alt combos are shortcuts — forward untouched, don't compose.
+        // Ctrl/Alt combos are shortcuts — commit any in-progress preedit and forward untouched.
         let ctrl = xkb.mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_EFFECTIVE);
         let alt = xkb.mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE);
         if ctrl || alt {
+            self.commit_preedit();
+            self.engine.reset();
             self.forward_press(time, key);
             return;
         }
@@ -235,6 +237,9 @@ impl ImState {
         }
 
         let Some(ch) = char::from_u32(codepoint) else {
+            self.commit_preedit();
+            self.engine.reset();
+            self.forward_press(time, key);
             return;
         };
 
