@@ -26,9 +26,9 @@ use dbus::ffidisp::{Connection, MsgHandler, MsgHandlerResult, MsgHandlerType};
 use dbus::strings::{BusName, ErrorName, Interface, Member};
 use dbus::{Message, MessageType, Path, Signature};
 
-use vietc_engine::{Engine, InputMethod};
+use vietc_engine::{Engine, EngineEvent, InputMethod};
 
-use crate::im_plan::{plan_char, ImAction};
+use crate::im_plan::is_flush_char;
 
 const IBUS_BUS_NAME: &str = "org.freedesktop.IBus";
 const IBUS_BUS_PATH: &str = "/org/freedesktop/IBus";
@@ -197,6 +197,7 @@ struct IBusState {
     deduplicate: bool,
     dedup_two_back: bool,
     dedup_window_ms: u64,
+    aux_popup: Mutex<Option<(String, std::time::Instant)>>,
 }
 
 /// Maps an IBus keyval to a Unicode char we can feed the vietc engine.
@@ -226,22 +227,43 @@ fn empty_dict() -> MessageItem {
     MessageItem::Dict(MessageItemDict::new(vec![], sig("s"), sig("v")).unwrap())
 }
 
-fn ibus_attr_list() -> MessageItem {
+fn ibus_attr_no_underline(start: u32, end: u32) -> MessageItem {
+    // IBusAttribute serializes as (s a{sv} uuuu)
+    MessageItem::Struct(vec![
+        MessageItem::Str("IBusAttribute".into()),
+        empty_dict(),
+        MessageItem::UInt32(1), // IBUS_ATTR_TYPE_UNDERLINE
+        MessageItem::UInt32(0), // IBUS_ATTR_UNDERLINE_NONE
+        MessageItem::UInt32(start),
+        MessageItem::UInt32(end),
+    ])
+}
+
+fn ibus_attr_list(char_count: usize) -> MessageItem {
     // IBusAttrList serializes as (s a{sv} av)
+    let attrs = if char_count > 0 {
+        vec![MessageItem::Variant(Box::new(ibus_attr_no_underline(
+            0,
+            char_count as u32,
+        )))]
+    } else {
+        vec![]
+    };
     MessageItem::Struct(vec![
         MessageItem::Str("IBusAttrList".into()),
         empty_dict(),
-        MessageItem::Array(MessageItemArray::new(vec![], sig("av")).unwrap()),
+        MessageItem::Array(MessageItemArray::new(attrs, sig("av")).unwrap()),
     ])
 }
 
 fn ibus_text_struct(text: &str) -> MessageItem {
     // IBusText serializes as (s a{sv} s v)
+    let char_count = text.chars().count();
     MessageItem::Struct(vec![
         MessageItem::Str("IBusText".into()),
         empty_dict(),
         MessageItem::Str(text.into()),
-        MessageItem::Variant(Box::new(ibus_attr_list())),
+        MessageItem::Variant(Box::new(ibus_attr_list(char_count))),
     ])
 }
 
@@ -501,6 +523,7 @@ pub fn run_ibus_engine(
         deduplicate,
         dedup_two_back,
         dedup_window_ms,
+        aux_popup: Mutex::new(None),
     });
 
     // The Factory/Engine handler MUST be installed before we register, because
@@ -530,13 +553,34 @@ pub fn run_ibus_engine(
     crate::log::log_info("[vietc-ibus] engine running; dispatching D-Bus messages");
     let mut setglobal_tries = 0u32;
     loop {
-        // iter() blocks up to the timeout and dispatches to the registered
-        // MsgHandler; we ignore the yielded items (handled inside the handler).
-        for _ in conn.iter(200) {}
+        if !conn.is_connected() {
+            crate::log::log_info("[vietc-ibus] disconnected from ibus-daemon");
+            break Ok(());
+        }
+        for _ in conn.iter(50) {}
+
+        // Auto-hide auxiliary text badge after timeout (500ms)
+        let to_hide = {
+            let mut guard = state.aux_popup.lock().unwrap();
+            if let Some((ref p, expiry)) = *guard {
+                if std::time::Instant::now() >= expiry {
+                    let path = p.clone();
+                    *guard = None;
+                    Some(path)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+        if let Some(path) = to_hide {
+            emit_update_auxiliary_text(&conn, &path, "", false);
+        }
+
         setglobal_tries = setglobal_tries.wrapping_add(1);
-        // Keep re-asserting the global engine (ibus may reset it when the last
-        // input context disconnects). Every ~5s indefinitely.
-        if setglobal_tries % 25 == 0 {
+        // Keep re-asserting the global engine every ~5s indefinitely.
+        if setglobal_tries % 100 == 0 {
             send_set_global(&conn);
         }
     }
@@ -743,46 +787,37 @@ fn handle_process_key_event(
     _keycode: u32,
     state_flags: u32,
 ) -> bool {
-    // Ctrl+Space toggles VN/EN even when engine is currently disabled — this is
-    // the primary way to re-enable Vietnamese on Ubuntu GNOME Wayland where
-    // evdev grab is unavailable. Must be checked before the master-off return.
+    // Ignore key release events (bit 30 in IBus modifier mask: 1 << 30 = 0x40000000).
+    // IBus invokes ProcessKeyEvent for both key-press and key-release.
+    // Without this check, every key is processed twice (once on press, once on release).
+    const IBUS_RELEASE_MASK: u32 = 1 << 30;
+    if (state_flags & IBUS_RELEASE_MASK) != 0 {
+        return false;
+    }
+
     // IBus GDK mask: Shift=1, Ctrl=4, Alt=8, Super=64.
     const CTRL: u32 = 4;
     const ALT: u32 = 8;
     const SUPER: u32 = 64;
-    // Space with Ctrl (Ctrl+Space) -> toggle VN/EN
-    if keyval == 32 && (state_flags & CTRL) != 0 && (state_flags & (ALT | SUPER)) == 0 {
-        let new_state = !state.engine_enabled.load(Ordering::SeqCst);
-        state.engine_enabled.store(new_state, Ordering::SeqCst);
-        // Write status file like the daemon does so vietc-tray updates instantly
-        if let Some(dir) = dirs::config_dir() {
-            let _ = std::fs::write(dir.join("vietc").join("status"), if new_state { "vn" } else { "en" });
-        }
-        // Clear composition in all contexts so no stale preedit leaks after toggle
-        let mut contexts = state.contexts.lock().unwrap();
-        for (ctx_path, ctx) in contexts.iter_mut() {
-            ctx.engine.reset();
-            if !ctx.preedit.is_empty() {
-                ctx.preedit.clear();
-                emit_update_preedit(conn, ctx_path, "");
-            }
-        }
-        // Also clear current context if it wasn't in the map yet
-        emit_update_preedit(conn, path, "");
-        crate::log::log_info(&format!("[vietc-ibus] Ctrl+Space toggle -> {}", if new_state { "VN" } else { "EN" }));
-        return true; // consume the toggle key
-    }
-    // Ctrl+Shift toggles VNI/Telex. IBus delivers Shift_L (0xFFE1) / Shift_R (0xFFE2)
-    // with Ctrl held. Also handle the case where the modifier mask already contains
-    // both Ctrl+Shift for a printable key (fallback).
+
+    // Ctrl+Shift cycles ENG -> VNI -> TELEX -> ENG.
+    // IBus delivers Shift_L (0xFFE1) / Shift_R (0xFFE2) with Ctrl held.
     let is_shift_key = keyval == 0xFFE1 || keyval == 0xFFE2 || keyval == 65505 || keyval == 65506;
     if is_shift_key && (state_flags & CTRL) != 0 {
+        let is_enabled = state.engine_enabled.load(Ordering::SeqCst);
         let mut method_guard = state.method.lock().unwrap();
-        let new_method = match *method_guard {
-            InputMethod::Telex => InputMethod::Vni,
-            InputMethod::Vni => InputMethod::Telex,
+
+        let (new_enabled, new_method, label) = if !is_enabled {
+            (true, InputMethod::Vni, "VNI")
+        } else if *method_guard == InputMethod::Vni {
+            (true, InputMethod::Telex, "TELEX")
+        } else {
+            (false, *method_guard, "ENG")
         };
+
+        state.engine_enabled.store(new_enabled, Ordering::SeqCst);
         *method_guard = new_method;
+
         // Update all existing engine instances
         let mut contexts = state.contexts.lock().unwrap();
         for (ctx_path, ctx) in contexts.iter_mut() {
@@ -794,14 +829,22 @@ fn handle_process_key_event(
             }
         }
         emit_update_preedit(conn, path, "");
+
         if let Some(dir) = dirs::config_dir() {
-            let method_str = match new_method {
-                InputMethod::Telex => "telex",
-                InputMethod::Vni => "vni",
-            };
-            let _ = std::fs::write(dir.join("vietc").join("method"), method_str);
+            let _ = std::fs::write(
+                dir.join("vietc").join("status"),
+                if new_enabled { "vn" } else { "en" },
+            );
+            if new_enabled {
+                let method_str = match new_method {
+                    InputMethod::Telex => "telex",
+                    InputMethod::Vni => "vni",
+                };
+                let _ = std::fs::write(dir.join("vietc").join("method"), method_str);
+            }
         }
-        crate::log::log_info(&format!("[vietc-ibus] Ctrl+Shift toggle method -> {:?}", new_method));
+
+        crate::log::log_info(&format!("[vietc-ibus] Ctrl+Shift cycle mode -> {}", label));
         return true;
     }
 
@@ -846,23 +889,30 @@ fn handle_process_key_event(
             }
         }
 
-    // Enter / Return: flush the composed word, then let the key reach the app so
-    // it produces a newline. Otherwise the preedit would be discarded on Enter.
+    // Enter / Return: reset engine buffer and let key produce a newline.
     if keyval == 0xFF0D || keyval == 0xFF8D {
-        if !ctx.preedit.is_empty() {
-            emit_update_preedit(conn, path, "");
-            emit_commit_text(conn, path, &ctx.preedit);
-            ctx.preedit.clear();
-        }
+        ctx.engine.reset();
         return false;
     }
 
-    // Backspace: advance the engine, update the preedit, and consume the key.
+    // Escape: reset engine buffer and pass Escape through
+    if keyval == 0xFF1B {
+        ctx.engine.reset();
+        return false;
+    }
+
+    // Navigation keys (Arrows, Home, End, PageUp/Down, Delete, Tab):
+    // reset engine buffer so cursor moves freely in the document.
+    let is_nav = (keyval >= 0xFF50 && keyval <= 0xFF58) || keyval == 0xFFFF || keyval == 0xFF09;
+    if is_nav {
+        ctx.engine.reset();
+        return false;
+    }
+
+    // Backspace: update engine internal buffer and let application delete character directly.
     if keyval == 0xFF08 {
         ctx.engine.process_key('\x08');
-        ctx.preedit = ctx.engine.buffer().to_string();
-        emit_update_preedit(conn, path, &ctx.preedit);
-        return true;
+        return false;
     }
 
     let ch = match keyval_to_char(keyval) {
@@ -870,66 +920,49 @@ fn handle_process_key_event(
         None => return false,
     };
 
-    // Drive the engine with the preedit model shared by all front-ends. Every
-    // keystroke is shown as a preedit (consumed); only flush separators and
-    // already-finalized text are forwarded to the app.
-    let is_space = ch == ' ';
-    let preedit = ctx.preedit.clone();
-    let actions = plan_char(true, &mut ctx.engine, &preedit, ch, keyval);
-    let mut commit_text: Option<String> = None;
-    let mut forward = false;
-    let mut forward_is_space = false;
-    for action in actions {
-        match action {
-            ImAction::SetPreedit(s) => {
-                // Show preedit with underline (IBus standard) for instant visual
-                // feedback. This is the Ubuntu smooth-input fix: the user sees
-                // "ă", "tiếng" while typing, not only after space. Mirrors
-                // Funput's preedit model on Linux and Wayland's set_preedit_string.
-                ctx.preedit = s.clone();
-                emit_update_preedit(conn, path, &s);
-            }
-            ImAction::Commit(s) => {
-                // Clear visible preedit before committing the finalized word.
-                // Prevents stale underline from lingering after commit.
-                if !ctx.preedit.is_empty() {
-                    emit_update_preedit(conn, path, "");
-                }
-                ctx.preedit.clear();
-                commit_text = Some(s);
-            }
-            ImAction::ForwardKey(_) => {
-                forward = true;
-                if is_space {
-                    forward_is_space = true;
-                }
-            }
+    // Direct Commit model: text is committed directly to the focused client as real
+    // characters without preedit underline. When tone/mark transformations occur,
+    // DeleteSurroundingText replaces previous characters seamlessly.
+    if is_flush_char(ch) {
+        if let Some(EngineEvent::Replace { backspaces, insert }) = ctx.engine.process_key(ch) {
+            emit_delete_surrounding_text(conn, path, -(backspaces as i32), backspaces as u32);
+            emit_commit_text(conn, path, &format!("{insert}{ch}"));
+        } else {
+            emit_commit_text(conn, path, &ch.to_string());
+        }
+        ctx.engine.reset();
+        return true;
+    }
+
+    match ctx.engine.process_key(ch) {
+        Some(EngineEvent::Replace { backspaces, insert }) => {
+            emit_delete_surrounding_text(conn, path, -(backspaces as i32), backspaces as u32);
+            emit_commit_text(conn, path, &insert);
+            true
+        }
+        Some(EngineEvent::AutoRestore(s))
+        | Some(EngineEvent::UndoTones { restored: s, .. })
+        | Some(EngineEvent::Flush(s))
+        | Some(EngineEvent::Paste(s)) => {
+            emit_commit_text(conn, path, &s);
+            true
+        }
+        Some(EngineEvent::Insert(s)) => {
+            emit_commit_text(conn, path, &s);
+            true
+        }
+        None => {
+            emit_commit_text(conn, path, &ch.to_string());
+            true
         }
     }
-    if let Some(txt) = commit_text {
-        // A flush separator (space) that ends a word: fold the space into the
-        // committed text and CONSUME the key. Forwarding a raw space to the
-        // client makes Firefox and other web inputs auto-repeat the space into a
-        // long run (native GTK apps like gedit tolerate it, web inputs don't),
-        // so we never forward a space — we commit "word " directly.
-        let payload = if forward_is_space {
-            format!("{txt} ")
-        } else {
-            txt
-        };
-        emit_commit_text(conn, path, &payload);
-        // Consume unless a non-space key also needed forwarding.
-        !(forward && !forward_is_space)
-    } else if forward_is_space {
-        // Standalone space with no pending word: commit it as text, don't
-        // forward the raw key (avoids the Firefox space auto-repeat).
-        emit_commit_text(conn, path, " ");
-        true
-    } else if forward {
-        false
-    } else {
-        true
-    }
+}
+
+fn emit_delete_surrounding_text(conn: &Connection, path: &str, offset: i32, nchars: u32) {
+    let m = engine_signal(path, "DeleteSurroundingText")
+        .append1(MessageItem::Int32(offset))
+        .append1(MessageItem::UInt32(nchars));
+    let _ = conn.send(m);
 }
 
 fn engine_signal(path: &str, member: &str) -> Message {
@@ -954,6 +987,18 @@ fn emit_update_preedit(conn: &Connection, path: &str, text: &str) {
     let _ = conn.send(m);
 }
 
+fn emit_update_auxiliary_text(conn: &Connection, path: &str, text: &str, visible: bool) {
+    let m = engine_signal(path, "UpdateAuxiliaryText")
+        .append1(ibus_text_variant(text))
+        .append1(visible);
+    let _ = conn.send(m);
+    if visible {
+        let _ = conn.send(engine_signal(path, "ShowAuxiliaryText"));
+    } else {
+        let _ = conn.send(engine_signal(path, "HideAuxiliaryText"));
+    }
+}
+
 fn all_properties(focused: bool) -> MessageItem {
     let mut entries: Vec<(MessageItem, MessageItem)> = vec![
         (
@@ -973,6 +1018,25 @@ fn all_properties(focused: bool) -> MessageItem {
         ),
     ];
     MessageItem::Dict(MessageItemDict::new(entries, sig("s"), sig("v")).unwrap())
+}
+
+fn show_osd(summary: &str, body: &str) {
+    let summary = summary.to_string();
+    let body = body.to_string();
+    std::thread::spawn(move || {
+        let _ = std::process::Command::new("notify-send")
+            .args([
+                "-t",
+                "1200",
+                "-h",
+                "string:x-canonical-private-synchronous:vietc-osd",
+                "-a",
+                "Viet+",
+                &summary,
+                &body,
+            ])
+            .output();
+    });
 }
 
 #[cfg(test)]
@@ -1033,5 +1097,14 @@ mod tests {
         assert_eq!(keyval_to_char(0x34), Some('4'));
         assert_eq!(keyval_to_char(0xFF08), Some('\x08'));
         assert_eq!(keyval_to_char(0xFF0D), None); // Return
+    }
+
+    #[test]
+    fn release_mask_constants() {
+        const IBUS_RELEASE_MASK: u32 = 1 << 30;
+        let release_event_state: u32 = IBUS_RELEASE_MASK;
+        assert_eq!(release_event_state & IBUS_RELEASE_MASK, IBUS_RELEASE_MASK);
+        let press_event_state: u32 = 0;
+        assert_eq!(press_event_state & IBUS_RELEASE_MASK, 0);
     }
 }

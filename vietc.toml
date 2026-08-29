@@ -1,4 +1,4 @@
-input_method = "vni"
+input_method = "telex"
 toggle_key = "space"
 toggle_method_key = "shift"
 start_enabled = true

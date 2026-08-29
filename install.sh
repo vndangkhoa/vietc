@@ -497,17 +497,29 @@ echo 'KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="input", MODE="0660"' > /etc/ud
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger 2>/dev/null || true
 
-# Icons
-if [ "$FROM_SOURCE" = true ]; then
-    mkdir -p /usr/share/icons/hicolor/256x256/apps
-    cp packaging/icons/*.svg /usr/share/icons/hicolor/256x256/apps/ 2>/dev/null || true
-else
-    if [ -d "$PKG_DIR/icons" ]; then
-        mkdir -p /usr/share/icons/hicolor/256x256/apps
-        cp "$PKG_DIR/icons"/*.svg /usr/share/icons/hicolor/256x256/apps/ 2>/dev/null || true
-    elif [ -d "$INSTALL_DIR/usr/share/icons" ]; then
-        cp -r "$INSTALL_DIR/usr/share/icons/"* /usr/share/icons/ 2>/dev/null || true
+# Icons (main app icon + tray status icons across multiple sizes)
+for size in scalable 256x256 128x128 64x64 48x48 32x32; do
+    mkdir -p "/usr/share/icons/hicolor/$size/apps"
+    if [ "$FROM_SOURCE" = true ]; then
+        cp packaging/icons/*.svg "/usr/share/icons/hicolor/$size/apps/" 2>/dev/null || true
+    else
+        if [ -d "$PKG_DIR/icons" ]; then
+            cp "$PKG_DIR/icons"/*.svg "/usr/share/icons/hicolor/$size/apps/" 2>/dev/null || true
+        elif [ -d "$INSTALL_DIR/usr/share/icons" ]; then
+            cp -r "$INSTALL_DIR/usr/share/icons/"* /usr/share/icons/ 2>/dev/null || true
+        fi
     fi
+done
+gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+
+if [ -n "${USER_HOME:-}" ] && [ -d "$USER_HOME" ]; then
+    mkdir -p "$USER_HOME/.local/share/icons"
+    cp packaging/icons/*.svg "$USER_HOME/.local/share/icons/" 2>/dev/null || true
+    for size in scalable 256x256 128x128 64x64 48x48 32x32; do
+        mkdir -p "$USER_HOME/.local/share/icons/hicolor/$size/apps"
+        cp packaging/icons/*.svg "$USER_HOME/.local/share/icons/hicolor/$size/apps/" 2>/dev/null || true
+    done
+    chown -R "$INSTALLING_USER" "$USER_HOME/.local/share/icons" 2>/dev/null || true
 fi
 
 # Desktop file
@@ -520,6 +532,20 @@ else
         cp "$PKG_DIR/desktop/vietc.desktop" /usr/share/applications/
     elif [ -f "$INSTALL_DIR/usr/share/applications/vietc.desktop" ]; then
         cp "$INSTALL_DIR/usr/share/applications/vietc.desktop" /usr/share/applications/
+    fi
+fi
+
+# IBus component XML (allows ibus-daemon and GNOME Shell to register vietc as an input source)
+mkdir -p /usr/share/ibus/component
+if [ "$FROM_SOURCE" = true ]; then
+    [ -f packaging/ibus/vietc.xml ] && cp packaging/ibus/vietc.xml /usr/share/ibus/component/vietc.xml || true
+else
+    if [ -f "$PKG_DIR/ibus/vietc.xml" ]; then
+        cp "$PKG_DIR/ibus/vietc.xml" /usr/share/ibus/component/vietc.xml
+    elif [ -f "$INSTALL_DIR/usr/share/ibus/component/vietc.xml" ]; then
+        cp "$INSTALL_DIR/usr/share/ibus/component/vietc.xml" /usr/share/ibus/component/vietc.xml
+    elif [ -f packaging/ibus/vietc.xml ]; then
+        cp packaging/ibus/vietc.xml /usr/share/ibus/component/vietc.xml
     fi
 fi
 
@@ -694,11 +720,14 @@ EOF2
                 systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP IBUS_ADDRESS 2>/dev/null || true
         fi
     fi
-    # Pre-seed IBus preload-engines so vietc is selectable immediately (Ubuntu ships IBus)
+    # Pre-seed IBus preload-engines and input sources so vietc is active immediately
     if [ -n "${INSTALLING_USER:-}" ] && [ "$INSTALLING_USER" != "root" ]; then
         run_as_user gsettings set org.freedesktop.ibus.general preload-engines "['vietc']" 2>/dev/null || true
-        # Ensure IBus is actually running (GNOME autostarts it, but minimal installs may not)
+        run_as_user gsettings set org.gnome.desktop.input-sources sources "[('ibus', 'vietc')]" 2>/dev/null || true
+        # Ensure IBus is actually running and reloads engines
         run_as_user /usr/bin/ibus-daemon -d --desktop=gnome 2>/dev/null || true
+        run_as_user ibus restart 2>/dev/null || true
+        run_as_user ibus engine vietc 2>/dev/null || true
     fi
 fi
 
@@ -711,7 +740,7 @@ if [ "$MODE" = "bamboo" ]; then
     if [ -n "$USER_HOME" ]; then
         mkdir -p "$USER_HOME/.config/vietc"
         cat > "$USER_HOME/.config/vietc/config.toml" << 'EOF'
-input_method = "vni"
+input_method = "telex"
 toggle_key = "space"
 start_enabled = true
 grab = false
@@ -837,18 +866,26 @@ t success_title
 echo ""
 
 # Tray icon + universal mode shortcut
-if command -v vietc-tray &>/dev/null; then
+if command -v vietc-tray &>/dev/null || [ -f /usr/bin/vietc-tray ]; then
     mkdir -p /etc/xdg/autostart
     cat > /etc/xdg/autostart/vietc-tray.desktop << 'EOF'
 [Desktop Entry]
 Type=Application
-Name=Viet+ Tray
-Comment=Viet+ input method status indicator
+Name=Viet+
+Comment=Vietnamese Input Method for Linux
 Exec=/usr/bin/vietc-tray
+Icon=vietc
+Terminal=false
+Categories=Utility;TextTools;
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=2
-NoDisplay=false
+X-GNOME-Autostart-Delay=1
 EOF
+
+    if [ -n "${USER_HOME:-}" ] && [ -d "$USER_HOME" ]; then
+        mkdir -p "$USER_HOME/.config/autostart"
+        cp /etc/xdg/autostart/vietc-tray.desktop "$USER_HOME/.config/autostart/vietc.desktop"
+        chown -R "$INSTALLING_USER" "$USER_HOME/.config/autostart" 2>/dev/null || true
+    fi
 
     # On GNOME, the tray needs the appindicator extension to be visible.
     if command -v gnome-shell &>/dev/null; then

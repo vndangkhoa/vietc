@@ -48,22 +48,22 @@ export default function Hero() {
           </motion.h1>
 
           <p className="text-slate-400 text-sm sm:text-base leading-relaxed max-w-lg">
-            VietC là bộ gõ tiếng Việt mã nguồn mở cho Linux — <span className="text-emerald-400 font-semibold">hybrid</span>: <span className="text-slate-200">IBus engine mượt mà trên Ubuntu 24.04+ Wayland</span> (giống Funput, preedit có gạch chân, <span className="text-slate-200">Ctrl+Space</span> mượt) và <span className="text-slate-200">evdev+uinput direct</span> trên Mint/Arch/X11 cho độ trễ 0ms. Tự động chọn đường dẫn tối ưu.
+            VietC là bộ gõ tiếng Việt mã nguồn mở thế hệ mới cho Linux — <span className="text-emerald-400 font-semibold">Zero Underline</span> (gõ trực tiếp không gạch chân), chuyển đổi 3 chế độ <span className="text-slate-200 font-mono font-bold">ENG ➔ VNI ➔ TELEX</span> mượt mà bằng <span className="text-emerald-400 font-semibold">Ctrl + Shift</span>, tích hợp khay hệ thống động (<span className="text-slate-200">EN / VN / TLX</span>) chuẩn Wayland và X11.
           </p>
 
           {/* Quick Metrics */}
           <div className="grid grid-cols-3 gap-3 max-w-md pt-2">
             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col items-center">
-              <span className="text-xs text-slate-500 font-mono">Ubuntu Wayland</span>
-              <span className="text-sm font-bold text-emerald-400 font-mono">IBus preedit</span>
+              <span className="text-xs text-slate-500 font-mono">Hiển thị</span>
+              <span className="text-sm font-bold text-emerald-400 font-mono">Không gạch chân</span>
             </div>
             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col items-center">
-              <span className="text-xs text-slate-500 font-mono">Mint / X11</span>
-              <span className="text-sm font-bold text-emerald-300 font-mono">0ms direct</span>
+              <span className="text-xs text-slate-500 font-mono">Phím chuyển</span>
+              <span className="text-sm font-bold text-emerald-300 font-mono">Ctrl + Shift</span>
             </div>
             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col items-center">
-              <span className="text-xs text-slate-500 font-mono">Tương thích</span>
-              <span className="text-sm font-bold text-emerald-400 font-mono">Firefox/ptyxis</span>
+              <span className="text-xs text-slate-500 font-mono">Khay hệ thống</span>
+              <span className="text-sm font-bold text-emerald-400 font-mono">EN · VN · TLX</span>
             </div>
           </div>
 

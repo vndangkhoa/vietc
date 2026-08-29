@@ -81,6 +81,13 @@ fn write_mode(mode: Mode) {
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(mode_file(), mode.as_str());
+    let _ = std::fs::write(
+        config_dir().join("vietc").join("status"),
+        if mode == Mode::En { "en" } else { "vn" },
+    );
+    if mode != Mode::En {
+        let _ = std::fs::write(config_dir().join("vietc").join("method"), mode.as_str());
+    }
 }
 
 fn bamboo_config_path() -> PathBuf {
@@ -119,6 +126,21 @@ fn run_ibus(engine: &str) {
     let _ = Command::new("ibus")
         .args(["engine", engine])
         .status();
+}
+
+fn show_notification(summary: &str, body: &str) {
+    let _ = Command::new("notify-send")
+        .args([
+            "-t",
+            "1200",
+            "-h",
+            "string:x-canonical-private-synchronous:vietc-osd",
+            "-a",
+            "Viet+",
+            summary,
+            body,
+        ])
+        .output();
 }
 
 /// Apply a mode. For VNI/TELEX we rewrite Bamboo's InputMethod and

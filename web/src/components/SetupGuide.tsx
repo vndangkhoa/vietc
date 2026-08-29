@@ -20,29 +20,28 @@ export default function SetupGuide() {
       {
         id: 1,
         title: "Cài đặt VietC (một lệnh)",
-        description: "Script tự phát hiện distro, cài đặt dependencies, build và cài đặt vào /usr/bin/. Trên Ubuntu 24.04+ Wayland (GNOME) sẽ tự động bật chế độ IBus engine mượt mà — không cần evdev, không cần input group cho Wayland-native apps.",
+        description: "Script tự động phát hiện distro, cài đặt dependencies, biên dịch và cài đặt toàn bộ daemon, công cụ vietcctl và ứng dụng khay hệ thống vietc-tray vào /usr/bin/.",
         command: `git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc \\
   && cd /tmp/vietc && sudo ./install.sh`,
-        notes: "Tự động: phát hiện apt/dnf/pacman, cài deps, build release, cài udev rules (uinput), thêm bạn vào nhóm input, cài vietc.service (user), cấu hình IBus preload-engines ['vietc'] trên Ubuntu."
+        notes: "Tự động: cấu hình IBus component, thiết lập nguồn gõ vietc duy nhất trên GNOME (ẩn chữ VI/en thừa), cài đặt biểu tượng khay EN/VN/TLX đa kích thước và tự khởi chạy khi đăng nhập."
       },
       {
         id: 2,
-        title: "Kích hoạt service (Ubuntu Wayland)",
-        description: "Trên Ubuntu 24.04+/Mint Wayland, VietC chạy như IBus engine (giống Funput) để gõ mượt trong mọi app Wayland-native (Firefox, GNOME Text Editor, Ptyxis). Service không cần DISPLAY, nhưng cần import env lần đầu.",
-        command: `systemctl --user daemon-reload
-systemctl --user enable --now vietc.service
-# kiểm tra
-journalctl --user -u vietc.service -f
-# nên thấy: [vietc] IBus engine mode auto-enabled for GNOME Wayland
-ibus engine # -> vietc`,
-        notes: "Nếu vừa cài, chạy thêm một lần: systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP IBUS_ADDRESS. Trên Mint X11/evdev: logout rồi login lại để nhóm input có hiệu lực."
+        title: "Kích hoạt & gõ tiếng Việt",
+        description: "VietC tự động chạy và tích hợp trực tiếp vào bàn phím hệ thống. Sử dụng phím tắt Ctrl + Shift để xoay vòng giữa Tiếng Anh, VNI và Telex hoàn toàn mượt mà.",
+        command: `# Xoay vòng kiểu gõ bất kỳ lúc nào:
+# Nhấn: Ctrl + Shift (ENG ➔ VNI ➔ TELEX ➔ ENG)
+
+# Kiểm tra trạng thái hiện tại bằng CLI:
+vietcctl status`,
+        notes: "Gõ trực tiếp vào tài liệu không có gạch chân (Zero Underline). Biểu tượng trên khay hệ thống (EN / VN / TLX) sẽ tự động đổi màu và chữ tương ứng."
       },
       {
         id: 3,
         title: "Gỡ cài đặt (Uninstall)",
         description: "Xoá hoàn toàn VietC khỏi hệ thống, bao gồm binary, service và udev rules. IBus sẽ được khởi động lại nếu trước đó bị thay thế.",
         command: `curl -sSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/uninstall.sh | sudo bash`,
-        notes: "Xoá /usr/bin/vietc-daemon, /usr/lib/systemd/user/vietc.service, /etc/udev/rules.d/99-vietc.rules và ~/.config/vietc/. Có thể giữ lại config bằng cách sao lưu trước."
+        notes: "Xoá /usr/bin/vietc-daemon, /usr/bin/vietcctl, /usr/bin/vietc-tray, /usr/share/ibus/component/vietc.xml và ~/.config/vietc/."
       }
     ],
     arch: [
@@ -200,12 +199,12 @@ journalctl --user -f -u vietc.service  # nếu chạy qua service`,
             Hướng Dẫn Cài Đặt <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-400 italic">VietC</span>
           </motion.h2>
           <p className="mt-4 text-slate-400 text-sm sm:text-base">
-            VietC <span className="text-emerald-400 font-semibold">tự chọn đường gõ thông minh</span>: <span className="text-slate-200">IBus engine</span> mượt mà trên Ubuntu 24.04+ Wayland (học từ Funput, có preedit gạch chân, hoạt động trong mọi app Wayland-native như Firefox/ptyxis) và <span className="text-slate-200">evdev+uinput direct 0ms</span> trên Mint/Arch/X11. Một lệnh cài đặt cho mọi distro.
+            VietC <span className="text-emerald-400 font-semibold">gõ tiếng Việt trực tiếp không gạch chân (Zero Underline)</span>: Tương thích hoàn hảo trên <span className="text-slate-200">Ubuntu 24.04+ Wayland</span>, <span className="text-slate-200">Linux Mint, Debian, Arch Linux và Fedora</span>. Chuyển đổi 3 chế độ nhanh chóng với <span className="text-emerald-400 font-semibold">Ctrl + Shift</span>.
           </p>
           <div className="mt-4 flex flex-wrap justify-center gap-2 text-[11px] font-mono">
-            <span className="px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">Ubuntu 24.04+ Wayland: IBus auto</span>
-            <span className="px-2 py-1 rounded bg-white/5 border border-white/10 text-slate-400">Mint / Arch: evdev direct</span>
-            <span className="px-2 py-1 rounded bg-white/5 border border-white/10 text-slate-400">Hyprland/Sway: zwp_v2</span>
+            <span className="px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">Zero Underline: Gõ trực tiếp</span>
+            <span className="px-2 py-1 rounded bg-white/5 border border-white/10 text-slate-400">Phím tắt: Ctrl + Shift</span>
+            <span className="px-2 py-1 rounded bg-white/5 border border-white/10 text-slate-400">Tray icon: EN · VN · TLX</span>
           </div>
         </div>
 

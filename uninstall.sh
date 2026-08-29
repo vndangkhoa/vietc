@@ -75,12 +75,16 @@ rm -rf /etc/vietc
 # Remove systemd service
 rm -f /usr/lib/systemd/user/vietc.service
 
+# Remove IBus component
+rm -f /usr/share/ibus/component/vietc.xml
+
 # Remove icons
-rm -f /usr/share/icons/hicolor/256x256/apps/vietc*.svg
+rm -f /usr/share/icons/hicolor/*/apps/vietc*.svg
+gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
 
 # Remove desktop file
-rm -f /usr/share/applications/vietc.desktop
-rm -f /etc/xdg/autostart/vietc-tray.desktop
+rm -f /usr/share/applications/vietc*.desktop
+rm -f /etc/xdg/autostart/vietc*.desktop
 
 # Remove the universal mode-toggle keybinding and per-user mode file (best effort)
 INSTALLING_USER="${SUDO_USER:-}"
@@ -91,7 +95,10 @@ if [ -n "$INSTALLING_USER" ] && [ "$INSTALLING_USER" != "root" ]; then
     USER_HOME="$(getent passwd "$INSTALLING_USER" 2>/dev/null | cut -d: -f6 || true)"
     U_UID="$(id -u "$INSTALLING_USER" 2>/dev/null)"
     if [ -n "$USER_HOME" ]; then
-        rm -f "$USER_HOME/.config/vietc/mode"
+        rm -rf "$USER_HOME/.config/vietc"
+        rm -f "$USER_HOME/.config/autostart/vietc*.desktop"
+        rm -f "$USER_HOME/.local/share/icons/vietc*.svg"
+        rm -f "$USER_HOME/.local/share/icons/hicolor/*/apps/vietc*.svg"
     fi
     if [ -n "$U_UID" ] && command -v gsettings &>/dev/null; then
         sudo -u "$INSTALLING_USER" XDG_RUNTIME_DIR="/run/user/$U_UID" \

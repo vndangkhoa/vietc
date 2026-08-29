@@ -77,7 +77,7 @@ fn default_toggle_key() -> String {
     "space".into()
 }
 fn default_start_enabled() -> bool {
-    true
+    false
 }
 fn default_grab() -> bool {
     false

@@ -95,43 +95,19 @@ fn ensure_icons() {
   <text x="64" y="96" text-anchor="middle" fill="#ffffff" font-size="48" font-weight="bold" font-family="system-ui, sans-serif">EN</text>
 </svg>"##;
 
-    // Write to standard user theme path (for Wayland compositors)
-    let home = dirs::home_dir().map(|d| d.join(".local/share/icons"));
-    if let Some(home_icons) = &home {
-        let _ = std::fs::create_dir_all(&home_icons);
-        let vn_path = home_icons.join("vietc-vn.svg");
-        let tlx_path = home_icons.join("vietc-tlx.svg");
-        let en_path = home_icons.join("vietc-en.svg");
+    if let Some(home) = dirs::home_dir() {
+        let base = home.join(".local/share/icons");
+        let _ = std::fs::create_dir_all(&base);
+        let _ = std::fs::write(base.join("vietc-vn.svg"), svg_vn);
+        let _ = std::fs::write(base.join("vietc-tlx.svg"), svg_tlx);
+        let _ = std::fs::write(base.join("vietc-en.svg"), svg_en);
 
-        if !vn_path.exists() {
-            let _ = std::fs::write(&vn_path, svg_vn);
-        }
-        if !tlx_path.exists() {
-            let _ = std::fs::write(&tlx_path, svg_tlx);
-        }
-        if !en_path.exists() {
-            let _ = std::fs::write(&en_path, svg_en);
-        }
-    }
-
-    // Also write to config dir for AppImage compatibility (fallback)
-    let config_dir = dirs::config_dir();
-    if let Some(config_dir) = &config_dir {
-        let icons_dir = config_dir.join("vietc").join("icons");
-        let _ = std::fs::create_dir_all(&icons_dir);
-
-        let vn_theme = icons_dir.join("hicolor/scalable/apps/vietc-vn.svg");
-        let tlx_theme = icons_dir.join("hicolor/scalable/apps/vietc-tlx.svg");
-        let en_theme = icons_dir.join("hicolor/scalable/apps/vietc-en.svg");
-
-        if !vn_theme.exists() {
-            let _ = std::fs::write(&vn_theme, svg_vn);
-        }
-        if !tlx_theme.exists() {
-            let _ = std::fs::write(&tlx_theme, svg_tlx);
-        }
-        if !en_theme.exists() {
-            let _ = std::fs::write(&en_theme, svg_en);
+        for dir in &["scalable", "256x256", "128x128", "64x64", "48x48", "32x32"] {
+            let apps = base.join("hicolor").join(dir).join("apps");
+            let _ = std::fs::create_dir_all(&apps);
+            let _ = std::fs::write(apps.join("vietc-vn.svg"), svg_vn);
+            let _ = std::fs::write(apps.join("vietc-tlx.svg"), svg_tlx);
+            let _ = std::fs::write(apps.join("vietc-en.svg"), svg_en);
         }
     }
 }
@@ -418,7 +394,14 @@ impl Tray for VietTray {
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
         let is_vn = self.mode == "vn";
-        let im_index = if self.im == "telex" { 0_usize } else { 1_usize };
+        let is_telex = self.im == "telex";
+        let selected_mode = if !is_vn {
+            0_usize
+        } else if is_telex {
+            1_usize
+        } else {
+            2_usize
+        };
 
         let mut items = vec![
             CheckmarkItem {
@@ -435,16 +418,24 @@ impl Tray for VietTray {
             }
             .into(),
             MenuItem::Separator,
-            CheckmarkItem {
-                label: "Vietnamese Mode".into(),
-                checked: is_vn,
+            StandardItem {
+                label: "Switch Mode (Ctrl + Shift)".into(),
                 activate: Box::new(|this: &mut VietTray| {
-                    let next = if this.mode == "vn" { "en" } else { "vn" };
-                    write_status(&next);
+                    let (next_mode, next_im) = if this.mode == "en" {
+                        ("vn", "vni")
+                    } else if this.im == "vni" {
+                        ("vn", "telex")
+                    } else {
+                        ("en", "telex")
+                    };
+                    write_status(next_mode);
+                    write_method(next_im);
                     let mut cfg = config::Config::load();
-                    cfg.start_enabled = next == "vn";
+                    cfg.start_enabled = next_mode == "vn";
+                    cfg.input_method = next_im.into();
                     let _ = cfg.save();
-                    this.mode = next.to_string();
+                    this.mode = next_mode.to_string();
+                    this.im = next_im.to_string();
                 }),
                 ..Default::default()
             }
@@ -452,22 +443,33 @@ impl Tray for VietTray {
             SubMenu {
                 label: "Input Method".into(),
                 submenu: vec![RadioGroup {
-                    selected: im_index,
+                    selected: selected_mode,
                     select: Box::new(|this: &mut VietTray, idx: usize| {
-                        let im = if idx == 0 { "telex" } else { "vni" };
+                        let (mode, im) = match idx {
+                            0 => ("en", this.im.as_str()),
+                            1 => ("vn", "telex"),
+                            _ => ("vn", "vni"),
+                        };
+                        write_status(mode);
+                        write_method(im);
                         let mut cfg = config::Config::load();
+                        cfg.start_enabled = mode == "vn";
                         cfg.input_method = im.into();
                         let _ = cfg.save();
-                        write_method(im);
+                        this.mode = mode.into();
                         this.im = im.into();
                     }),
                     options: vec![
                         RadioItem {
-                            label: "Telex".into(),
+                            label: "English (ENG)".into(),
                             ..Default::default()
                         },
                         RadioItem {
-                            label: "VNI".into(),
+                            label: "Telex (TLX)".into(),
+                            ..Default::default()
+                        },
+                        RadioItem {
+                            label: "VNI (VN)".into(),
                             ..Default::default()
                         },
                     ],
@@ -554,6 +556,11 @@ impl Tray for VietTray {
 pub fn run() {
     ensure_icons();
 
+    // Ensure autostart is installed by default
+    if !config::is_autostart_installed() {
+        config::install_autostart();
+    }
+
     let handle_holder = std::sync::Arc::new(std::sync::Mutex::new(None));
     let tray = VietTray {
         mode: read_status(),
@@ -569,19 +576,6 @@ pub fn run() {
     *handle_holder.lock().unwrap() = Some(handle.clone());
     service.spawn();
 
-    // Check updates silently on startup
-    {
-        let tray_dummy = VietTray {
-            mode: read_status(),
-            im: current_im(),
-            autostart: config::is_autostart_installed(),
-            update_available: None,
-            updating: false,
-            handle: handle_holder.clone(),
-        };
-        tray_dummy.check_for_updates(&handle, false);
-    }
-
     // Poll for changes (shorter interval for faster icon updates)
     std::thread::spawn(move || {
         loop {
@@ -589,7 +583,6 @@ pub fn run() {
             let mode = read_status();
             let im = read_method();
             let autostart = config::is_autostart_installed();
-            // Also check status_changed flag for immediate updates
             let _ = handle.update(move |t| {
                 t.mode = mode;
                 t.im = im;

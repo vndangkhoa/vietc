@@ -35,18 +35,24 @@ echo "[3/5] Installing binaries..."
 cp "$PROJECT_ROOT/target/release/vietc" "$STAGING/usr/bin/vietc-daemon"
 cp "$PROJECT_ROOT/target/release/vietc-cli" "$STAGING/usr/bin/"
 cp "$PROJECT_ROOT/target/release/vietc-uinputd" "$STAGING/usr/bin/"
+cp "$PROJECT_ROOT/target/release/vietcctl" "$STAGING/usr/bin/"
 cp "$PROJECT_ROOT/ui/target/release/vietc-tray" "$STAGING/usr/bin/"
 
-# Compile and bundle vietc-xrecord (C helper for X11 XRecord keyboard capture)
-gcc -O2 -o "$STAGING/usr/bin/vietc-xrecord" "$SCRIPT_DIR/vietc-xrecord.c" -lX11 -lXtst
+# Compile and bundle vietc-xrecord (C helper for X11 XRecord keyboard capture, if X11 dev headers present)
+gcc -O2 -o "$STAGING/usr/bin/vietc-xrecord" "$SCRIPT_DIR/vietc-xrecord.c" -lX11 -lXtst 2>/dev/null || true
 
-# Icons (main app icon + tray status icons)
-cp "$PROJECT_ROOT/packaging/icons/vietc.svg" "$STAGING/usr/share/icons/hicolor/256x256/apps/"
-cp "$PROJECT_ROOT/packaging/icons/vietc-vn.svg" "$STAGING/usr/share/icons/hicolor/256x256/apps/"
-cp "$PROJECT_ROOT/packaging/icons/vietc-en.svg" "$STAGING/usr/share/icons/hicolor/256x256/apps/"
+# Icons (main app icon + tray status icons across multiple sizes)
+for size in scalable 256x256 128x128 64x64 48x48 32x32; do
+    mkdir -p "$STAGING/usr/share/icons/hicolor/$size/apps"
+    cp "$PROJECT_ROOT/packaging/icons/"*.svg "$STAGING/usr/share/icons/hicolor/$size/apps/"
+done
 
 # Desktop file
 cp "$SCRIPT_DIR/vietc.desktop" "$STAGING/usr/share/applications/"
+
+# IBus component XML
+mkdir -p "$STAGING/usr/share/ibus/component"
+cp "$PROJECT_ROOT/packaging/ibus/vietc.xml" "$STAGING/usr/share/ibus/component/"
 
 # Udev rules
 cp "$PROJECT_ROOT/packaging/99-vietc.rules" "$STAGING/lib/udev/rules.d/"

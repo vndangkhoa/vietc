@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<component>
+  <name>org.freedesktop.IBus.Vietc</name>
+  <description>Viet+ Vietnamese Input Method (Telex &amp; VNI)</description>
+  <exec>/usr/bin/vietc-daemon --ibus</exec>
+  <version>0.1.9</version>
+  <author>Khoa Vo</author>
+  <license>MIT</license>
+  <homepage>https://github.com/vndangkhoa/vietc</homepage>
+  <textdomain>vietc</textdomain>
+  <engines>
+    <engine>
+      <name>vietc</name>
+      <longname>Viet+</longname>
+      <description>Vietnamese Telex &amp; VNI (hybrid IBus)</description>
+      <language>vi</language>
+      <license>MIT</license>
+      <author>Khoa Vo</author>
+      <icon>vietc</icon>
+      <layout>us</layout>
+      <symbol>VI</symbol>
+      <rank>99</rank>
+    </engine>
+  </engines>
+</component>
