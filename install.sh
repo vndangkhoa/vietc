@@ -8,7 +8,8 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; NC='\033[0m'
 # Defaults + argument parsing (so --lang takes effect before any output)
 FROM_SOURCE=false
 PREBUILT=false
-MODE="grab"   # grab = original evdev/IBus-engine capture path; bamboo = Bamboo aux-controller
+MODE="grab"   # grab = auto (IBus on GNOME like Funput funput-ibus, else evdev); bamboo = Bamboo aux-controller; ibus = force IBus
+FORCE_IBUS=false
 LANG_CODE="en"
 case "${LANG:-}" in
   vi*|*_VN|*VN*) LANG_CODE="vi" ;;
@@ -29,6 +30,15 @@ for arg in "$@"; do
         MODE="bamboo"
     elif [ "$arg" = "--grab" ]; then
         MODE="grab"
+    elif [ "$arg" = "--ibus" ]; then
+        FORCE_IBUS=true
+    elif [ "$arg" = "--fcitx5" ]; then
+        echo "Note: vietc does not yet ship a Fcitx5 addon like Funput's funput (Fcitx5). Using IBus path (like funput-ibus) which is the GNOME/Ubuntu default." >&2
+        FORCE_IBUS=true
+    elif [ "$arg" = "--version" ]; then
+        LANG_NEXT=1  # consume next arg but not used (compat with Funput's install.sh --version)
+    elif [[ "$arg" == --version=* ]]; then
+        : # compat, ignore
     elif [ "$arg" = "--lang" ]; then
         LANG_NEXT=1
     elif [ "$arg" = "--lang=vi" ] || [ "$arg" = "--lang=vi_VN" ] || [ "$arg" = "--lang=vi-VN" ]; then
@@ -746,9 +756,26 @@ EOF
     # already-installed users auto-migrate to the smooth IBus path.
     if ! grep -q "auto_ibus" /etc/vietc/config.toml 2>/dev/null; then
         cat >> /etc/vietc/config.toml << 'EOF'
-# Added by vietc 0.1.8+ Ubuntu fix
+# Added by vietc 0.1.8+ Ubuntu fix (like Funput funput-ibus on GNOME)
 auto_ibus = true
 EOF
+    fi
+    # Honour --ibus / --fcitx5 force flag like Funput's install.sh (--ibus/--fcitx5)
+    if [ "$FORCE_IBUS" = true ]; then
+        if grep -q "^ibus_engine" /etc/vietc/config.toml; then
+            sed -i 's/^ibus_engine.*/ibus_engine = true/' /etc/vietc/config.toml
+        else
+            echo "ibus_engine = true" >> /etc/vietc/config.toml
+        fi
+        # Also ensure user config inherits the forced IBus
+        if [ -n "${USER_HOME:-}" ] && [ -f "$USER_HOME/.config/vietc/config.toml" ]; then
+            if grep -q "^ibus_engine" "$USER_HOME/.config/vietc/config.toml"; then
+                sed -i 's/^ibus_engine.*/ibus_engine = true/' "$USER_HOME/.config/vietc/config.toml"
+            else
+                echo "ibus_engine = true" >> "$USER_HOME/.config/vietc/config.toml"
+            fi
+            chown -R "$INSTALLING_USER" "$USER_HOME/.config/vietc" 2>/dev/null || true
+        fi
     fi
     # Also ensure the invoking user's personal config inherits the fix if it
     # was just deleted/migrated above and doesn't exist yet.

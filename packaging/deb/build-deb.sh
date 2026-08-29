@@ -61,6 +61,9 @@ cp "$PROJECT_ROOT/vietc.toml" "$STAGING/etc/vietc/config.toml"
 
 # Systemd user service — rootless: runs vietc-daemon directly (no tray autostart,
 # which would otherwise spawn a second daemon).
+# Hybrid: IBus engine (Ubuntu GNOME Wayland, like Funput funput-ibus) needs no DISPLAY;
+# legacy X11/evdev needs DISPLAY. No ConditionEnvironment so service starts on
+# Wayland-native sessions too — daemon probes IBus → zwp_v2 → evdev → X11.
 cat > "$STAGING/usr/lib/systemd/user/vietc.service" << 'SERVICE'
 [Unit]
 Description=Viet+ Vietnamese IME Daemon (rootless)
@@ -75,27 +78,29 @@ RestartSec=3
 # Only kill the daemon on stop; the IBus it respawns (IbusRestartGuard) must
 # survive so input works again after vietc exits.
 KillMode=process
-ConditionEnvironment=DISPLAY
+EnvironmentFile=-/etc/default/vietc
 
 [Install]
 WantedBy=graphical-session.target
 SERVICE
 
-# AppStream metadata
+# AppStream metadata — hybrid IBus/evdev like Funput (funput-ibus + funput)
+# Ubuntu GNOME Wayland uses IBus engine (preedit, via D-Bus), others use evdev/uinput or zwp_v2.
 cat > "$STAGING/usr/share/metainfo/io.github.anomalyco.vietc.appdata.xml" << 'XML'
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="console-application">
   <id>io.github.anomalyco.vietc</id>
   <name>Viet+</name>
-  <summary>Vietnamese Input Method for Linux</summary>
+  <summary>Vietnamese Input Method for Linux — IBus &amp; Wayland &amp; X11</summary>
   <description>
-    <p>Zero-configuration Vietnamese input method engine supporting Telex and VNI input methods. Runs rootless as a normal user — native Wayland via zwp_input_method_v2, or the rootless X11 path (XQueryKeymap + XTEST) over XWayland. No root, setcap, or uinput required.</p>
+    <p>Zero-configuration Vietnamese input method supporting Telex and VNI. Hybrid engine: native IBus engine on Ubuntu/GNOME Wayland (like Funput funput-ibus, preedit via D-Bus, covers Firefox/ptyxis/gedit), native Wayland zwp_input_method_v2 on Hyprland/Sway, or evdev+uinput / X11 XTEST on Mint/Arch. Runs rootless, auto-selects the best path. No manual setup.</p>
   </description>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
   <url type="homepage">https://github.com/anomalyco/vietc</url>
   <provides><binary>vietc</binary></provides>
   <categories><category>Utility</category></categories>
+  <keywords><keyword>vietnamese</keyword><keyword>ibus</keyword><keyword>ime</keyword><keyword>telex</keyword><keyword>vni</keyword></keywords>
 </component>
 XML
 
@@ -119,14 +124,16 @@ Version: VERSION_PLACEHOLDER
 Section: utils
 Priority: optional
 Architecture: amd64
-Depends: libc6 (>= 2.31), libevdev2 (>= 1.9.0)
-Recommends: libwayland-client0 (>= 1.20), libx11-6, libxtst6, libdbus-1-3, xclip, wl-clipboard
+Depends: libc6 (>= 2.31), libevdev2 (>= 1.9.0), ibus, dbus
+Recommends: libwayland-client0 (>= 1.20), libx11-6, libxtst6, libdbus-1-3, libxkbcommon0, xclip, wl-clipboard, gnome-shell-extension-appindicator
+Suggests: fcitx5
 Maintainer: Khoa Vo <vndangkhoa@gmail.com>
 Description: Viet+ — Vietnamese Input Method for Linux
- Zero-configuration Vietnamese input method engine supporting
- Telex and VNI input methods. Runs rootless as a normal user —
- native Wayland (zwp_input_method_v2) or the rootless X11 path
- over XWayland. No root, setcap, or uinput required.
+ Hybrid Vietnamese input method supporting Telex and VNI.
+ On Ubuntu/GNOME Wayland it runs as native IBus engine (like
+ Funput funput-ibus, preedit via D-Bus, covers all Wayland-native
+ apps); on Hyprland/Sway via zwp_input_method_v2; elsewhere via
+ evdev+uinput/X11. Auto-selects best path, rootless, no manual setup.
 CONTROL
 sed -i "s/VERSION_PLACEHOLDER/$VERSION/" "$STAGING/DEBIAN/control"
 
@@ -202,12 +209,15 @@ case "$1" in
       if ! groups "$INSTALLING_USER" 2>/dev/null | grep -qw input; then
         adduser "$INSTALLING_USER" input 2>/dev/null || true
       fi
-      # Remove stale user config from previous installs
+      # Migrate stale user config — like Funput's version-pinned settings, don't
+      # wipe a user-tuned vietc.toml. Only remove the very old default (no auto_ibus).
       USER_HOME="$(getent passwd "$INSTALLING_USER" 2>/dev/null | cut -d: -f6 || true)"
       if [ -n "$USER_HOME" ]; then
-        rm -f "$USER_HOME/.config/vietc/config.toml" 2>/dev/null || true
-        rm -f "$USER_HOME/.config/vietc/overrides.toml" 2>/dev/null || true
-        rm -f "$USER_HOME/.config/vietc/.first-launch-done" 2>/dev/null || true
+        if [ -f "$USER_HOME/.config/vietc/config.toml" ] && ! grep -q "auto_ibus" "$USER_HOME/.config/vietc/config.toml" 2>/dev/null; then
+          cp "$USER_HOME/.config/vietc/config.toml" "$USER_HOME/.config/vietc/config.toml.bak.$(date +%s)" 2>/dev/null || true
+          rm -f "$USER_HOME/.config/vietc/config.toml" 2>/dev/null || true
+        fi
+        # overrides.toml and .first-launch-done are safe to keep — per-app memory
       fi
 
       # Show popup
