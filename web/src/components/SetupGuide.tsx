@@ -51,8 +51,9 @@ ibus engine # -> vietc`,
         title: "Cài đặt VietC trên Arch",
         description: "Tự động clone, build và cài đặt VietC. Trên Arch X11, mặc định dùng evdev+uinput 0ms direct. Trên Arch GNOME Wayland cũng hỗ trợ IBus nếu bạn để auto_ibus=true.",
         command: `git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc \\
-  && cd /tmp/vietc && sudo ./install.sh`,
-        notes: "Hỗ trợ pacman, tự cài base-devel, libx11, libxkbcommon, wayland. Có thể ép chế độ: sudo ./install.sh --bamboo (dùng ibus-bamboo per-app) hoặc --grab (ép evdev)."
+  && cd /tmp/vietc && sudo ./install.sh
+# ép IBus như Funput funput-ibus: sudo ./install.sh --ibus`,
+        notes: "Hỗ trợ pacman, tự cài base-devel, libx11, libxkbcommon, wayland. Ép chế độ: --ibus (force IBus), --bamboo (dùng ibus-bamboo per-app), --grab (ép evdev)."
       },
       {
         id: 2,

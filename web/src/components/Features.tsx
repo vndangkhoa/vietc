@@ -53,28 +53,28 @@ export default function Features() {
             Sự Khác Biệt Làm Nên Sức Mạnh <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-400 italic">VietC</span>
           </motion.h2>
           <p className="mt-4 text-slate-400 text-sm sm:text-base leading-relaxed">
-            VietC được phát triển dựa trên 3 trụ cột kỹ thuật cốt lõi giúp tối đa hóa tốc độ, độ ổn định tuyệt đối và khả năng tương thích 100% với môi trường giả lập Linux Terminal.
+            VietC là <span className="text-emerald-400 font-semibold">hybrid thông minh</span> — học từ <span className="text-slate-200">Funput funput-ibus</span>: tự chọn đường gõ tối ưu cho từng desktop, đảm bảo mượt mà 100% trên cả Wayland-native lẫn X11.
           </p>
         </div>
 
         {/* 3 Pillars Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
           
-          {/* Pillar 1: State Machine */}
-          <div className="bg-white/[0.02] rounded-2xl border border-white/5 p-6 flex flex-col justify-between hover:border-emerald-500/30 transition-all">
+          {/* Pillar 1: Hybrid Engine (Funput-style) */}
+          <div className="bg-white/[0.02] rounded-2xl border border-white/5 p-6 flex flex-col justify-between hover:border-sky-500/30 transition-all">
             <div>
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mb-5">
+              <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center mb-5">
                 <Layers size={20} />
               </div>
               <h3 className="text-base font-sans font-bold text-white mb-3">
-                1. State Machine Deterministic
+                1. Hybrid Engine
               </h3>
               <p className="text-slate-400 text-xs sm:text-sm leading-relaxed mb-4">
-                Sử dụng mô hình toán học Finite State Machine (FSM) tất định để phân tích tổ hợp phím gõ tiếng Việt. Mọi ký tự được tính toán rõ ràng giúp tránh tình trạng xung đột, mất từ hoặc sai vị trí đặt dấu khi gõ nhanh.
+                Tự chọn đường mượt nhất: <span className="text-sky-400 font-semibold">IBus</span> trên Ubuntu 24.04+ Wayland (preedit, via D-Bus, như Funput), <span className="text-emerald-400">zwp_v2</span> trên Hyprland/Sway, <span className="text-slate-200">evdev+uinput</span> trên Mint/Arch/X11. Cùng một <span className="text-white">Bamboo</span> core, chỉ khác shell.
               </p>
             </div>
-            <div className="text-[11px] font-mono text-emerald-400 mt-2 bg-emerald-950/15 p-2.5 rounded-lg border border-emerald-500/10">
-              S0 (Chờ) &rarr; S1 (Gõ) &rarr; S2 (Dấu) &rarr; S3 (Chữ mũ)
+            <div className="text-[11px] font-mono text-sky-400 mt-2 bg-sky-950/15 p-2.5 rounded-lg border border-sky-500/10">
+              IBus → zwp_v2 → evdev → X11 &nbsp;·&nbsp; auto_ibus
             </div>
           </div>
 
@@ -88,31 +88,31 @@ export default function Features() {
                 2. Token-Level Diffing
               </h3>
               <p className="text-slate-400 text-xs sm:text-sm leading-relaxed mb-4">
-                Thay vì xóa trắng toàn bộ từ hoặc phát lại một loạt phím Backspace dồn dập gây giật màn hình trong Terminal, VietC tính toán sự khác biệt nhỏ nhất giữa từ đã gõ và từ mong muốn để thay thế cục bộ tức thì.
+                Trên đường direct (evdev/X11): tính diff nhỏ nhất giữa từ đã gõ và từ mong muốn, chỉ xóa/gõ phần lệch thay vì phát lại Backspace dồn dập gây giật Terminal. Trên IBus/Wayland: dùng preedit/commit mượt.
               </p>
             </div>
             <div className="text-[11px] font-mono text-emerald-400 mt-2 bg-emerald-950/15 p-2.5 rounded-lg border border-emerald-500/10 flex items-center justify-between">
-              <span>trang thái</span>
+              <span>diff = backspace + output</span>
               <ArrowRight size={10} />
-              <span className="font-bold">trạng thái [1ms]</span>
+              <span className="font-bold">ImeResult</span>
             </div>
           </div>
 
-          {/* Pillar 3: Privacy-First Event Sourcing */}
+          {/* Pillar 3: Privacy-First */}
           <div className="bg-white/[0.02] rounded-2xl border border-white/5 p-6 flex flex-col justify-between hover:border-emerald-500/30 transition-all">
             <div>
               <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mb-5">
                 <ShieldCheck size={20} />
               </div>
               <h3 className="text-base font-sans font-bold text-white mb-3">
-                3. Privacy-First Event Sourcing
+                3. Privacy-First
               </h3>
               <p className="text-slate-400 text-xs sm:text-sm leading-relaxed mb-4">
-                Xử lý sự kiện bàn phím theo luồng độc lập dưới quyền user thông qua uinput cục bộ. VietC nói KHÔNG với kết nối Internet, đảm bảo toàn bộ mật khẩu, lệnh Terminal nhạy cảm luôn được bảo vệ an toàn tuyệt đối.
+                Chạy cục bộ 100% dưới quyền user, không Internet, không telemetry. Dù là IBus (qua D-Bus) hay uinput, mật khẩu/lệnh Terminal đều được bảo vệ — phát hiện ô mật khẩu 4 lớp và không bao giờ gửi dữ liệu ra ngoài.
               </p>
             </div>
             <div className="text-[11px] font-mono text-emerald-400 mt-2 bg-emerald-950/15 p-2.5 rounded-lg border border-emerald-500/10">
-              Kiểm soát cục bộ 100% &bull; Không thu thập dữ liệu
+              Local only &bull; No phoning home
             </div>
           </div>
 

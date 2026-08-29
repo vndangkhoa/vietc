@@ -1,6 +1,6 @@
 # ⌨️ Viet+
 
-**Vietnamese Input Method for Linux · Direct Input · Zero underline · Built in Rust**
+**Vietnamese Input Method for Linux · Hybrid IBus + Direct Input · Built in Rust — Ubuntu 24.04+ Wayland Ready**
 
 [![Platform](https://img.shields.io/badge/Platform-Linux-blue?style=flat-square)](https://github.com/vndangkhoa/vietc)
 [![Rust](https://img.shields.io/badge/Rust-1.85-000000?style=flat-square&logo=rust)](https://www.rust-lang.org/)
@@ -12,25 +12,30 @@
 
 ---
 
-*Type Vietnamese directly — what you type is what you see. No pre-edit buffer, no underline, no duplication.*
+*Type Vietnamese smoothly everywhere — Hybrid engine, auto-selected: IBus preedit on Ubuntu 24.04+ Wayland (like Funput), Wayland `zwp_input_method_v2` on Hyprland/Sway, direct `evdev+uinput` on Mint/Arch/X11.*
 
 > [!WARNING]
-> This project is in active development and operates directly on input devices (`evdev` / `/dev/uinput`). It may crash your system or lock your keyboard in case of critical bugs. Use with caution.
+> This project is in active development. The legacy `evdev`/`uinput` path operates on input devices and may lock your keyboard if a bug occurs — use with caution. The default on Ubuntu GNOME Wayland is the safe `IBus` engine (no grab, no `uinput`, rootless).
 
 ---
 
 ## 🤔 Why Viet+?
 
-Most Vietnamese IMEs use a **pre-edit buffer** — you type into a temporary buffer with an ugly underline, and the text only becomes real Vietnamese when you commit it. This causes duplicate text, underline distraction, broken copy/paste, and desync between the engine state and what's on screen.
+Most Vietnamese IMEs use a **pre-edit buffer** — you type into a temporary buffer with an ugly underline, and the text only becomes real Vietnamese when you commit it. This causes duplicate text, underline distraction, broken copy/paste, and desync.
 
-Viet+ takes a fundamentally different approach: **Direct Input**. Keystrokes are instantly converted to Unicode via uinput injection — what you type is what you see. No buffer, no underline, no duplication.
+Viet+ is **hybrid, like Funput on Linux**:
+* **Ubuntu 24.04+ Wayland (GNOME/Mutter)** → native **IBus engine** (`org.freedesktop.IBus` via D-Bus, preedit with underline, `Ctrl+Space` smooth, covers every Wayland-native app like `Firefox`/`Ptyxis`/`GNOME Text Editor` where `Mutter` lacks `zwp_input_method_v2`).
+* **Hyprland/Sway** → native **Wayland `zwp_input_method_v2`** + `zwp_virtual_keyboard_v1`.
+* **Mint/Arch/X11** → **Direct `evdev+uinput`** 0ms direct (grab persists, no underline).
+
+Same `Bamboo` core, shell decides. `auto_ibus=true` (default) auto-selects the smoothest path for your session.
 
 **What you get:**
 
-- **Directness** — Keystrokes instantly become Unicode. What you type is what you see.
-- **Cleanliness** — No underline, no buffer, no garbled duplication in any app.
-- **Reliability** — The keyboard grab persists for the whole session, eliminating race-condition garbling.
-- **Freedom** — Open source, MIT-licensed, runs entirely on your machine. No telemetry.
+- **Smoothness** — Correct path per desktop: IBus preedit where Wayland needs it, direct where it shines.
+- **Cleanliness** — No duplication, no garbled backspace in Chrome/Firefox address bar (Firefox space-fold fix).
+- **Reliability** — `IBus`/`Wayland` need no `input` group, no `setcap`; `evdev` grab persists for X11.
+- **Freedom** — Open source, MIT, offline, no telemetry.
 
 ### 📖 Backstory
 
@@ -46,21 +51,21 @@ If that resonates, give it a star ⭐ — it helps others find the project.
 
 | Icon | Feature | What it does |
 |------|---------|--------------|
-| ⚡ | **Direct Input** | No pre-edit buffer. Keystrokes instantly become Unicode via uinput injection. |
-| 🔤 | **VNI & Telex** | Both input methods, switchable at runtime via **Ctrl+Shift**. |
+| ⚡ | **Hybrid Engine** | `IBus` on Ubuntu 24.04+ Wayland (preedit, like `Funput funput-ibus`), `zwp_v2` on Hyprland/Sway, `evdev+uinput` direct on Mint/Arch/X11 — auto (`auto_ibus`). |
+| 🔤 | **VNI & Telex** | Both input methods, switchable at runtime via **Ctrl+Shift** (`IBus` also `Ctrl+Shift`, visible preedit). |
 | 🎋 | **Bamboo Engine** | Composition, marks, tones, and flexible backtracking. |
 | 🧩 | **Smart Clusters** | `uo→ươ` with backtrack, `ua→ưa` horn placement. |
 | 📝 | **Macro Expansion** | `ko → không`, `dc → được`, `vs → với` — add your own. |
 | 🔡 | **Casing Preservation** | `Tieengs → Tiếng`, `TIEENGS → TIẾNG`. |
 | 🧠 | **App Memory** | Per-app Vietnamese/English state, saved to `overrides.toml`. |
 | ♻️ | **Hot Reload** | Config changes apply without restart. |
-| 🪟 | **Window-Switch Reset** | Engine clears automatically on Alt+Tab. |
-| 🚀 | **CPU Priority** | Pinned to P-cores (0-3) + nice(-10) for low-latency input. |
-| 🖱️ | **Uinput Injection** | `/dev/uinput` for reliable injection on X11 and Wayland. |
-| 💻 | **Terminal Support** | Works in kitty, alacritty, gnome-terminal, konsole, foot, wezterm, st, urxvt, xterm. |
+| 🪟 | **Window-Switch Reset** | Engine clears automatically on Alt+Tab / `FocusIn`. |
+| 🚀 | **CPU Priority** | Pinned to P-cores (0-3) + nice(-10) for low-latency input (direct path). |
+| 🖱️ | **Injection** | `IBus CommitText/UpdatePreeditText` on Wayland, `/dev/uinput` + `XTEST` fallback on X11. |
+| 💻 | **Terminal Support** | Works in kitty, alacritty, gnome-terminal, konsole, foot, wezterm, st, urxvt, xterm, `ptyxis` (via IBus per-app). |
 | 🔐 | **Password Auto-Detection** | 4 layers: AT-SPI2 → sudo process → window-title → window-class. |
-| 📊 | **Tray Icon** | Shows current mode: Red VN / Blue TLX / Gray EN. |
-| 🐚 | **GNOME/Wayland** | Native GNOME Shell D-Bus integration. |
+| 📊 | **Tray Icon** | Shows current mode: Red VN / Blue TLX / Gray EN (`Ctrl+Space` toggle). |
+| 🐚 | **GNOME/Wayland** | `IBus` engine for Ubuntu + `zwp_input_method_v2` for wlroots + GNOME Shell D-Bus integration. |
 
 ---
 
@@ -68,14 +73,18 @@ If that resonates, give it a star ⭐ — it helps others find the project.
 
 ### 🚀 Quick Start (One-Command)
 
-Works on all ✅ **Supported** distros. The script auto-detects your package manager, installs dependencies, compiles, installs to `/usr/bin/`, sets up uinput udev rules, and adds your user to the `input` group.
+Works on all ✅ **Supported** distros. The script auto-detects your package manager, installs dependencies, compiles, installs to `/usr/bin/`, sets up `uinput` udev rules, adds your user to the `input` group, and on `Ubuntu/Debian GNOME Wayland` auto-configures the `IBus` engine (like `Funput funput-ibus`).
 
 ```bash
 git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc 2>/dev/null || (cd /tmp/vietc && git pull) \
   && cd /tmp/vietc && sudo ./install.sh
+# force IBus like Funput's --ibus: sudo ./install.sh --ibus
+# force bare evdev: sudo ./install.sh --grab
 ```
 
-**After install:** Log out and log back in, then launch `vietc-tray` from your application menu.
+**After install:** 
+* **Ubuntu 24.04+ Wayland (GNOME):** `systemctl --user enable --now vietc.service` (installer does it live), then `ibus engine` → `vietc`. No logout needed for `IBus` path; `evdev` path still needs logout for `input` group. Verify: `journalctl --user -u vietc.service -f` should show `IBus engine mode auto-enabled`.
+* **Mint/Arch X11:** Log out and log back in, then launch `vietc-tray` from your application menu.
 
 ### 📦 Source Repositories
 
@@ -113,9 +122,9 @@ curl -sSL https://git.khoavo.myds.me/vndangkhoa/vietc/raw/branch/main/uninstall.
 ### 🔧 Manual Build & Run
 
 ```bash
-# Install dependencies
+# Install dependencies (note: libxkbcommon-dev needed for Wayland xkb)
 sudo apt install git curl build-essential pkg-config \
-  libx11-dev libxtst-dev libevdev-dev libdbus-1-dev libwayland-dev wl-clipboard
+  libx11-dev libxtst-dev libevdev-dev libdbus-1-dev libwayland-dev libxkbcommon-dev wl-clipboard
 
 # Enable accessibility (Ubuntu Wayland — for password detection)
 gsettings set org.gnome.desktop.a11y.applications screen-reader-enabled true
@@ -124,28 +133,38 @@ gsettings set org.gnome.desktop.a11y.applications screen-reader-enabled true
 git clone https://github.com/vndangkhoa/vietc.git
 cd vietc
 cargo build --release
+# UI tray (separate workspace)
+(cd ui && cargo build --release)
 
-# Run (Mint — no sudo needed for uinput)
+# Run — hybrid auto (IBus on GNOME Wayland, evdev on X11)
 ./target/release/vietc
+# Force IBus (test Ubuntu fix on X11)
+VIETC_FORCE_IBUS=1 ./target/release/vietc
+# Force direct evdev (test X11 path)
+./target/release/vietc # with grab=true in config.toml + sudo if needed
 
-# Run (Ubuntu — needs sudo for keyboard grab)
-sudo ./target/release/vietc
+# Systemd (recommended)
+systemctl --user enable --now vietc.service
+journalctl --user -u vietc.service -f
 ```
 
 ---
 
 ## ⚙️ Configuration
 
-Config file: `~/.config/vietc/config.toml` or `./vietc.toml`
+Config file: `~/.config/vietc/config.toml` or `./vietc.toml` (`/etc/vietc/config.toml` fallback)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `input_method` | `"vni"` | `"vni"` or `"telex"` |
-| `toggle_key` | `"space"` | Ctrl+Space to toggle VN/EN |
-| `toggle_method_key` | `"shift"` | Ctrl+Shift to toggle VNI/Telex |
+| `toggle_key` | `"space"` | Ctrl+Space to toggle VN/EN (IBus also `Ctrl+Space`) |
+| `toggle_method_key` | `"shift"` | Ctrl+Shift to toggle VNI/Telex (IBus also `Ctrl+Shift`) |
 | `start_enabled` | `true` | Vietnamese by default |
-| `grab` | `true` | Grab keyboard (evdev) |
-| `[auto_restore].enabled` | `false` | Auto-restore English words |
+| `grab` | `false` | Grab keyboard (evdev) — `false` default for rootless/IBus |
+| `auto_ibus` | `true` | Auto-enable `IBus` engine on Ubuntu/Debian `GNOME Wayland` (like `Funput`) |
+| `ibus_engine` | `false` | Force `IBus` engine (`true` with `--ibus`) |
+| `controller_mode` | `false` | Aux `Bamboo` controller (switch `Bamboo`/`BambooUs` per-app) |
+| `[auto_restore].enabled` | `true` | Auto-restore English words (daemon `overrides.toml`) |
 | `[password_detection].enabled` | `true` | Auto-disable in password fields |
 | `[app_state].terminal_input_method` | `"vni"` | Method used inside terminal apps |
 
@@ -154,10 +173,13 @@ input_method = "vni"            # "vni" or "telex"
 toggle_key = "space"            # Ctrl+Space to toggle VN/EN
 toggle_method_key = "shift"     # Ctrl+Shift to toggle VNI/Telex
 start_enabled = true            # Vietnamese by default
-grab = true                     # grab keyboard (evdev)
+grab = false                    # grab keyboard (evdev) — false for IBus/Wayland
+auto_ibus = true                # auto IBus on Ubuntu GNOME Wayland (Funput-style)
+ibus_engine = false             # set true or use --ibus to force IBus
+controller_mode = false         # true for Bamboo per-app controller
 
 [auto_restore]
-enabled = false                 # Auto-restore English words (defaults to false)
+enabled = true                  # Auto-restore English words
 trigger_keys = ["space", "escape"]
 
 [password_detection]
@@ -183,6 +205,7 @@ terminal_input_method = "vni"   # Automatically switch to VNI when running in a 
 ko = "không"
 dc = "được"
 vs = "với"
+# Env override: VIETC_FORCE_IBUS=1 forces IBus even on X11
 ```
 
 ---
@@ -257,16 +280,20 @@ Type Vietnamese directly — no pre-edit buffer, no underline, no duplication. J
 
 ## 🏗️ Architecture
 
-Viet+ is a native Linux daemon written in Rust. It captures keystrokes via `evdev`, transforms them through the Bamboo engine, and injects Unicode back through `/dev/uinput`. A tray UI exposes mode state.
+Viet+ is a **hybrid** Linux daemon written in Rust — same `Bamboo` core, different shells per desktop (like `Funput` `funput`/`funput-ibus`).
 
 | Layer | Tech | Role |
 |-------|------|------|
-| **Engine** | Rust + Bamboo core | Composition, marks, tones, backtracking |
-| **Capture** | `evdev` / XRecord | Keyboard capture (`/dev/input`) |
-| **Injection** | `/dev/uinput` (XTest fallback) | Unicode keystroke injection |
-| **App State** | AT-SPI2 D-Bus | Per-app VN/EN memory + password detection |
-| **UI** | ksni tray | VN / TLX / EN mode indicator |
-| **Config** | TOML | Hot-reloadable settings + overrides |
+| **Engine** | Rust + Bamboo core | Composition, marks, tones, backtracking (shared) |
+| **IBus** | D-Bus `org.freedesktop.IBus` (`daemon/src/ibus_engine.rs`) | Native on Ubuntu 24.04+ Wayland (GNOME/Mutter, where `Mutter` lacks `zwp_input_method_v2`); preedit `UpdatePreeditText` + `CommitText`, `Ctrl+Space`/`Ctrl+Shift` |
+| **Wayland** | `zwp_input_method_v2` + `zwp_virtual_keyboard_v1` (`daemon/src/wayland_im.rs`) | Hyprland/Sway native, rootless |
+| **Capture** | `evdev` / XRecord / X11 keymap (`evdev_loop.rs`, `x11_capture.rs`) | Direct on Mint/Arch/X11; `input` group or `setcap` |
+| **Injection** | `IBus` vs `/dev/uinput` vs `XTEST` (`protocol/`) | Per-path injection |
+| **App State** | AT-SPI2 D-Bus + `overrides.toml` | Per-app VN/EN memory + password detection |
+| **UI** | `ksni` tray | VN / TLX / EN mode indicator |
+| **Config** | `TOML` (`auto_ibus`, `ibus_engine`) | Hot-reloadable, `VIETC_FORCE_IBUS=1` override |
+
+Order probed at startup: `controller_mode` → `IBus` (`auto_ibus` on `GNOME Wayland`) → `zwp_input_method_v2` → `evdev` → `X11 keymap` → `stdin` (see `daemon/src/main.rs`, `docs/wayland-rootless.md`).
 
 ```
 vietc/
@@ -323,15 +350,18 @@ The 0.1.7 refactoring split a 2151-line `main.rs` into 11 focused modules, deliv
 ```bash
 # Build
 cargo build
+(cd ui && cargo build) # tray
 
-# Run tests (104 passing)
-cargo test
+# Run tests (124 passing: 78 engine + 46 daemon)
+cargo test -p vietc-engine -p vietc-daemon
 
-# Run (Mint — no sudo needed for uinput)
+# Run — hybrid auto (IBus on GNOME Wayland, evdev on X11)
 ./target/release/vietc
-
-# Run (Ubuntu — needs sudo for keyboard grab)
-sudo ./target/release/vietc
+# Force IBus (test Ubuntu fix on any session)
+VIETC_FORCE_IBUS=1 ./target/release/vietc
+# Via systemd (recommended, auto IBus on Ubuntu)
+systemctl --user enable --now vietc.service
+journalctl --user -u vietc.service -f # look for "IBus engine mode auto-enabled"
 ```
 
 ---
