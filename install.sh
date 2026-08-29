@@ -313,13 +313,43 @@ cleanup() { rm -rf "$TMPDIR"; }
 trap cleanup EXIT
 
 if [ "$FROM_SOURCE" = true ]; then
-    # Install Rust if missing
-    if ! command -v cargo &>/dev/null; then
-        t install_rust
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    # Install Rust if missing — check both root and the invoking user's cargo
+    # (install.sh is run via sudo, so root's PATH often lacks cargo even when the user has it)
+    CARGO_BIN=""
+    if command -v cargo &>/dev/null; then
+        CARGO_BIN="$(command -v cargo)"
+    elif [ -n "${SUDO_USER:-}" ] && [ -x "/home/$SUDO_USER/.cargo/bin/cargo" ]; then
+        CARGO_BIN="/home/$SUDO_USER/.cargo/bin/cargo"
+        export PATH="/home/$SUDO_USER/.cargo/bin:$PATH"
+        echo "Using cargo from $CARGO_BIN (SUDO_USER=$SUDO_USER)"
+    elif [ -x "$HOME/.cargo/bin/cargo" ]; then
+        CARGO_BIN="$HOME/.cargo/bin/cargo"
         export PATH="$HOME/.cargo/bin:$PATH"
-        if [ -n "${SUDO_USER:-}" ] && [ -d "/home/$SUDO_USER/.cargo/bin" ]; then
-            export PATH="/home/$SUDO_USER/.cargo/bin:$PATH"
+    fi
+    if [ -z "$CARGO_BIN" ]; then
+        t install_rust
+        echo "Downloading rustup (may take a minute, no progress shown with -sSf)..."
+        # Try user-owned install first (avoids polluting /root), fall back to root if no SUDO_USER
+        if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+            # Install for the invoking user, not root
+            sudo -u "$SUDO_USER" bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path' 2>&1 || \
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+            export PATH="/home/$SUDO_USER/.cargo/bin:$HOME/.cargo/bin:$PATH"
+        else
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+            export PATH="$HOME/.cargo/bin:$PATH"
+        fi
+        # Verify
+        if ! command -v cargo &>/dev/null && [ -x "/home/${SUDO_USER:-$USER}/.cargo/bin/cargo" ]; then
+            export PATH="/home/${SUDO_USER:-$USER}/.cargo/bin:$PATH"
+        fi
+        if ! command -v cargo &>/dev/null; then
+            echo "ERROR: cargo still not found after rustup. Try manual install:" >&2
+            echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y" >&2
+            echo "  source \"\$HOME/.cargo/env\"" >&2
+            echo "Or use prebuilt binary to skip Rust:" >&2
+            echo "  sudo ./install.sh --prebuilt" >&2
+            exit 1
         fi
     fi
 
