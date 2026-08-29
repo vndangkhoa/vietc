@@ -351,6 +351,22 @@ if [ "$FROM_SOURCE" = true ]; then
             echo "  sudo ./install.sh --prebuilt" >&2
             exit 1
         fi
+    else
+        # cargo exists but may have no default toolchain (common when sudo finds user's cargo via PATH but root's rustup has no default)
+        if ! cargo --version >/dev/null 2>&1; then
+            echo "cargo found at $CARGO_BIN but no default toolchain — setting rustup default stable..."
+            rustup default stable 2>&1 || true
+            if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+                sudo -u "$SUDO_USER" rustup default stable 2>&1 || true
+                sudo -u "$SUDO_USER" bash -c 'source "$HOME/.cargo/env" 2>/dev/null; rustup default stable 2>&1 || true' || true
+            fi
+            # Ensure both PATHs contain the cargo bin for the subsequent build (root runs cargo build)
+            export PATH="/home/${SUDO_USER:-$USER}/.cargo/bin:$HOME/.cargo/bin:$PATH"
+            if ! cargo --version >/dev/null 2>&1; then
+                echo "Still no toolchain, will try RUSTUP_TOOLCHAIN=stable fallback for build"
+                export RUSTUP_TOOLCHAIN=stable
+            fi
+        fi
     fi
 
     # Clone staging if not in repo
