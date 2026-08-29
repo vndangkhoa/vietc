@@ -442,28 +442,29 @@ else
 fi
 
 # Kill old processes
-pkill -x vietc-tray 2>/dev/null || true
-pkill -x vietc-daemon 2>/dev/null || true
-pkill -x vietc 2>/dev/null || true
+pkill -9 -f vietc-tray 2>/dev/null || true
+pkill -9 -f vietc-daemon 2>/dev/null || true
+pkill -9 -f vietcctl 2>/dev/null || true
+pkill -9 -f vietc 2>/dev/null || true
+sleep 0.5
 
-# Install binaries
+# Install binaries (using install -m 755 to safely replace running binaries without Text file busy)
 t installing_bins
 if [ "$FROM_SOURCE" = true ]; then
-    cp target/release/vietc /usr/bin/vietc-daemon
-    cp target/release/vietc-cli /usr/bin/vietc-cli
-    cp target/release/vietc-uinputd /usr/bin/vietc-uinputd
-    cp ui/target/release/vietc-tray /usr/bin/vietc-tray 2>/dev/null || true
-    [ -f target/release/vietc-xrecord ] && cp target/release/vietc-xrecord /usr/bin/vietc-xrecord || true
-    [ -f target/release/vietcctl ] && cp target/release/vietcctl /usr/bin/vietcctl || true
+    install -m 755 target/release/vietc /usr/bin/vietc-daemon
+    install -m 755 target/release/vietc-cli /usr/bin/vietc-cli
+    install -m 755 target/release/vietc-uinputd /usr/bin/vietc-uinputd
+    [ -f ui/target/release/vietc-tray ] && install -m 755 ui/target/release/vietc-tray /usr/bin/vietc-tray || true
+    [ -f target/release/vietc-xrecord ] && install -m 755 target/release/vietc-xrecord /usr/bin/vietc-xrecord || true
+    [ -f target/release/vietcctl ] && install -m 755 target/release/vietcctl /usr/bin/vietcctl || true
 else
-    cp "$BIN_DIR/vietc-daemon" /usr/bin/vietc-daemon
-    cp "$BIN_DIR/vietc-cli" /usr/bin/vietc-cli
-    cp "$BIN_DIR/vietc-uinputd" /usr/bin/vietc-uinputd
-    cp "$BIN_DIR/vietc-tray" /usr/bin/vietc-tray 2>/dev/null || true
-    [ -f "$BIN_DIR/vietc-xrecord" ] && cp "$BIN_DIR/vietc-xrecord" /usr/bin/vietc-xrecord || true
-    [ -f "$BIN_DIR/vietcctl" ] && cp "$BIN_DIR/vietcctl" /usr/bin/vietcctl || true
+    install -m 755 "$BIN_DIR/vietc-daemon" /usr/bin/vietc-daemon
+    install -m 755 "$BIN_DIR/vietc-cli" /usr/bin/vietc-cli
+    install -m 755 "$BIN_DIR/vietc-uinputd" /usr/bin/vietc-uinputd
+    [ -f "$BIN_DIR/vietc-tray" ] && install -m 755 "$BIN_DIR/vietc-tray" /usr/bin/vietc-tray || true
+    [ -f "$BIN_DIR/vietc-xrecord" ] && install -m 755 "$BIN_DIR/vietc-xrecord" /usr/bin/vietc-xrecord || true
+    [ -f "$BIN_DIR/vietcctl" ] && install -m 755 "$BIN_DIR/vietcctl" /usr/bin/vietcctl || true
 fi
-chmod 755 /usr/bin/vietc-daemon /usr/bin/vietc-cli /usr/bin/vietc-uinputd /usr/bin/vietc-tray /usr/bin/vietcctl 2>/dev/null || true
 
 # Grant cap_sys_admin so evdev grab works without full root (Linux ≥ 5.8)
 # Also grant cap_dac_override for /dev/uinput access if not in input group
