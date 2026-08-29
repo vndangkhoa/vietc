@@ -386,8 +386,8 @@ journalctl --user -f -u vietc.service  # nếu chạy qua service`,
                   </div>
                   <p className="text-amber-200/80">
                     Mutter (GNOME Wayland) không hỗ trợ <code className="font-mono text-amber-300">zwp_input_method_v2</code> — đường Wayland thuần không thể kích hoạt. 
-                    VietC học từ <span className="text-amber-300 font-semibold">Funput</span>: trên Ubuntu Wayland, tự chuyển thành <span className="text-white font-semibold">IBus engine</span> gốc (qua D-Bus <code className="font-mono">org.freedesktop.IBus</code>), có preedit gạch chân mượt, hoạt động trong mọi app Wayland-native (Firefox, Text Editor, Ptyxis) mà đường X11 không thấy. <br/>
-                    <span className="text-slate-400">Trên Mint X11/evdev vẫn giữ direct 0ms không IBus.</span> Đổi hành vi bằng <code className="font-mono text-white">auto_ibus=false</code> trong <code className="font-mono">~/.config/vietc/config.toml</code> hoặc <code className="font-mono">VIETC_FORCE_IBUS=1</code>.
+                    VietC trên Ubuntu Wayland tự chuyển thành <span className="text-white font-semibold">IBus engine</span> gốc (qua D-Bus <code className="font-mono">org.freedesktop.IBus</code>), hỗ trợ <span className="text-emerald-300 font-semibold">Zero Underline</span> (gõ trực tiếp không gạch chân), xoay vòng 3 chế độ mượt mà bằng <span className="text-emerald-300 font-semibold">Ctrl + Shift</span> và bao phủ 100% ứng dụng Wayland (Terminal, Firefox, Chrome, Text Editor). <br/>
+                    <span className="text-slate-400">Trên Mint X11/evdev vẫn giữ direct 0ms không IBus.</span>
                   </p>
                 </div>
               </div>
@@ -408,7 +408,7 @@ journalctl --user -f -u vietc.service  # nếu chạy qua service`,
               </div>
               <h4 className="text-sm font-semibold text-slate-200 mb-2">Ubuntu 24.04+ Wayland</h4>
               <p className="text-slate-400 text-xs leading-relaxed">
-                Chạy như <code className="text-sky-400 font-mono">IBus engine</code> gốc qua D-Bus (học từ Funput). Có preedit gạch chân, <code className="text-slate-300">Ctrl+Space</code> mượt, bao phủ 100% app Wayland-native (Firefox, ptyxis, gedit) mà evdev/X11 không thấy.
+                Chạy như <code className="text-sky-400 font-mono">IBus engine</code> gốc qua D-Bus. <span className="text-emerald-400 font-semibold">Zero Underline</span>, xoay vòng 3 chế độ <code className="text-slate-300">Ctrl+Shift</code>, bao phủ 100% app Wayland-native (Firefox, Terminal, Gedit, VS Code).
               </p>
               <div className="mt-3 text-[10px] font-mono text-sky-400 bg-sky-950/20 px-2 py-1 rounded border border-sky-500/10">GNOME Wayland → org.freedesktop.IBus</div>
             </div>

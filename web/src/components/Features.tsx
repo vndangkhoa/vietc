@@ -60,59 +60,59 @@ export default function Features() {
         {/* 3 Pillars Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
           
-          {/* Pillar 1: Hybrid Engine (Funput-style) */}
+          {/* Pillar 1: Hybrid Engine with Zero Underline */}
           <div className="bg-white/[0.02] rounded-2xl border border-white/5 p-6 flex flex-col justify-between hover:border-sky-500/30 transition-all">
             <div>
               <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center mb-5">
                 <Layers size={20} />
               </div>
               <h3 className="text-base font-sans font-bold text-white mb-3">
-                1. Hybrid Engine
+                1. Zero Underline & Hybrid
               </h3>
               <p className="text-slate-400 text-xs sm:text-sm leading-relaxed mb-4">
-                Tự chọn đường mượt nhất: <span className="text-sky-400 font-semibold">IBus</span> trên Ubuntu 24.04+ Wayland (preedit, via D-Bus, như Funput), <span className="text-emerald-400">zwp_v2</span> trên Hyprland/Sway, <span className="text-slate-200">evdev+uinput</span> trên Mint/Arch/X11. Cùng một <span className="text-white">Bamboo</span> core, chỉ khác shell.
+                Tự chọn đường mượt nhất: <span className="text-sky-400 font-semibold">IBus engine</span> trên Ubuntu 24.04+ Wayland (in-place không gạch chân, hỗ trợ trọn vẹn cả Terminal lẫn GUI), <span className="text-emerald-400">zwp_v2</span> trên Hyprland/Sway, và <span className="text-slate-200">evdev+uinput</span> trên Mint/Arch/X11.
               </p>
             </div>
             <div className="text-[11px] font-mono text-sky-400 mt-2 bg-sky-950/15 p-2.5 rounded-lg border border-sky-500/10">
-              IBus → zwp_v2 → evdev → X11 &nbsp;·&nbsp; auto_ibus
+              IBus → zwp_v2 → evdev → X11 &nbsp;·&nbsp; Zero Underline
             </div>
           </div>
 
-          {/* Pillar 2: Token-Level Diffing */}
+          {/* Pillar 2: 3-Way Mode Switch */}
           <div className="bg-white/[0.02] rounded-2xl border border-white/5 p-6 flex flex-col justify-between hover:border-emerald-500/30 transition-all">
             <div>
               <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mb-5">
                 <GitCompare size={20} />
               </div>
               <h3 className="text-base font-sans font-bold text-white mb-3">
-                2. Token-Level Diffing
+                2. 3-Way Mode Switch
               </h3>
               <p className="text-slate-400 text-xs sm:text-sm leading-relaxed mb-4">
-                Trên đường direct (evdev/X11): tính diff nhỏ nhất giữa từ đã gõ và từ mong muốn, chỉ xóa/gõ phần lệch thay vì phát lại Backspace dồn dập gây giật Terminal. Trên IBus/Wayland: dùng preedit/commit mượt.
+                Xoay vòng siêu tốc giữa 3 chế độ: <span className="text-slate-200 font-mono font-bold">ENG ➔ VNI ➔ TELEX ➔ ENG</span> bằng phím tắt <span className="text-emerald-400 font-semibold">Ctrl + Shift</span> (hỗ trợ cả 2 chiều nhấn). Phím Ctrl + Space được giữ nguyên cho gợi ý code trong IDEs.
               </p>
             </div>
             <div className="text-[11px] font-mono text-emerald-400 mt-2 bg-emerald-950/15 p-2.5 rounded-lg border border-emerald-500/10 flex items-center justify-between">
-              <span>diff = backspace + output</span>
+              <span>Ctrl + Shift</span>
               <ArrowRight size={10} />
-              <span className="font-bold">ImeResult</span>
+              <span className="font-bold">ENG · VNI · TELEX</span>
             </div>
           </div>
 
-          {/* Pillar 3: Privacy-First */}
+          {/* Pillar 3: Dynamic Tray & Privacy */}
           <div className="bg-white/[0.02] rounded-2xl border border-white/5 p-6 flex flex-col justify-between hover:border-emerald-500/30 transition-all">
             <div>
               <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mb-5">
                 <ShieldCheck size={20} />
               </div>
               <h3 className="text-base font-sans font-bold text-white mb-3">
-                3. Privacy-First
+                3. Dynamic Tray & Privacy
               </h3>
               <p className="text-slate-400 text-xs sm:text-sm leading-relaxed mb-4">
-                Chạy cục bộ 100% dưới quyền user, không Internet, không telemetry. Dù là IBus (qua D-Bus) hay uinput, mật khẩu/lệnh Terminal đều được bảo vệ — phát hiện ô mật khẩu 4 lớp và không bao giờ gửi dữ liệu ra ngoài.
+                Biểu tượng khay hệ thống hiển thị màu sắc và kiểu gõ trực quan (<span className="text-slate-200 font-semibold">EN / VN / TLX</span>). Hoạt động hoàn toàn cục bộ 100% không Internet, không telemetry, bảo vệ an toàn cho mật khẩu và lệnh Terminal.
               </p>
             </div>
             <div className="text-[11px] font-mono text-emerald-400 mt-2 bg-emerald-950/15 p-2.5 rounded-lg border border-emerald-500/10">
-              Local only &bull; No phoning home
+              Native SVG Tray &bull; 100% Offline
             </div>
           </div>
 
