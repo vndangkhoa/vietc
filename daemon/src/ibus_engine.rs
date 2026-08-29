@@ -239,12 +239,12 @@ fn ibus_attr_no_underline(start: u32, end: u32) -> MessageItem {
     ])
 }
 
-fn ibus_attr_list(char_count: usize) -> MessageItem {
+fn ibus_attr_list(byte_count: usize) -> MessageItem {
     // IBusAttrList serializes as (s a{sv} av)
-    let attrs = if char_count > 0 {
+    let attrs = if byte_count > 0 {
         vec![MessageItem::Variant(Box::new(ibus_attr_no_underline(
             0,
-            char_count as u32,
+            byte_count as u32,
         )))]
     } else {
         vec![]
@@ -258,12 +258,12 @@ fn ibus_attr_list(char_count: usize) -> MessageItem {
 
 fn ibus_text_struct(text: &str) -> MessageItem {
     // IBusText serializes as (s a{sv} s v)
-    let char_count = text.chars().count();
+    let byte_count = text.len();
     MessageItem::Struct(vec![
         MessageItem::Str("IBusText".into()),
         empty_dict(),
         MessageItem::Str(text.into()),
-        MessageItem::Variant(Box::new(ibus_attr_list(char_count))),
+        MessageItem::Variant(Box::new(ibus_attr_list(byte_count))),
     ])
 }
 
@@ -635,23 +635,23 @@ fn handle_message(state: &Arc<IBusState>, conn: &Connection, msg: &Message) {
                 let _ = conn.send(reply);
             }
             "FocusIn" => {
-                set_focus(state, path, true);
+                set_focus(state, path, true, conn);
                 reply_empty(msg, conn);
             }
             "FocusOut" => {
-                set_focus(state, path, false);
+                set_focus(state, path, false, conn);
                 reply_empty(msg, conn);
             }
             "Reset" => {
-                reset_context(state, path);
+                reset_context(state, path, conn);
                 reply_empty(msg, conn);
             }
             "Enable" => {
-                set_enabled(state, path, true);
+                set_enabled(state, path, true, conn);
                 reply_empty(msg, conn);
             }
             "Disable" => {
-                set_enabled(state, path, false);
+                set_enabled(state, path, false, conn);
                 reply_empty(msg, conn);
             }
             _ => reply_empty(msg, conn),
@@ -756,26 +756,37 @@ fn create_engine(state: &IBusState, conn: &Connection, _name: &str) -> String {
     path
 }
 
-fn set_focus(state: &IBusState, path: &str, focused: bool) {
+fn set_focus(state: &IBusState, path: &str, focused: bool, conn: &Connection) {
     if let Some(ctx) = state.contexts.lock().unwrap().get_mut(path) {
         ctx.focus_id = focused;
+        if !focused && !ctx.preedit.is_empty() {
+            let word = ctx.preedit.clone();
+            ctx.preedit.clear();
+            emit_update_preedit(conn, path, "");
+            emit_commit_text(conn, path, &word);
+        }
         ctx.engine.reset();
-        ctx.preedit.clear();
     }
 }
 
-fn set_enabled(state: &IBusState, path: &str, enabled: bool) {
+fn set_enabled(state: &IBusState, path: &str, enabled: bool, conn: &Connection) {
     if let Some(ctx) = state.contexts.lock().unwrap().get_mut(path) {
         ctx.enabled = enabled;
+        if !ctx.preedit.is_empty() {
+            ctx.preedit.clear();
+            emit_update_preedit(conn, path, "");
+        }
         ctx.engine.reset();
-        ctx.preedit.clear();
     }
 }
 
-fn reset_context(state: &IBusState, path: &str) {
+fn reset_context(state: &IBusState, path: &str, conn: &Connection) {
     if let Some(ctx) = state.contexts.lock().unwrap().get_mut(path) {
+        if !ctx.preedit.is_empty() {
+            ctx.preedit.clear();
+            emit_update_preedit(conn, path, "");
+        }
         ctx.engine.reset();
-        ctx.preedit.clear();
     }
 }
 
@@ -889,30 +900,54 @@ fn handle_process_key_event(
             }
         }
 
-    // Enter / Return: reset engine buffer and let key produce a newline.
+    // Enter / Return: if composing in preedit, commit word before newline; then pass key through
     if keyval == 0xFF0D || keyval == 0xFF8D {
+        if !ctx.preedit.is_empty() {
+            let word = ctx.preedit.clone();
+            ctx.preedit.clear();
+            emit_update_preedit(conn, path, "");
+            emit_commit_text(conn, path, &word);
+        }
         ctx.engine.reset();
         return false;
     }
 
-    // Escape: reset engine buffer and pass Escape through
+    // Escape: if composing in preedit, cancel preedit; pass Escape through
     if keyval == 0xFF1B {
+        if !ctx.preedit.is_empty() {
+            ctx.preedit.clear();
+            emit_update_preedit(conn, path, "");
+        }
         ctx.engine.reset();
         return false;
     }
 
     // Navigation keys (Arrows, Home, End, PageUp/Down, Delete, Tab):
-    // reset engine buffer so cursor moves freely in the document.
+    // Commit any active preedit word and let cursor move freely in document.
     let is_nav = (keyval >= 0xFF50 && keyval <= 0xFF58) || keyval == 0xFFFF || keyval == 0xFF09;
     if is_nav {
+        if !ctx.preedit.is_empty() {
+            let word = ctx.preedit.clone();
+            ctx.preedit.clear();
+            emit_update_preedit(conn, path, "");
+            emit_commit_text(conn, path, &word);
+        }
         ctx.engine.reset();
         return false;
     }
 
-    // Backspace: update engine internal buffer and let application delete character directly.
+    // Backspace: if composing in preedit, delete character in preedit; otherwise forward to app
     if keyval == 0xFF08 {
-        ctx.engine.process_key('\x08');
-        return false;
+        if !ctx.preedit.is_empty() {
+            ctx.engine.process_key('\x08');
+            let new_preedit = ctx.engine.buffer();
+            ctx.preedit = new_preedit.clone();
+            emit_update_preedit(conn, path, &new_preedit);
+            return true;
+        } else {
+            ctx.engine.reset();
+            return false;
+        }
     }
 
     let ch = match keyval_to_char(keyval) {
@@ -920,13 +955,21 @@ fn handle_process_key_event(
         None => return false,
     };
 
-    // Direct Commit model: text is committed directly to the focused client as real
-    // characters without preedit underline. When tone/mark transformations occur,
-    // DeleteSurroundingText replaces previous characters seamlessly.
     if is_flush_char(ch) {
-        if let Some(EngineEvent::Replace { backspaces, insert }) = ctx.engine.process_key(ch) {
-            emit_delete_surrounding_text(conn, path, -(backspaces as i32), backspaces as u32);
-            emit_commit_text(conn, path, &format!("{insert}{ch}"));
+        let word = if !ctx.preedit.is_empty() {
+            if let Some(EngineEvent::Replace { insert, .. }) = ctx.engine.process_key(ch) {
+                insert
+            } else {
+                ctx.preedit.clone()
+            }
+        } else {
+            String::new()
+        };
+
+        ctx.preedit.clear();
+        emit_update_preedit(conn, path, "");
+        if !word.is_empty() {
+            emit_commit_text(conn, path, &format!("{}{}", word, ch));
         } else {
             emit_commit_text(conn, path, &ch.to_string());
         }
@@ -934,28 +977,12 @@ fn handle_process_key_event(
         return true;
     }
 
-    match ctx.engine.process_key(ch) {
-        Some(EngineEvent::Replace { backspaces, insert }) => {
-            emit_delete_surrounding_text(conn, path, -(backspaces as i32), backspaces as u32);
-            emit_commit_text(conn, path, &insert);
-            true
-        }
-        Some(EngineEvent::AutoRestore(s))
-        | Some(EngineEvent::UndoTones { restored: s, .. })
-        | Some(EngineEvent::Flush(s))
-        | Some(EngineEvent::Paste(s)) => {
-            emit_commit_text(conn, path, &s);
-            true
-        }
-        Some(EngineEvent::Insert(s)) => {
-            emit_commit_text(conn, path, &s);
-            true
-        }
-        None => {
-            emit_commit_text(conn, path, &ch.to_string());
-            true
-        }
-    }
+    // Composing character: update engine and display preedit in-place
+    let _ = ctx.engine.process_key(ch);
+    let new_preedit = ctx.engine.buffer();
+    ctx.preedit = new_preedit.clone();
+    emit_update_preedit(conn, path, &new_preedit);
+    true
 }
 
 fn emit_delete_surrounding_text(conn: &Connection, path: &str, offset: i32, nchars: u32) {

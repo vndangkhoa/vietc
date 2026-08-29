@@ -1,6 +1,11 @@
 /// Characters that flush the current word and start a new one.
 pub fn is_flush_char(ch: char) -> bool {
-    matches!(ch, ' ' | '.' | ',' | '!' | '?' | ';' | ':' | '\t' | '\n')
+    matches!(
+        ch,
+        ' ' | '\t' | '\n' | '\r' | '.' | ',' | '!' | '?' | ';' | ':' | '/' | '\\'
+            | '-' | '_' | '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '=' | '+'
+            | '*' | '&' | '%' | '$' | '#' | '@' | '~' | '`' | '"' | '\'' | '|' | '^'
+    )
 }
 
 pub fn is_vn_control_key(method: &str, ch: char) -> bool {
