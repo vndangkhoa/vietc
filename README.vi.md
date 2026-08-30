@@ -59,9 +59,23 @@ Viet+ loại bỏ hoàn toàn những nhược điểm trên. Các phím gõ đ�
 
 ---
 
+## 📥 Cài đặt nhanh (1 lệnh duy nhất)
+
+Tự động phát hiện hệ điều hành (Ubuntu, Debian, Fedora, Arch, Omarchy, Manjaro...), cài đặt thư viện phụ thuộc (`wtype`, `libevdev`), cấu hình quyền hạn và tự khởi động cùng hệ thống:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/install.sh | bash
+```
+
+**Cách chuyển đổi kiểu gõ:**
+- Nhấn **`Ctrl + Shift`** để xoay vòng: **⚪ ENG ➔ 🔴 VNI ➔ 🔵 TELEX ➔ ⚪ ENG**
+- Hoặc nhấp chuột vào biểu tượng khay hệ thống (EN / VN / TLX).
+
+---
+
 ## Phương thức gõ
 
-Viet+ hỗ trợ đầy đủ hai phương thức gõ **VNI** và **Telex**. Bạn có thể chuyển đổi qua lại bằng phím tắt **Ctrl+LeftShift** hoặc qua menu khay hệ thống.
+Viet+ hỗ trợ đầy đủ hai phương thức gõ **VNI** và **Telex**. Bạn có thể chuyển đổi qua lại bằng phím tắt **Ctrl+Shift** hoặc qua menu khay hệ thống.
 
 ### VNI
 

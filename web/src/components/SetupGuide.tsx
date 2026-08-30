@@ -19,51 +19,48 @@ export default function SetupGuide() {
     mint_ubuntu: [
       {
         id: 1,
-        title: "Cài đặt VietC (một lệnh)",
-        description: "Script tự động phát hiện distro, cài đặt dependencies, biên dịch và cài đặt toàn bộ daemon, công cụ vietcctl và ứng dụng khay hệ thống vietc-tray vào /usr/bin/.",
-        command: `git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc \\
-  && cd /tmp/vietc && sudo ./install.sh`,
-        notes: "Tự động: cấu hình IBus component, thiết lập nguồn gõ vietc duy nhất trên GNOME (ẩn chữ VI/en thừa), cài đặt biểu tượng khay EN/VN/TLX đa kích thước và tự khởi chạy khi đăng nhập."
+        title: "Cài đặt VietC (một lệnh duy nhất)",
+        description: "Script tự động phát hiện distro, cài đặt dependencies, biên dịch và cài đặt toàn bộ daemon, công cụ vietcctl và ứng dụng khay hệ thống vietc-tray.",
+        command: `curl -fsSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/install.sh | bash`,
+        notes: "Tự động: cài đặt wtype/Wayland direct injection, cấu hình biểu tượng khay EN/VN/TLX động, cấp quyền uinput rootless và tự khởi chạy khi đăng nhập."
       },
       {
         id: 2,
         title: "Kích hoạt & gõ tiếng Việt",
-        description: "VietC tự động chạy và tích hợp trực tiếp vào bàn phím hệ thống. Sử dụng phím tắt Ctrl + Shift để xoay vòng giữa Tiếng Anh, VNI và Telex hoàn toàn mượt mà.",
+        description: "VietC tự động chạy và tích hợp trực tiếp vào bàn phím hệ thống. Sử dụng phím tắt Ctrl + Shift (hoặc nhấp chuột vào biểu tượng khay) để xoay vòng giữa Tiếng Anh, VNI và Telex hoàn toàn mượt mà.",
         command: `# Xoay vòng kiểu gõ bất kỳ lúc nào:
 # Nhấn: Ctrl + Shift (ENG ➔ VNI ➔ TELEX ➔ ENG)
 
 # Kiểm tra trạng thái hiện tại bằng CLI:
 vietcctl status`,
-        notes: "Gõ trực tiếp vào tài liệu không có gạch chân (Zero Underline). Biểu tượng trên khay hệ thống (EN / VN / TLX) sẽ tự động đổi màu và chữ tương ứng."
+        notes: "Gõ trực tiếp không gạch chân (Zero Underline) với native Wayland injection qua wtype. Tích hợp tính năng tự động nhận diện và khôi phục từ tiếng Anh thông minh."
       },
       {
         id: 3,
         title: "Gỡ cài đặt (Uninstall)",
-        description: "Xoá hoàn toàn VietC khỏi hệ thống, bao gồm binary, service và udev rules. IBus sẽ được khởi động lại nếu trước đó bị thay thế.",
+        description: "Xoá hoàn toàn VietC khỏi hệ thống, bao gồm binary, service và udev rules.",
         command: `curl -sSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/uninstall.sh | sudo bash`,
-        notes: "Xoá /usr/bin/vietc-daemon, /usr/bin/vietcctl, /usr/bin/vietc-tray, /usr/share/ibus/component/vietc.xml và ~/.config/vietc/."
+        notes: "Xoá /usr/bin/vietc-daemon, /usr/bin/vietcctl, /usr/bin/vietc-tray và ~/.config/vietc/."
       }
     ],
     arch: [
       {
         id: 1,
-        title: "Cài đặt VietC trên Arch",
-        description: "Tự động clone, build và cài đặt VietC. Trên Arch X11, mặc định dùng evdev+uinput 0ms direct. Trên Arch GNOME Wayland cũng hỗ trợ IBus nếu bạn để auto_ibus=true.",
-        command: `git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc \\
-  && cd /tmp/vietc && sudo ./install.sh
-# ép IBus như Funput funput-ibus: sudo ./install.sh --ibus`,
-        notes: "Hỗ trợ pacman, tự cài base-devel, libx11, libxkbcommon, wayland. Ép chế độ: --ibus (force IBus), --bamboo (dùng ibus-bamboo per-app), --grab (ép evdev)."
+        title: "Cài đặt VietC trên Arch / Omarchy / Manjaro",
+        description: "Chạy 1 lệnh duy nhất để tự động cài đặt trên Arch Linux và các bản phối phái sinh.",
+        command: `curl -fsSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/install.sh | bash`,
+        notes: "Tự động phát hiện pacman, cài base-devel, wtype, wayland, libevdev và lọc thiết bị bàn phím chính xác."
       },
       {
         id: 2,
-        title: "Tuỳ chọn: ép chế độ",
-        description: "VietC tự chọn đường dẫn tối ưu, nhưng bạn có thể ép buộc nếu cần test hoặc dùng wm đặc biệt (Sway/Hyprland hỗ trợ zwp_input_method_v2).",
-        command: `# Ép dùng IBus engine (kể cả trên X11)
-VIETC_FORCE_IBUS=1 vietc-daemon
-# Hoặc sửa ~/.config/vietc/config.toml:
-# auto_ibus = true
-# ibus_engine = true`,
-        notes: "Xem docs/wayland-rootless.md để hiểu thứ tự ưu tiên: IBus -> zwp_input_method_v2 -> evdev -> X11 keymap."
+        title: "Kích hoạt & chuyển chế độ",
+        description: "Chuyển chế độ linh hoạt bằng phím tắt hoặc click khay hệ thống.",
+        command: `# Xoay vòng chế độ:
+# Nhấn: Ctrl + Shift (ENG ➔ VNI ➔ TELEX)
+
+# Hoặc dùng CLI:
+vietcctl cycle`,
+        notes: "Hoạt động hoàn hảo trên Hyprland, Sway, GNOME và KDE Plasma."
       },
       {
         id: 3,
@@ -75,19 +72,18 @@ VIETC_FORCE_IBUS=1 vietc-daemon
     fedora: [
       {
         id: 1,
-        title: "Cài đặt VietC trên Fedora",
-        description: "Tự động cài đặt VietC trên Fedora/RHEL. Hỗ trợ dnf, tự cài Development Tools và thư viện Wayland/X11.",
-        command: `git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc \\
-  && cd /tmp/vietc && sudo ./install.sh`,
-        notes: "Tương tự Ubuntu nhưng dùng dnf. Trên Fedora GNOME Wayland cũng tự bật IBus engine nếu auto_ibus=true."
+        title: "Cài đặt VietC trên Fedora / RHEL",
+        description: "Tự động cài đặt VietC trên Fedora và RHEL với 1 lệnh.",
+        command: `curl -fsSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/install.sh | bash`,
+        notes: "Tự động dùng dnf, cài đặt thư viện wtype, Wayland và uinput dependencies."
       },
       {
         id: 2,
         title: "Kích hoạt & kiểm tra",
-        description: "Bật service và kiểm tra xem VietC đang dùng đường dẫn nào (IBus / evdev / X11).",
-        command: `systemctl --user enable --now vietc.service
-journalctl --user -u vietc.service --since today | grep -E "Display|IBus|evdev|X11"`,
-        notes: "Kỳ vọng trên Fedora Wayland: [vietc] Wayland input method ... hoặc IBus engine mode auto-enabled. Toggle VN/EN: Ctrl+Space, đổi VNI/Telex: Ctrl+Shift."
+        description: "Bật service và kiểm tra trạng thái hoạt động.",
+        command: `systemctl --user status vietc.service
+vietcctl status`,
+        notes: "Toggle ENG / VNI / TELEX bằng phím tắt Ctrl + Shift hoặc click biểu tượng khay."
       },
       {
         id: 3,

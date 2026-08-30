@@ -216,7 +216,19 @@ if [ "$FROM_SOURCE" != true ] && [ "$PREBUILT" != true ] && [ -f Cargo.toml ]; t
     FROM_SOURCE=true
 fi
 
-[ "$EUID" -ne 0 ] && t sudo && exit 1
+if [ "$EUID" -ne 0 ]; then
+    if command -v sudo >/dev/null 2>&1; then
+        echo -e "${YELLOW}Viet+ installer requires sudo permissions.${NC}"
+        if [ -f "$0" ]; then
+            exec sudo bash "$0" "$@"
+        else
+            exec curl -fsSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/install.sh | sudo bash -s -- "$@"
+        fi
+    else
+        t sudo
+        exit 1
+    fi
+fi
 
 INSTALLING_USER="${SUDO_USER:-$USER}"
 
@@ -268,16 +280,16 @@ install_deps() {
                 apt-get install -y build-essential pkg-config libx11-dev libxtst-dev \
                   libdbus-1-dev libevdev-dev libwayland-dev git \
                   libevdev2 libdbus-1-3 libx11-6 libxtst6 \
-                  libwayland-client0 xclip wl-clipboard curl
+                  libwayland-client0 xclip wl-clipboard wtype curl
                 ;;
             fedora|rhel|centos)
                 dnf groupinstall -y "Development Tools"
                 dnf install -y libX11-devel libXtst-devel dbus-devel libevdev-devel wayland-devel git \
-                  libevdev libX11 libXtst dbus-libs libwayland-client xclip wl-clipboard curl
+                  libevdev libX11 libXtst dbus-libs libwayland-client xclip wl-clipboard wtype curl
                 ;;
             arch|manjaro|cachyos|endeavouros|garuda|artix|omarchy)
                 pacman -Sy --needed --noconfirm base-devel pkgconf git \
-                  libevdev libx11 libxtst dbus wayland xclip wl-clipboard curl
+                  libevdev libx11 libxtst dbus wayland xclip wl-clipboard wtype curl
                 ;;
             *)
                 t unsupported_distro "$DISTRO"
@@ -290,14 +302,14 @@ install_deps() {
                 export DEBIAN_FRONTEND=noninteractive
                 apt-get update -y
                 apt-get install -y libevdev2 libdbus-1-3 libx11-6 libxtst6 \
-                  libwayland-client0 xclip wl-clipboard curl
+                  libwayland-client0 xclip wl-clipboard wtype curl
                 ;;
             fedora|rhel|centos)
-                dnf install -y libevdev libX11 libXtst dbus-libs libwayland-client xclip wl-clipboard curl
+                dnf install -y libevdev libX11 libXtst dbus-libs libwayland-client xclip wl-clipboard wtype curl
                 ;;
             arch|manjaro|cachyos|endeavouros|garuda|artix|omarchy)
                 pacman -Sy --needed --noconfirm libevdev libx11 libxtst dbus \
-                  wayland xclip wl-clipboard curl
+                  wayland xclip wl-clipboard wtype curl
                 ;;
             *)
                 t unsupported_distro "$DISTRO"

@@ -73,14 +73,16 @@ If that resonates, give it a star ⭐ — it helps others find the project.
 
 ### 🚀 Quick Start (One-Command)
 
-Works on all ✅ **Supported** distros. The script auto-detects your package manager, installs dependencies, compiles, installs to `/usr/bin/`, sets up `uinput` udev rules, adds your user to the `input` group, and on `Ubuntu/Debian GNOME Wayland` auto-configures the `IBus` engine (like `Funput funput-ibus`).
+Works on all ✅ **Supported** distros. The script automatically detects your package manager, installs dependencies (`wtype`, `libevdev`, etc.), compiles from source or fetches binaries, configures uinput rootless permissions, and registers the system service & tray autostart.
 
 ```bash
-git clone https://github.com/vndangkhoa/vietc.git /tmp/vietc 2>/dev/null || (cd /tmp/vietc && git pull) \
-  && cd /tmp/vietc && sudo ./install.sh
-# force IBus like Funput's --ibus: sudo ./install.sh --ibus
-# force bare evdev: sudo ./install.sh --grab
+curl -fsSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/install.sh | bash
 ```
+
+**How to switch typing modes:**
+* Press **`Ctrl + Shift`** to rotate: **⚪ EN ➔ 🔴 VNI ➔ 🔵 TELEX ➔ ⚪ EN**
+* Or click the system tray icon to switch anytime!
+* Status CLI: `vietcctl status` | Cycle: `vietcctl cycle`
 
 **After install:** 
 * **Ubuntu 24.04+ Wayland (GNOME):** `systemctl --user enable --now vietc.service` (installer does it live), then `ibus engine` → `vietc`. No logout needed for `IBus` path; `evdev` path still needs logout for `input` group. Verify: `journalctl --user -u vietc.service -f` should show `IBus engine mode auto-enabled`.
