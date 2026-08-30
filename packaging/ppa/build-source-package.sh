@@ -98,9 +98,16 @@ replace-with = "vendored-sources"
 directory = "../vendor"
 EOF
 
-# 2. Package into .orig.tar.gz
+# 2. Package into .orig.tar.gz (reusable across series for Launchpad)
 echo "3. Creating vietc_${VERSION}.orig.tar.gz..."
-(cd "$BUILD_DIR" && tar -czf "vietc_${VERSION}.orig.tar.gz" "vietc-${VERSION}")
+CANONICAL_ORIG="/tmp/vietc_${VERSION}.orig.tar.gz"
+if [ -f "$CANONICAL_ORIG" ] && [ ! -f "$BUILD_DIR/vietc_${VERSION}.orig.tar.gz" ]; then
+    echo "Reusing canonical orig from $CANONICAL_ORIG to ensure identical hash across series..."
+    cp -a "$CANONICAL_ORIG" "$BUILD_DIR/vietc_${VERSION}.orig.tar.gz"
+else
+    (cd "$BUILD_DIR" && tar -czf "vietc_${VERSION}.orig.tar.gz" "vietc-${VERSION}")
+    cp -a "$BUILD_DIR/vietc_${VERSION}.orig.tar.gz" "$CANONICAL_ORIG" 2>/dev/null || true
+fi
 
 # 3. Create debian/ directory
 cd "$SOURCE_DIR"

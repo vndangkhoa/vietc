@@ -21,9 +21,17 @@ tarball:
 aur:
 	bash packaging/aur/update-aur.sh
 
-# Build Debian source package for Launchpad PPA
+# Build Debian source package for Launchpad PPA (both Noble 24.04 + Jammy 22.04)
 ppa:
-	bash packaging/ppa/build-source-package.sh
+	bash packaging/ppa/build-source-package.sh noble
+	bash packaging/ppa/build-source-package.sh jammy
+	@echo "PPA source packages ready in /tmp/vietc_ppa_build_*/ (shared orig /tmp/vietc_\$$(grep '^version' engine/Cargo.toml | head -1 | sed 's/.*\"\(.*\)\"/\1/').orig.tar.gz)"
+
+ppa-noble:
+	bash packaging/ppa/build-source-package.sh noble
+
+ppa-jammy:
+	bash packaging/ppa/build-source-package.sh jammy
 
 # Build Arch Linux Pacman repository locally
 arch-repo:
