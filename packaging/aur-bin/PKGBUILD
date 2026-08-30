@@ -1,0 +1,62 @@
+# Maintainer: Dang Khoa <vndangkhoa>
+# Contributor: Khoa Vo <vndangkhoa>
+
+pkgname=vietc-bin
+pkgver=0.1.9
+pkgrel=1
+pkgdesc="Vietnamese Input Method for Linux (Wayland & X11) - Prebuilt binary"
+arch=('x86_64')
+url="https://github.com/vndangkhoa/vietc"
+license=('MIT')
+depends=('dbus' 'libx11' 'libxtst' 'wayland' 'libxkbcommon')
+optdepends=(
+    'ibus: for IBus engine integration (GNOME Wayland)'
+    'wtype: for direct Wayland virtual keyboard support (Hyprland/Sway)'
+)
+provides=('vietc')
+conflicts=('vietc' 'vietc-git')
+source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/vietc_${pkgver}_linux_amd64.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    cd "$srcdir/vietc_${pkgver}_linux_amd64"
+
+    # Binaries
+    install -Dm755 bin/vietc-daemon "$pkgdir/usr/bin/vietc-daemon"
+    install -Dm755 bin/vietc-cli "$pkgdir/usr/bin/vietc-cli"
+    install -Dm755 bin/vietc-uinputd "$pkgdir/usr/bin/vietc-uinputd"
+    install -Dm755 bin/vietcctl "$pkgdir/usr/bin/vietcctl"
+    install -Dm755 bin/vietc-tray "$pkgdir/usr/bin/vietc-tray"
+    if [ -f bin/vietc-xrecord ]; then
+        install -Dm755 bin/vietc-xrecord "$pkgdir/usr/bin/vietc-xrecord"
+    fi
+
+    # Symlink /usr/bin/vietc -> vietc-daemon
+    ln -sf vietc-daemon "$pkgdir/usr/bin/vietc"
+
+    # Configuration, Systemd user service, and Udev rules
+    install -Dm644 config/config.toml "$pkgdir/etc/vietc/config.toml"
+    install -Dm644 systemd/vietc.service "$pkgdir/usr/lib/systemd/user/vietc.service"
+    install -Dm644 udev/99-vietc.rules "$pkgdir/usr/lib/udev/rules.d/99-vietc.rules"
+
+    # Desktop entry & IBus Component
+    install -Dm644 desktop/vietc.desktop "$pkgdir/usr/share/applications/vietc.desktop"
+    install -Dm644 ibus/vietc.xml "$pkgdir/usr/share/ibus/component/vietc.xml"
+
+    # Icons (scalable and fixed raster resolutions)
+    install -Dm644 icons/vietc.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/vietc.svg"
+    install -Dm644 icons/vietc-en.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/vietc-en.svg"
+    install -Dm644 icons/vietc-vn.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/vietc-vn.svg"
+    install -Dm644 icons/vietc-tlx.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/vietc-tlx.svg"
+
+    for size in 32x32 48x48 64x64 128x128 256x256; do
+        install -Dm644 icons/vietc.svg "$pkgdir/usr/share/icons/hicolor/$size/apps/vietc.svg"
+        install -Dm644 icons/vietc-en.svg "$pkgdir/usr/share/icons/hicolor/$size/apps/vietc-en.svg"
+        install -Dm644 icons/vietc-vn.svg "$pkgdir/usr/share/icons/hicolor/$size/apps/vietc-vn.svg"
+        install -Dm644 icons/vietc-tlx.svg "$pkgdir/usr/share/icons/hicolor/$size/apps/vietc-tlx.svg"
+    done
+
+    # License and Documentation
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

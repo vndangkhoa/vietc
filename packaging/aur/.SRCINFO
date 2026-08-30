@@ -1,0 +1,24 @@
+pkgbase = vietc
+	pkgdesc = Vietnamese Input Method for Linux (Wayland & X11) - Zero underline, low latency
+	pkgver = 0.1.9
+	pkgrel = 1
+	url = https://github.com/vndangkhoa/vietc
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	makedepends = cargo
+	makedepends = gcc
+	depends = dbus
+	depends = libx11
+	depends = libxtst
+	depends = wayland
+	depends = libxkbcommon
+	optdepends = ibus: for IBus engine integration (GNOME Wayland)
+	optdepends = wtype: for direct Wayland virtual keyboard support (Hyprland/Sway)
+	provides = vietc
+	conflicts = vietc-bin
+	conflicts = vietc-git
+	source = vietc-0.1.9.tar.gz::https://github.com/vndangkhoa/vietc/archive/refs/tags/v0.1.9.tar.gz
+	sha256sums = SKIP
+
+pkgname = vietc

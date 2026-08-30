@@ -1,4 +1,37 @@
-.PHONY: build build-x11 build-wayland build-all build-ui test test-cli run run-x11 run-wayland clean install install-x11 install-wayland install-ui install-config deb fmt lint tree
+.PHONY: build build-x11 build-wayland build-all build-ui test test-cli run run-x11 run-wayland clean install install-x11 install-wayland install-ui install-config deb tarball aur ppa arch-repo push-arch release release-ppa fmt lint tree
+
+# Master release build
+release:
+	bash packaging/release.sh
+
+# Master release build and upload to Launchpad PPA
+release-ppa:
+	bash packaging/release.sh --upload-ppa
+
+# Build .deb package
+deb:
+	VERSION=$$(grep '^version' engine/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/') && \
+	bash packaging/deb/build-deb.sh "$$VERSION"
+
+# Build generic Linux tarball
+tarball:
+	bash packaging/build-tarball.sh
+
+# Update AUR PKGBUILD & .SRCINFO
+aur:
+	bash packaging/aur/update-aur.sh
+
+# Build Debian source package for Launchpad PPA
+ppa:
+	bash packaging/ppa/build-source-package.sh
+
+# Build Arch Linux Pacman repository locally
+arch-repo:
+	bash packaging/arch-repo/build-repo.sh
+
+# Push Arch Linux Pacman repository directly to GitHub Pages
+push-arch:
+	bash packaging/arch-repo/push-to-gh-pages.sh
 
 # Build core crates
 build:
@@ -85,11 +118,6 @@ install-config:
 	mkdir -p ~/.config/vietc
 	cp vietc.toml ~/.config/vietc/config.toml
 	@echo "Config installed to ~/.config/vietc/config.toml"
-
-# Build .deb package
-deb:
-	VERSION=$$(grep '^version' engine/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/') && \
-	bash packaging/deb/build-deb.sh "$$VERSION"
 
 # Clean build artifacts
 clean:

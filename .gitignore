@@ -22,3 +22,9 @@ packaging/flatpak/VietPlus-*
 vk/target/
 # keep its lockfile (standalone binary needs reproducible builds)
 !vk/Cargo.lock
+
+# PPA build directories
+packaging/ppa/build_*/
+
+# Local build distribution directory
+/dist/

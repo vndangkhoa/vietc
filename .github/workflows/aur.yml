@@ -1,0 +1,53 @@
+name: Publish to AUR
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  aur-publish:
+    name: Deploy to Arch User Repository (AUR)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract tag version
+        id: get_version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Update PKGBUILDs with release version and checksums
+        run: |
+          bash packaging/aur/update-aur.sh "${{ steps.get_version.outputs.version }}"
+
+      - name: Publish vietc (source) to AUR
+        if: env.AUR_SSH_PRIVATE_KEY != ''
+        uses: KSXGitHub/github-actions-deploy-aur@v3.0.1
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        with:
+          pkgname: vietc
+          pkgbuild: ./packaging/aur/PKGBUILD
+          commit_username: ${{ secrets.AUR_USERNAME || 'vndangkhoa' }}
+          commit_email: ${{ secrets.AUR_EMAIL || 'vndangkhoa@gmail.com' }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to v${{ steps.get_version.outputs.version }}"
+
+      - name: Publish vietc-bin (prebuilt binary) to AUR
+        if: env.AUR_SSH_PRIVATE_KEY != ''
+        uses: KSXGitHub/github-actions-deploy-aur@v3.0.1
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        with:
+          pkgname: vietc-bin
+          pkgbuild: ./packaging/aur-bin/PKGBUILD
+          commit_username: ${{ secrets.AUR_USERNAME || 'vndangkhoa' }}
+          commit_email: ${{ secrets.AUR_EMAIL || 'vndangkhoa@gmail.com' }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to v${{ steps.get_version.outputs.version }}"
