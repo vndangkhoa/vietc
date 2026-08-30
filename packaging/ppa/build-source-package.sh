@@ -29,6 +29,17 @@ mkdir -p "$SOURCE_DIR"
 cp -a "$PROJECT_ROOT"/. "$SOURCE_DIR/"
 rm -rf "$SOURCE_DIR"/target "$SOURCE_DIR"/ui/target "$SOURCE_DIR"/vk "$SOURCE_DIR"/.git
 
+# Ensure Launchpad rustc 1.75 (noble/jammy) compatibility — downgrade crates that bumped MSRV
+echo "1b. Downgrading crates for rustc 1.75 compatibility (quick-xml 0.41→0.39, wayland-scanner 0.31.11→0.31.10, wayland-protocols, indexmap)..."
+(cd "$SOURCE_DIR" && cargo update -p wayland-scanner --precise 0.31.10 2>&1 | tail -5 || true)
+(cd "$SOURCE_DIR" && cargo update -p quick-xml --precise 0.39.0 2>&1 | tail -5 || true)
+(cd "$SOURCE_DIR" && cargo update -p wayland-protocols-misc --precise 0.3.8 2>&1 | tail -5 || true)
+(cd "$SOURCE_DIR" && cargo update -p wayland-protocols@0.32.13 --precise 0.32.8 2>&1 | tail -5 || true)
+(cd "$SOURCE_DIR" && cargo update -p indexmap --precise 2.7.1 2>&1 | tail -5 || true)
+# Cargo 1.75 cannot parse lockfile version 4 (written by Cargo 1.97) — downgrade to 3
+sed -i 's/^version = 4/version = 3/' "$SOURCE_DIR/Cargo.lock" 2>/dev/null || true
+sed -i 's/^version = 4/version = 3/' "$SOURCE_DIR/ui/Cargo.lock" 2>/dev/null || true
+
 # Vendor dependencies for offline Launchpad builders
 echo "2. Vendoring cargo crates..."
 (cd "$SOURCE_DIR" && cargo vendor --sync ui/Cargo.toml vendor)
