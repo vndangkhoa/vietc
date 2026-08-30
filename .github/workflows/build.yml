@@ -28,7 +28,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libdbus-1-dev libx11-dev libxtst-dev libxext-dev
+            pkg-config libdbus-1-dev libx11-dev libxtst-dev libxext-dev \
+            libxkbcommon-dev libevdev-dev libwayland-dev
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -53,6 +54,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config libdbus-1-dev libx11-dev libxtst-dev libxext-dev \
+            libxkbcommon-dev libevdev-dev libwayland-dev \
             fakeroot dpkg-dev xclip xdotool desktop-file-utils file curl
 
       - uses: dtolnay/rust-toolchain@stable
