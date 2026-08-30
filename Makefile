@@ -122,8 +122,8 @@ install-config:
 # Clean build artifacts
 clean:
 	cargo clean
-	cd ui && cargo clean
-	cd vk && cargo clean
+	@if [ -d ui ]; then (cd ui && cargo clean); fi
+	@if [ -d vk ]; then (cd vk && cargo clean); fi
 
 # Format code
 fmt:
