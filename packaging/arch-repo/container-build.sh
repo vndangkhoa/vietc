@@ -10,6 +10,7 @@ pacman -Sy --noconfirm base-devel cargo gcc dbus libx11 libxtst wayland libxkbco
 
 useradd -m -s /bin/bash builder || true
 echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+chmod 777 /output
 
 su builder << BUILDER_EOF
 set -euo pipefail
