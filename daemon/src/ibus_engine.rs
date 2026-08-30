@@ -198,6 +198,8 @@ struct IBusState {
     dedup_two_back: bool,
     dedup_window_ms: u64,
     aux_popup: Mutex<Option<(String, std::time::Instant)>>,
+    ctrl_shift_latched: Mutex<bool>,
+    last_ctrl_shift: Mutex<std::time::Instant>,
 }
 
 /// Maps an IBus keyval to a Unicode char we can feed the vietc engine.
@@ -524,6 +526,8 @@ pub fn run_ibus_engine(
         dedup_two_back,
         dedup_window_ms,
         aux_popup: Mutex::new(None),
+        ctrl_shift_latched: Mutex::new(false),
+        last_ctrl_shift: Mutex::new(std::time::Instant::now()),
     });
 
     // The Factory/Engine handler MUST be installed before we register, because
@@ -550,6 +554,15 @@ pub fn run_ibus_engine(
     // times from the dispatch loop until it sticks.
     register_with_ibus(&conn);
 
+    let status_path = dirs::config_dir()
+        .map(|d| d.join("vietc").join("status"))
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp/vietc-status"));
+    let method_path = dirs::config_dir()
+        .map(|d| d.join("vietc").join("method"))
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp/vietc-method"));
+    let mut last_file_status = String::new();
+    let mut last_file_method = String::new();
+
     crate::log::log_info("[vietc-ibus] engine running; dispatching D-Bus messages");
     let mut setglobal_tries = 0u32;
     loop {
@@ -558,6 +571,46 @@ pub fn run_ibus_engine(
             break Ok(());
         }
         for _ in conn.iter(50) {}
+
+        // Sync external changes to status/method (e.g. from tray or vietcctl)
+        if let Ok(content) = std::fs::read_to_string(&status_path) {
+            let s = content.trim();
+            if (s == "vn" || s == "en") && s != last_file_status {
+                last_file_status = s.to_string();
+                let enabled = s == "vn";
+                if state.engine_enabled.load(Ordering::SeqCst) != enabled {
+                    state.engine_enabled.store(enabled, Ordering::SeqCst);
+                    let mut contexts = state.contexts.lock().unwrap();
+                    for (ctx_path, ctx) in contexts.iter_mut() {
+                        ctx.enabled = enabled;
+                        if !enabled {
+                            flush_preedit(ctx, &conn, ctx_path);
+                        } else {
+                            ctx.engine.reset();
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(content) = std::fs::read_to_string(&method_path) {
+            let m = content.trim();
+            if (m == "vni" || m == "telex") && m != last_file_method {
+                last_file_method = m.to_string();
+                let new_im = match m {
+                    "telex" => InputMethod::Telex,
+                    _ => InputMethod::Vni,
+                };
+                let mut method_guard = state.method.lock().unwrap();
+                if *method_guard != new_im {
+                    *method_guard = new_im;
+                    let mut contexts = state.contexts.lock().unwrap();
+                    for (_, ctx) in contexts.iter_mut() {
+                        ctx.engine.set_method(new_im);
+                        ctx.engine.reset();
+                    }
+                }
+            }
+        }
 
         // Auto-hide auxiliary text badge after timeout (500ms)
         let to_hide = {
@@ -811,6 +864,9 @@ fn handle_process_key_event(
     // Without this check, every key is processed twice (once on press, once on release).
     const IBUS_RELEASE_MASK: u32 = 1 << 30;
     if (state_flags & IBUS_RELEASE_MASK) != 0 {
+        if (state_flags & CTRL) == 0 || (state_flags & SHIFT) == 0 {
+            *state.ctrl_shift_latched.lock().unwrap() = false;
+        }
         return false;
     }
 
@@ -820,6 +876,11 @@ fn handle_process_key_event(
     const ALT: u32 = 8;
     const SUPER: u32 = 64;
 
+    // Reset latch if either modifier is not pressed
+    if (state_flags & CTRL) == 0 || (state_flags & SHIFT) == 0 {
+        *state.ctrl_shift_latched.lock().unwrap() = false;
+    }
+
     // Ctrl+Shift cycles ENG -> VNI -> TELEX -> ENG.
     // Handles both Ctrl-then-Shift and Shift-then-Ctrl.
     let is_shift_key = keyval == 0xFFE1 || keyval == 0xFFE2 || keyval == 65505 || keyval == 65506;
@@ -828,6 +889,17 @@ fn handle_process_key_event(
         || (is_ctrl_key && (state_flags & SHIFT) != 0);
 
     if is_ctrl_shift {
+        let mut latched = state.ctrl_shift_latched.lock().unwrap();
+        let mut last_toggle = state.last_ctrl_shift.lock().unwrap();
+        let now = std::time::Instant::now();
+
+        if *latched || now.duration_since(*last_toggle) < std::time::Duration::from_millis(200) {
+            // Suppress auto-repeat while keys are held down
+            return true;
+        }
+        *latched = true;
+        *last_toggle = now;
+
         let is_enabled = state.engine_enabled.load(Ordering::SeqCst);
         let mut method_guard = state.method.lock().unwrap();
 
@@ -861,13 +933,11 @@ fn handle_process_key_event(
                 config_vietc.join("status"),
                 if new_enabled { "vn" } else { "en" },
             );
-            if new_enabled {
-                let method_str = match new_method {
-                    InputMethod::Telex => "telex",
-                    InputMethod::Vni => "vni",
-                };
-                let _ = std::fs::write(config_vietc.join("method"), method_str);
-            }
+            let method_str = match new_method {
+                InputMethod::Telex => "telex",
+                InputMethod::Vni => "vni",
+            };
+            let _ = std::fs::write(config_vietc.join("method"), method_str);
         }
 
         crate::log::log_info(&format!("[vietc-ibus] Ctrl+Shift cycle mode -> {}", label));

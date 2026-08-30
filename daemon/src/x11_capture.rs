@@ -228,19 +228,22 @@ pub fn run_with_x11_keymap(
             if ctrl_pressed { mod_state |= 4; }
             if alt_pressed { mod_state |= 8; }
 
-            let is_mod = ctrl_pressed || alt_pressed || key_state.contains(&125);
-
-            if is_mod {
-                continue;
-            }
+            let is_ctrl_key = keycode == 29 || keycode == 97;
+            let is_shift_key = keycode == 42 || keycode == 54;
 
             if ctrl_pressed && keycode == 57 {
                 daemon.toggle();
                 continue;
             }
 
-            if ctrl_pressed && shift_pressed {
+            if ctrl_pressed && shift_pressed && (is_ctrl_key || is_shift_key) {
                 daemon.toggle_method();
+                continue;
+            }
+
+            let is_mod = ctrl_pressed || alt_pressed || key_state.contains(&125);
+
+            if is_mod {
                 continue;
             }
 

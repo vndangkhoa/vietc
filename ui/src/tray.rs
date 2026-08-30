@@ -8,46 +8,61 @@ fn is_flatpak() -> bool {
 
 fn write_status(state: &str) {
     if let Some(config_dir) = dirs::config_dir() {
-        let _ = std::fs::write(config_dir.join("vietc").join("status"), state);
+        let dir = config_dir.join("vietc");
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(dir.join("status"), state);
     }
 }
 
-fn read_method() -> String {
+fn read_method(fallback: &str) -> String {
     let path = dirs::config_dir()
         .map(|d| d.join("vietc").join("method"))
         .unwrap_or_else(|| std::path::PathBuf::from("/tmp/vietc-method"));
-    std::fs::read_to_string(&path)
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|_| {
-            config::Config::load().input_method
-        })
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        let trimmed = content.trim();
+        if trimmed == "vni" || trimmed == "telex" {
+            return trimmed.to_string();
+        }
+    }
+    if fallback == "vni" || fallback == "telex" {
+        return fallback.to_string();
+    }
+    let cfg = config::Config::load();
+    if cfg.input_method == "telex" {
+        "telex".into()
+    } else {
+        "vni".into()
+    }
 }
 
 fn write_method(method: &str) {
     if let Some(config_dir) = dirs::config_dir() {
-        let _ = std::fs::write(config_dir.join("vietc").join("method"), method);
+        let dir = config_dir.join("vietc");
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(dir.join("method"), method);
     }
 }
 
-fn read_status() -> String {
+fn read_status(fallback: &str) -> String {
     let path = dirs::config_dir()
         .map(|d| d.join("vietc").join("status"))
         .unwrap_or_else(|| std::path::PathBuf::from("/tmp/vietc-status"));
 
-    std::fs::read_to_string(&path)
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|_| {
-            let cfg = config::Config::load();
-            if cfg.start_enabled {
-                "vn".into()
-            } else {
-                "en".into()
-            }
-        })
-}
-
-fn current_im() -> String {
-    config::Config::load().input_method
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        let trimmed = content.trim();
+        if trimmed == "vn" || trimmed == "en" {
+            return trimmed.to_string();
+        }
+    }
+    if fallback == "vn" || fallback == "en" {
+        return fallback.to_string();
+    }
+    let cfg = config::Config::load();
+    if cfg.start_enabled {
+        "vn".into()
+    } else {
+        "en".into()
+    }
 }
 
 
@@ -454,11 +469,15 @@ pub fn run() {
         config::install_autostart();
     }
 
+    let initial_mode = read_status("");
+    let initial_im = read_method("");
+    let initial_autostart = config::is_autostart_installed();
+
     let handle_holder = std::sync::Arc::new(std::sync::Mutex::new(None));
     let tray = VietTray {
-        mode: read_status(),
-        im: current_im(),
-        autostart: config::is_autostart_installed(),
+        mode: initial_mode.clone(),
+        im: initial_im.clone(),
+        autostart: initial_autostart,
         update_available: None,
         updating: false,
         handle: handle_holder.clone(),
@@ -469,15 +488,65 @@ pub fn run() {
     *handle_holder.lock().unwrap() = Some(handle.clone());
     service.spawn();
 
-    // Poll for changes
+    // Event-driven watcher on config directory via Linux inotify + fallback poll
     std::thread::spawn(move || {
-        let mut last_mode = String::new();
-        let mut last_im = String::new();
-        let mut last_autostart = false;
+        let dir = dirs::config_dir()
+            .map(|d| d.join("vietc"))
+            .unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+        let _ = std::fs::create_dir_all(&dir);
+
+        let mut inotify_fd = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
+        let mut wd = -1;
+
+        if inotify_fd >= 0 {
+            if let Ok(c_path) = std::ffi::CString::new(dir.to_string_lossy().as_bytes()) {
+                wd = unsafe {
+                    libc::inotify_add_watch(
+                        inotify_fd,
+                        c_path.as_ptr(),
+                        libc::IN_CLOSE_WRITE | libc::IN_MOVED_TO | libc::IN_MODIFY | libc::IN_CREATE,
+                    )
+                };
+            }
+        }
+
+        let mut last_mode = initial_mode;
+        let mut last_im = initial_im;
+        let mut last_autostart = initial_autostart;
+        let mut buffer = [0u8; 4096];
+
         loop {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            let mode = read_status();
-            let im = read_method();
+            // Wait for file modification event with 500ms fallback timeout
+            if inotify_fd >= 0 && wd >= 0 {
+                let mut pfd = libc::pollfd {
+                    fd: inotify_fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                let res = unsafe { libc::poll(&mut pfd, 1, 500) };
+                if res > 0 && (pfd.revents & libc::POLLIN) != 0 {
+                    while unsafe { libc::read(inotify_fd, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len()) } > 0 {}
+                }
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                if inotify_fd < 0 {
+                    inotify_fd = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
+                    if inotify_fd >= 0 {
+                        if let Ok(c_path) = std::ffi::CString::new(dir.to_string_lossy().as_bytes()) {
+                            wd = unsafe {
+                                libc::inotify_add_watch(
+                                    inotify_fd,
+                                    c_path.as_ptr(),
+                                    libc::IN_CLOSE_WRITE | libc::IN_MOVED_TO | libc::IN_MODIFY | libc::IN_CREATE,
+                                )
+                            };
+                        }
+                    }
+                }
+            }
+
+            let mode = read_status(&last_mode);
+            let im = read_method(&last_im);
             let autostart = config::is_autostart_installed();
             if mode != last_mode || im != last_im || autostart != last_autostart {
                 last_mode = mode.clone();

@@ -94,22 +94,46 @@ impl Daemon {
         }
     }
 
-    pub fn write_status(&self) {
+    fn status_file_path(&self) -> PathBuf {
         if let Some(parent) = self.config_path.parent() {
-            let status_path = parent.join("status");
-            let enabled = self.engine.is_enabled();
-            self.engine_enabled.store(enabled, Ordering::SeqCst);
-            let status_str = if enabled { "vn" } else { "en" };
-            let _ = std::fs::write(status_path, status_str);
+            if !parent.as_os_str().is_empty() {
+                return parent.join("status");
+            }
         }
+        dirs::config_dir()
+            .map(|d| d.join("vietc").join("status"))
+            .unwrap_or_else(|| PathBuf::from("/tmp/vietc-status"))
+    }
+
+    fn method_file_path(&self) -> PathBuf {
+        if let Some(parent) = self.config_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                return parent.join("method");
+            }
+        }
+        dirs::config_dir()
+            .map(|d| d.join("vietc").join("method"))
+            .unwrap_or_else(|| PathBuf::from("/tmp/vietc-method"))
+    }
+
+    pub fn write_status(&self) {
+        let status_path = self.status_file_path();
+        if let Some(parent) = status_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let enabled = self.engine.is_enabled();
+        self.engine_enabled.store(enabled, Ordering::SeqCst);
+        let status_str = if enabled { "vn" } else { "en" };
+        let _ = std::fs::write(status_path, status_str);
     }
 
     pub fn write_method_status(&self) {
-        if let Some(parent) = self.config_path.parent() {
-            let method_path = parent.join("method");
-            let method = &self.config.input_method;
-            let _ = std::fs::write(method_path, method);
+        let method_path = self.method_file_path();
+        if let Some(parent) = method_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
         }
+        let method = &self.config.input_method;
+        let _ = std::fs::write(method_path, method);
     }
 
     pub fn toggle_method(&mut self) {
@@ -156,29 +180,30 @@ impl Daemon {
     }
 
     pub fn sync_status_file(&mut self) {
-        if let Some(parent) = self.config_path.parent() {
-            let status_path = parent.join("status");
-            if let Ok(content) = fs::read_to_string(&status_path) {
-                let expect_enabled = content.trim() == "vn";
+        let status_path = self.status_file_path();
+        if let Ok(content) = fs::read_to_string(&status_path) {
+            let s = content.trim();
+            if s == "vn" || s == "en" {
+                let expect_enabled = s == "vn";
                 if self.engine.is_enabled() != expect_enabled {
                     self.engine.set_enabled(expect_enabled);
                     self.engine_enabled.store(expect_enabled, Ordering::SeqCst);
                     self.app_state.set_global_enabled(expect_enabled);
                 }
             }
-            let method_path = parent.join("method");
-            if let Ok(content) = fs::read_to_string(&method_path) {
-                let expect_method = content.trim();
-                if !expect_method.is_empty() && self.config.input_method != expect_method {
-                    self.config.input_method = expect_method.to_string();
-                    self.app_state.set_global_method(expect_method);
-                    let effective = self.app_state.effective_method();
-                    let engine_method = match effective {
-                        "vni" => InputMethod::Vni,
-                        _ => InputMethod::Telex,
-                    };
-                    self.engine.set_method(engine_method);
-                }
+        }
+        let method_path = self.method_file_path();
+        if let Ok(content) = fs::read_to_string(&method_path) {
+            let expect_method = content.trim();
+            if (expect_method == "vni" || expect_method == "telex") && self.config.input_method != expect_method {
+                self.config.input_method = expect_method.to_string();
+                self.app_state.set_global_method(expect_method);
+                let effective = self.app_state.effective_method();
+                let engine_method = match effective {
+                    "vni" => InputMethod::Vni,
+                    _ => InputMethod::Telex,
+                };
+                self.engine.set_method(engine_method);
             }
         }
     }

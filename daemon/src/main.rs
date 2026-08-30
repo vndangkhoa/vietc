@@ -220,8 +220,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         thread::spawn(move || {
             let mut window_check_counter = 0;
-            let status_path = config_path.parent().unwrap().join("status");
-            let method_path = config_path.parent().unwrap().join("method");
+            let status_path = config_path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(|p| p.join("status"))
+                .or_else(|| dirs::config_dir().map(|d| d.join("vietc").join("status")))
+                .unwrap_or_else(|| std::path::PathBuf::from("/tmp/vietc-status"));
+            let method_path = config_path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(|p| p.join("method"))
+                .or_else(|| dirs::config_dir().map(|d| d.join("vietc").join("method")))
+                .unwrap_or_else(|| std::path::PathBuf::from("/tmp/vietc-method"));
             let mut last_method = String::new();
             loop {
                 if let Some(id) = app_state::get_active_window_id() {

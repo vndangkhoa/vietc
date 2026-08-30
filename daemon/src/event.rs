@@ -37,6 +37,16 @@ pub fn is_caps_lock_on(device: &evdev::Device) -> bool {
     }
 }
 
+pub fn is_method_toggle_key(key: evdev::Key) -> bool {
+    matches!(
+        key,
+        evdev::Key::KEY_LEFTCTRL
+            | evdev::Key::KEY_RIGHTCTRL
+            | evdev::Key::KEY_LEFTSHIFT
+            | evdev::Key::KEY_RIGHTSHIFT
+    )
+}
+
 pub fn is_method_toggle_state(key_state: &evdev::AttributeSet<evdev::Key>) -> bool {
     let ctrl_pressed = key_state.contains(evdev::Key::KEY_LEFTCTRL)
         || key_state.contains(evdev::Key::KEY_RIGHTCTRL);
@@ -49,6 +59,21 @@ pub fn is_method_toggle_state(key_state: &evdev::AttributeSet<evdev::Key>) -> bo
         && !key_state.contains(evdev::Key::KEY_RIGHTMETA)
 }
 
+pub fn is_toggle_key(key: evdev::Key, key_name: &str) -> bool {
+    if key == evdev::Key::KEY_LEFTCTRL || key == evdev::Key::KEY_RIGHTCTRL {
+        return true;
+    }
+    let target = match key_name.to_lowercase().as_str() {
+        "space" => evdev::Key::KEY_SPACE,
+        "shift" => return key == evdev::Key::KEY_LEFTSHIFT || key == evdev::Key::KEY_RIGHTSHIFT,
+        "capslock" => evdev::Key::KEY_CAPSLOCK,
+        "ctrl" => return key == evdev::Key::KEY_LEFTCTRL || key == evdev::Key::KEY_RIGHTCTRL,
+        "alt" => return key == evdev::Key::KEY_LEFTALT || key == evdev::Key::KEY_RIGHTALT,
+        _ => return false,
+    };
+    key == target
+}
+
 pub fn is_toggle_combination_state(key_state: &evdev::AttributeSet<evdev::Key>, key: &str) -> bool {
     let ctrl_pressed = key_state.contains(evdev::Key::KEY_LEFTCTRL)
         || key_state.contains(evdev::Key::KEY_RIGHTCTRL);
@@ -59,10 +84,16 @@ pub fn is_toggle_combination_state(key_state: &evdev::AttributeSet<evdev::Key>, 
 
     let target = match key.to_lowercase().as_str() {
         "space" => evdev::Key::KEY_SPACE,
-        "shift" => evdev::Key::KEY_LEFTSHIFT,
+        "shift" => {
+            return key_state.contains(evdev::Key::KEY_LEFTSHIFT)
+                || key_state.contains(evdev::Key::KEY_RIGHTSHIFT);
+        }
         "capslock" => evdev::Key::KEY_CAPSLOCK,
-        "ctrl" => evdev::Key::KEY_LEFTCTRL,
-        "alt" => evdev::Key::KEY_LEFTALT,
+        "ctrl" => return true,
+        "alt" => {
+            return key_state.contains(evdev::Key::KEY_LEFTALT)
+                || key_state.contains(evdev::Key::KEY_RIGHTALT);
+        }
         _ => return false,
     };
 
@@ -207,5 +238,33 @@ mod tests {
         let keys = "Ngayf xuaw, trong mootj khu ruwngf raamj cos mootj con Voi raats hung duwx.";
         let expected = "Ngày xưa, trong một khu rừng rậm có một con Voi rất hung dữ.";
         assert_eq!(render("telex", keys), expected);
+    }
+
+    #[test]
+    fn test_method_toggle_key_and_state() {
+        assert!(is_method_toggle_key(evdev::Key::KEY_LEFTCTRL));
+        assert!(is_method_toggle_key(evdev::Key::KEY_RIGHTCTRL));
+        assert!(is_method_toggle_key(evdev::Key::KEY_LEFTSHIFT));
+        assert!(is_method_toggle_key(evdev::Key::KEY_RIGHTSHIFT));
+        assert!(!is_method_toggle_key(evdev::Key::KEY_T));
+        assert!(!is_method_toggle_key(evdev::Key::KEY_C));
+
+        let mut key_state = evdev::AttributeSet::<evdev::Key>::new();
+        key_state.insert(evdev::Key::KEY_LEFTCTRL);
+        key_state.insert(evdev::Key::KEY_LEFTSHIFT);
+        assert!(is_method_toggle_state(&key_state));
+
+        // Adding Alt or Meta cancels method toggle combo
+        key_state.insert(evdev::Key::KEY_LEFTALT);
+        assert!(!is_method_toggle_state(&key_state));
+    }
+
+    #[test]
+    fn test_toggle_key_filtering() {
+        assert!(is_toggle_key(evdev::Key::KEY_SPACE, "space"));
+        assert!(is_toggle_key(evdev::Key::KEY_LEFTCTRL, "space"));
+        assert!(!is_toggle_key(evdev::Key::KEY_T, "space"));
+        assert!(is_toggle_key(evdev::Key::KEY_LEFTSHIFT, "shift"));
+        assert!(is_toggle_key(evdev::Key::KEY_RIGHTSHIFT, "shift"));
     }
 }

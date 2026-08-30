@@ -378,8 +378,10 @@ pub fn find_config_path() -> PathBuf {
         }
     }
 
-    // Default to current directory
-    PathBuf::from("vietc.toml")
+    // Default to user config path
+    dirs()
+        .map(|d| d.join("vietc").join("config.toml"))
+        .unwrap_or_else(|| PathBuf::from("vietc.toml"))
 }
 
 /// Heuristic: should vietc prefer the native IBus engine on this session?

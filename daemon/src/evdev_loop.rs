@@ -9,8 +9,9 @@ use crate::display;
 #[cfg(feature = "x11")]
 use crate::display::DisplayServer;
 use crate::event::{
-    is_caps_lock_on, is_flush_char, is_method_toggle_state, is_modifier_pressed,
-    is_modifier_held_shift, is_toggle_combination_state, is_vn_control_key, key_to_char,
+    is_caps_lock_on, is_flush_char, is_method_toggle_key, is_method_toggle_state,
+    is_modifier_pressed, is_modifier_held_shift, is_toggle_combination_state,
+    is_toggle_key, is_vn_control_key, key_to_char,
 };
 use crate::inject::{create_injector, execute_commands};
 use crate::log::log_info;
@@ -238,7 +239,9 @@ pub fn run_with_evdev(
                     continue;
                 }
 
-                if value == 1 && is_toggle_combination_state(&key_state, &daemon.config.toggle_key)
+                if value == 1
+                    && is_toggle_key(key, &daemon.config.toggle_key)
+                    && is_toggle_combination_state(&key_state, &daemon.config.toggle_key)
                 {
                     consumed_keys.insert(keycode);
                     daemon.toggle();
@@ -246,7 +249,8 @@ pub fn run_with_evdev(
                 }
 
                 // Ctrl+Shift: toggle EN -> VNI -> TELEX -> EN
-                if value == 1 && is_method_toggle_state(&key_state)
+                // Only trigger if the current key event is a Ctrl or Shift modifier key
+                if value == 1 && is_method_toggle_key(key) && is_method_toggle_state(&key_state)
                 {
                     consumed_keys.insert(keycode);
                     daemon.toggle_method();
