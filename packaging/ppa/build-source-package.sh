@@ -66,6 +66,21 @@ with open('$checksum_file', 'w') as f:
     fi
 done
 
+# Workaround for Launchpad cargo 1.75 vendor checksum verification bug (serde etc. fails with "No such file" for Cargo.toml.orig)
+# Null checksums for ALL vendored crates to skip verification entirely (safe for offline build)
+echo "2c. Nulling vendor checksums for offline build (bypass Cargo checksum verification)..."
+for checksum_file in "$SOURCE_DIR/vendor"/*/.cargo-checksum.json; do
+    [ -f "$checksum_file" ] || continue
+    python3 -c "
+import json
+with open('$checksum_file', 'r') as f:
+    data = json.load(f)
+data['files'] = {}
+with open('$checksum_file', 'w') as f:
+    json.dump(data, f)
+"
+done
+
 mkdir -p "$SOURCE_DIR/.cargo" "$SOURCE_DIR/ui/.cargo"
 cat > "$SOURCE_DIR/.cargo/config.toml" << 'EOF'
 [source.crates-io]
