@@ -37,7 +37,7 @@ search for the test    ➔   search for the test  (Tự động giữ nguyên t�
 
 ## 🚀 Cài đặt nhanh (1 lệnh duy nhất)
 
-Cài đặt Viet+ nhanh chóng trên mọi bản phân phối Linux (**Ubuntu, Debian, Arch Linux, Omarchy, Manjaro, Fedora, RHEL, Linux Mint, Pop!_OS**):
+Cài đặt Viet+ nhanh chóng trên mọi bản phân phối Linux:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/install.sh | bash
@@ -47,6 +47,23 @@ curl -fsSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/install.sh | 
 - Nhấn **`Ctrl + Shift`** để xoay vòng: **⚪ ENG (Tiếng Anh) ➔ 🔴 VNI ➔ 🔵 TELEX ➔ ⚪ ENG**
 - Hoặc nhấp chuột vào biểu tượng khay hệ thống động (**EN / VN / TLX**) bất cứ lúc nào.
 - Dòng lệnh CLI: `vietcctl status` | `vietcctl cycle` | `vietcctl method telex`
+
+---
+
+## 🐧 Danh sách bản phân phối được hỗ trợ & tối ưu
+
+Viet+ được kiểm thử và tối ưu chuyên sâu cho các bản phân phối Linux thịnh hành hiện nay:
+
+| Hệ điều hành / Hệ sinh thái | Môi trường Desktop / WM | Máy chủ hiển thị | Cơ chế nhập liệu | Trạng thái |
+| :--- | :--- | :--- | :--- | :--- |
+| ⚡ **CachyOS** | KDE Plasma 6 / Hyprland | **Wayland** | `wtype` (Bàn phím ảo trực tiếp) | ✅ **Tối ưu 100%** |
+| 🏹 **Arch Linux** | Hyprland / Sway / KDE / GNOME | **Wayland / X11** | `wtype` / `/dev/uinput` | ✅ **Kiểm thử 100%** |
+| 🚀 **EndeavourOS / Omarchy / Garuda** | Hyprland / KDE Plasma / i3 | **Wayland / X11** | `wtype` / `/dev/uinput` | ✅ **Hỗ trợ hoàn hảo** |
+| 🎩 **Fedora 40/41 / Nobara** | GNOME 46/47 / KDE Plasma | **Wayland** | Hybrid IBus + `wtype` | ✅ **Hỗ trợ hoàn hảo** |
+| 🌿 **Linux Mint** | Cinnamon / XFCE / MATE | **X11** | `/dev/uinput` Direct | ✅ **Hỗ trợ hoàn hảo** |
+| 🪐 **Pop!_OS** | COSMIC Desktop / GNOME | **Wayland / X11** | `wtype` / `/dev/uinput` | ✅ **Hỗ trợ hoàn hảo** |
+| 🟠 **Ubuntu 24.04+ / Debian 12** | GNOME (Mutter) / X11 | **Wayland / X11** | Hybrid IBus + AppIndicator | ✅ **Hỗ trợ hoàn hảo** |
+| 🦎 **Manjaro / openSUSE** | KDE Plasma / XFCE / GNOME | **Wayland / X11** | `wtype` / `/dev/uinput` | ✅ **Hỗ trợ hoàn hảo** |
 
 ---
 

@@ -26,7 +26,7 @@ search for the test    ➔   search for the test  (Intelligent Auto-Restore)
 
 ## 🚀 Quick Start (1-Command Install)
 
-Install Viet+ with a single command on any supported Linux distribution (**Ubuntu, Debian, Arch Linux, Omarchy, Manjaro, Fedora, RHEL, Linux Mint, Pop!_OS**):
+Install Viet+ with a single command on any supported Linux distribution:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/install.sh | bash
@@ -36,6 +36,23 @@ curl -fsSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/install.sh | 
 - Press **`Ctrl + Shift`** to cycle: **⚪ EN (English) ➔ 🔴 VNI ➔ 🔵 TELEX ➔ ⚪ EN**
 - Or click the dynamic system tray icon (**EN / VN / TLX**) anytime.
 - CLI controls: `vietcctl status` | `vietcctl cycle` | `vietcctl method telex`
+
+---
+
+## 🐧 Supported Distros & Environments
+
+Viet+ is tested and optimized across modern hype, gaming, and mainstream Linux distributions:
+
+| Distro / Ecosystem | Default Desktop / WM | Display Server | Input Mechanism | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| ⚡ **CachyOS** | KDE Plasma 6 / Hyprland | **Wayland** | `wtype` (Direct Virtual Keyboard) | ✅ **100% Optimized** |
+| 🏹 **Arch Linux** | Hyprland / Sway / KDE / GNOME | **Wayland / X11** | `wtype` / `/dev/uinput` | ✅ **100% Tested** |
+| 🚀 **EndeavourOS / Omarchy / Garuda** | Hyprland / KDE Plasma / i3 | **Wayland / X11** | `wtype` / `/dev/uinput` | ✅ **Fully Supported** |
+| 🎩 **Fedora 40/41 / Nobara** | GNOME 46/47 / KDE Plasma | **Wayland** | Hybrid IBus + `wtype` | ✅ **Fully Supported** |
+| 🌿 **Linux Mint** | Cinnamon / XFCE / MATE | **X11** | `/dev/uinput` Direct | ✅ **Fully Supported** |
+| 🪐 **Pop!_OS** | COSMIC Desktop / GNOME | **Wayland / X11** | `wtype` / `/dev/uinput` | ✅ **Fully Supported** |
+| 🟠 **Ubuntu 24.04+ / Debian 12** | GNOME (Mutter) / X11 | **Wayland / X11** | Hybrid IBus + AppIndicator | ✅ **Fully Supported** |
+| 🦎 **Manjaro / openSUSE** | KDE Plasma / XFCE / GNOME | **Wayland / X11** | `wtype` / `/dev/uinput` | ✅ **Fully Supported** |
 
 ---
 
