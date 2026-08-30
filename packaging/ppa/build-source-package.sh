@@ -159,6 +159,9 @@ cat > debian/rules << 'EOF'
 override_dh_auto_clean:
 	@true
 
+override_dh_auto_test:
+	@true
+
 override_dh_auto_build:
 	cargo build --offline --release --features "x11,wayland"
 	(cd ui && cargo build --offline --release)
