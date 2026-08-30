@@ -16,6 +16,16 @@ pub fn is_root() -> bool {
     unsafe { libc::geteuid() == 0 }
 }
 
+/// Check if a display server (X11 or Wayland) is available.
+/// Returns true if either $DISPLAY (X11) or $WAYLAND_DISPLAY (Wayland)
+/// environment variables are set.
+pub fn has_display() -> bool {
+    std::env::var("DISPLAY").map(|v| !v.is_empty()).unwrap_or(false)
+        || std::env::var("WAYLAND_DISPLAY")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false)
+}
+
 /// Create a temporary configuration for the daemon.
 pub fn create_temp_config(method: &str, grab: bool, start_enabled: bool) -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create temp dir");

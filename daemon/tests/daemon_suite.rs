@@ -31,6 +31,10 @@ fn virtual_keyboard_create_destroy() {
 /// Test that clipboard can be written and read (xclip or wl-paste).
 #[test]
 fn clipboard_read_write() {
+    if !common::has_display() {
+        eprintln!("SKIPPING: no display server (DISPLAY/WAYLAND_DISPLAY not set)");
+        return;
+    }
     clear_clipboard();
     // Write to clipboard using xclip/wl-copy
     let is_wayland = std::env::var("WAYLAND_DISPLAY").ok().map_or(false, |v| v.contains("wayland"));
