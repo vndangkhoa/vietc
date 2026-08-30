@@ -35,8 +35,25 @@ echo "2. Vendoring cargo crates..."
 
 # Patch edition = "2024" to "2021" for compatibility with Launchpad Cargo 1.75/1.70
 echo "2b. Patching vendored crates for Cargo 1.70/1.75 compatibility..."
-find "$SOURCE_DIR/vendor" -name "Cargo.toml*" -exec sed -i 's/edition = "2024"/edition = "2021"/g' {} +
-find "$SOURCE_DIR/vendor" -name ".cargo-checksum.json" -exec sed -i 's/"Cargo.toml":"[^"]*"/"Cargo.toml":null/g' {} +
+for toml in $(grep -rl 'edition = "2024"' "$SOURCE_DIR/vendor/" --include="Cargo.toml" 2>/dev/null); do
+    sed -i 's/edition = "2024"/edition = "2021"/g' "$toml"
+    # Also patch the .orig copy if it exists
+    [ -f "${toml}.orig" ] && sed -i 's/edition = "2024"/edition = "2021"/g' "${toml}.orig"
+    # Null out the checksum for this specific crate only
+    crate_dir=$(dirname "$toml")
+    checksum_file="$crate_dir/.cargo-checksum.json"
+    if [ -f "$checksum_file" ]; then
+        # Replace the entire "files" object with an empty one to skip verification
+        python3 -c "
+import json, sys
+with open('$checksum_file', 'r') as f:
+    data = json.load(f)
+data['files'] = {}
+with open('$checksum_file', 'w') as f:
+    json.dump(data, f)
+"
+    fi
+done
 
 mkdir -p "$SOURCE_DIR/.cargo" "$SOURCE_DIR/ui/.cargo"
 cat > "$SOURCE_DIR/.cargo/config.toml" << 'EOF'
