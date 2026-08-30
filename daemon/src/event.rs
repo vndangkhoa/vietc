@@ -40,9 +40,9 @@ pub fn is_caps_lock_on(device: &evdev::Device) -> bool {
 pub fn is_method_toggle_state(key_state: &evdev::AttributeSet<evdev::Key>) -> bool {
     let ctrl_pressed = key_state.contains(evdev::Key::KEY_LEFTCTRL)
         || key_state.contains(evdev::Key::KEY_RIGHTCTRL);
-    let shift_pressed = key_state.contains(evdev::Key::KEY_LEFTSHIFT);
+    let shift_pressed = key_state.contains(evdev::Key::KEY_LEFTSHIFT)
+        || key_state.contains(evdev::Key::KEY_RIGHTSHIFT);
     ctrl_pressed && shift_pressed
-        && !key_state.contains(evdev::Key::KEY_RIGHTSHIFT)
         && !key_state.contains(evdev::Key::KEY_LEFTALT)
         && !key_state.contains(evdev::Key::KEY_RIGHTALT)
         && !key_state.contains(evdev::Key::KEY_LEFTMETA)

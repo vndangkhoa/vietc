@@ -18,6 +18,7 @@ vietc-engine = { path = "../engine" }
 vietc-protocol = { path = "../protocol" }
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 evdev = "0.12"
 libc = "0.2"
 dirs = "5"

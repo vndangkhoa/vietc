@@ -268,12 +268,21 @@ impl Tray for VietTray {
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
-        let next = if self.mode == "vn" { "en" } else { "vn" };
-        write_status(&next);
+        let (next_mode, next_im) = if self.mode == "en" {
+            ("vn", "vni")
+        } else if self.im == "vni" {
+            ("vn", "telex")
+        } else {
+            ("en", "telex")
+        };
+        write_status(next_mode);
+        write_method(next_im);
         let mut cfg = config::Config::load();
-        cfg.start_enabled = next == "vn";
+        cfg.start_enabled = next_mode == "vn";
+        cfg.input_method = next_im.into();
         let _ = cfg.save();
-        self.mode = next.to_string();
+        self.mode = next_mode.to_string();
+        self.im = next_im.to_string();
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {

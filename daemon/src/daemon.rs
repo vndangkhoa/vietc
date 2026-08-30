@@ -11,6 +11,21 @@ use crate::config::Config;
 use crate::event::is_flush_char;
 use crate::log::log_info;
 
+fn show_osd(summary: &str, body: &str) {
+    let _ = std::process::Command::new("notify-send")
+        .args([
+            "-t",
+            "1000",
+            "-h",
+            "string:x-canonical-private-synchronous:vietc-osd",
+            "-a",
+            "Viet+",
+            summary,
+            body,
+        ])
+        .spawn();
+}
+
 pub struct Daemon {
     pub engine: Engine,
     pub config: Config,
@@ -98,22 +113,45 @@ impl Daemon {
     }
 
     pub fn toggle_method(&mut self) {
-        let new_global = match self.config.input_method.as_str() {
-            "vni" => "telex",
-            _ => "vni",
+        let is_enabled = self.engine.is_enabled();
+        let current_method = self.config.input_method.as_str();
+
+        let (new_enabled, new_method) = if !is_enabled {
+            (true, "vni")
+        } else if current_method == "vni" {
+            (true, "telex")
+        } else {
+            (false, "telex")
         };
-        self.config.input_method = new_global.into();
-        self.app_state.set_global_method(new_global);
+
+        self.engine.set_enabled(new_enabled);
+        self.engine_enabled.store(new_enabled, Ordering::SeqCst);
+        self.config.input_method = new_method.into();
+        self.app_state.set_global_enabled(new_enabled);
+        self.app_state.set_global_method(new_method);
+        self.app_state.clear_overrides();
         let effective = self.app_state.effective_method();
         let engine_method = match effective {
             "vni" => InputMethod::Vni,
             _ => InputMethod::Telex,
         };
         self.engine.set_method(engine_method);
+        if new_enabled {
+            self.engine.reset();
+        }
+        self.write_status();
         self.write_method_status();
+        let label = if !new_enabled {
+            "ENGLISH (EN)"
+        } else if new_method == "vni" {
+            "VNI (Vietnamese)"
+        } else {
+            "TELEX (Vietnamese)"
+        };
+        show_osd("Viet+", &format!("Mode: {}", label));
         log_info(&format!(
-            "[vietc] Input method toggled: global={}, effective={}",
-            self.config.input_method, effective
+            "[vietc] Mode rotated (Ctrl+Shift): enabled={}, method={}, effective={}",
+            new_enabled, new_method, effective
         ));
     }
 
@@ -125,6 +163,21 @@ impl Daemon {
                 if self.engine.is_enabled() != expect_enabled {
                     self.engine.set_enabled(expect_enabled);
                     self.engine_enabled.store(expect_enabled, Ordering::SeqCst);
+                    self.app_state.set_global_enabled(expect_enabled);
+                }
+            }
+            let method_path = parent.join("method");
+            if let Ok(content) = fs::read_to_string(&method_path) {
+                let expect_method = content.trim();
+                if !expect_method.is_empty() && self.config.input_method != expect_method {
+                    self.config.input_method = expect_method.to_string();
+                    self.app_state.set_global_method(expect_method);
+                    let effective = self.app_state.effective_method();
+                    let engine_method = match effective {
+                        "vni" => InputMethod::Vni,
+                        _ => InputMethod::Telex,
+                    };
+                    self.engine.set_method(engine_method);
                 }
             }
         }
@@ -228,6 +281,17 @@ impl Daemon {
         if new_state {
             self.engine.reset();
         }
+
+        let label = if new_state {
+            if self.config.input_method == "vni" {
+                "VNI (Vietnamese)"
+            } else {
+                "TELEX (Vietnamese)"
+            }
+        } else {
+            "ENGLISH (EN)"
+        };
+        show_osd("Viet+", &format!("Mode: {}", label));
     }
 
     pub fn is_current_app_bypassed(&self) -> bool {
@@ -429,7 +493,6 @@ mod tests {
                     *screen = screen.chars().take(keep).collect();
                 }
                 OutputCommand::Type(s) => screen.push_str(s),
-                _ => {}
             }
         }
     }

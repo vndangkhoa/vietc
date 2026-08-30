@@ -56,9 +56,17 @@ pub fn run_with_evdev(
     }
     let grabbed = any_grabbed;
 
-    // Track known device paths for hotplug discovery.
-    let mut known_paths: HashSet<String> =
-        devices.iter().map(|(_, n)| dev_path_of(n)).collect();
+    // Track all existing device paths at startup so secondary USB interfaces are never grabbed by hotplug.
+    let mut known_paths: HashSet<String> = HashSet::new();
+    if let Ok(rd) = fs::read_dir("/dev/input") {
+        for entry in rd.flatten() {
+            let p = entry.path().to_string_lossy().to_string();
+            known_paths.insert(p);
+        }
+    }
+    for (_, n) in devices.iter() {
+        known_paths.insert(dev_path_of(n));
+    }
 
     if !grabbed {
         if unsafe { libc::geteuid() } != 0 {
@@ -84,6 +92,7 @@ pub fn run_with_evdev(
         .collect();
 
     let mut consumed_keys: HashSet<u16> = HashSet::new();
+    let mut dedup = crate::key_dedup::DedupState::new();
     let mut last_active_window = String::new();
     let mut last_window_class = String::new();
     let mut skip_count = 0u32;
@@ -146,12 +155,20 @@ pub fn run_with_evdev(
             // it was opened after vietc started.
             let new_devs = discover_new_keyboards(&known_paths);
             for (mut dev, name) in new_devs {
+                known_paths.insert(dev_path_of(&name));
+                let dev_name_lower = name.to_lowercase();
+                let already_has_keyboard = devices.iter().any(|(_, n)| {
+                    let nl = n.to_lowercase();
+                    nl.contains("keyboard") && nl.contains("wireless receiver")
+                });
+                if already_has_keyboard && dev_name_lower.contains("wireless receiver") && !dev_name_lower.contains("keyboard") {
+                    continue;
+                }
                 if daemon.grab_enabled {
                     if dev.grab().is_ok() {
                         log_info(&format!("[vietc] Hotplug grabbed keyboard: {}", name));
                     }
                 }
-                known_paths.insert(dev_path_of(&name));
                 let caps = is_caps_lock_on(&dev);
                 devices.push((dev, name.clone()));
                 device_states.push((evdev::AttributeSet::new(), caps));
@@ -223,15 +240,32 @@ pub fn run_with_evdev(
 
                 if value == 1 && is_toggle_combination_state(&key_state, &daemon.config.toggle_key)
                 {
+                    consumed_keys.insert(keycode);
                     daemon.toggle();
                     continue;
                 }
 
-                // Ctrl+LeftShift: toggle VNI/Telex input method
+                // Ctrl+Shift: toggle EN -> VNI -> TELEX -> EN
                 if value == 1 && is_method_toggle_state(&key_state)
                 {
+                    consumed_keys.insert(keycode);
                     daemon.toggle_method();
                     continue;
+                }
+
+                if value == 1 && daemon.config.deduplicate_keys {
+                    let dedupable = keycode < 256 && !is_modifier_pressed(&key_state);
+                    if dedup.observe(
+                        keycode as u32,
+                        dedupable,
+                        keycode == 57,
+                        daemon.config.deduplicate_two_back,
+                        daemon.config.deduplicate_window_ms,
+                        std::time::Instant::now(),
+                    ) {
+                        consumed_keys.insert(keycode);
+                        continue;
+                    }
                 }
 
                 // Password field check (fresh AT-SPI2 check): disable engine if typing
@@ -536,36 +570,26 @@ fn devices_name_at(devices: &[(evdev::Device, String)], d: usize) -> &str {
 /// Used for hotplug so a virtual keyboard (e.g. vietc-vk) opened after vietc
 /// started is still grabbed and can drive the engine.
 fn discover_new_keyboards(existing: &HashSet<String>) -> Vec<(evdev::Device, String)> {
-    let dir = std::path::Path::new("/dev/input");
     let mut out = Vec::new();
-    let Ok(rd) = fs::read_dir(dir) else {
-        return out;
-    };
-    for entry in rd.flatten() {
-        let name_str = entry.file_name().to_string_lossy().into_owned();
-        if !name_str.starts_with("event") {
-            continue;
-        }
-        let path = entry.path();
-        let p = path.to_string_lossy().to_string();
-        if existing.contains(&p) {
-            continue;
-        }
-        match evdev::Device::open(&path) {
-            Ok(device) => {
-                let dev_name = device.name().unwrap_or("unknown").to_string();
-                // Skip vietc's own injector device.
-                if dev_name.eq_ignore_ascii_case("vietc") {
-                    continue;
-                }
-                if device
-                    .supported_keys()
-                    .is_some_and(|k| k.contains(evdev::Key::KEY_A))
-                {
-                    out.push((device, format!("{} ({})", path.display(), dev_name)));
+    let by_path = std::path::Path::new("/dev/input/by-path");
+    if by_path.exists() {
+        if let Ok(rd) = fs::read_dir(by_path) {
+            for entry in rd.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with("-event-kbd") {
+                    if let Ok(real_path) = fs::canonicalize(entry.path()) {
+                        let p = real_path.to_string_lossy().to_string();
+                        if !existing.contains(&p) {
+                            if let Ok(device) = evdev::Device::open(&real_path) {
+                                let dev_name = device.name().unwrap_or("unknown").to_string();
+                                if crate::device::is_valid_keyboard(&device) {
+                                    out.push((device, format!("{} ({})", real_path.display(), dev_name)));
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            Err(_) => continue,
         }
     }
     out

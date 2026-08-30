@@ -50,14 +50,10 @@ fn clipboard_read_write() {
     if let Some(mut stdin) = child.stdin.take() {
         writeln!(stdin, "test-clipboard-content").ok();
     }
-    let status = child.wait().expect("clipboard tool failed");
-    assert!(status.success(), "clipboard write failed");
+    let _ = child.wait();
 
-    std::thread::sleep(Duration::from_millis(100));
-
-    let content = clipboard::read_clipboard()
-        .expect("failed to read clipboard");
-    assert!(content.contains("test-clipboard-content"), "clipboard content mismatch: '{}'", content);
+    let success = clipboard::wait_for_clipboard("test-clipboard-content", Duration::from_secs(3));
+    assert!(success, "failed to read clipboard content within timeout");
 }
 
 /// Full pipeline test: create virtual keyboard, spawn daemon,

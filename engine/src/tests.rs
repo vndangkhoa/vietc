@@ -503,4 +503,78 @@ mod tests {
         let events = process_input(&mut e, "vn ");
         assert_eq!(get_display(&events), "Việt Nam ");
     }
+
+    // ================================================================
+    // Comprehensive Vietnamese Names & Sentences
+    // ================================================================
+
+    #[test]
+    fn telex_nguyen_dang_khoa() {
+        let mut e = Engine::new(InputMethod::Telex);
+        let events = process_input(&mut e, "Nguyeenx DDawng Khoa");
+        assert_eq!(get_display(&events), "Nguyễn Đăng Khoa");
+    }
+
+    #[test]
+    fn vni_nguyen_dang_khoa() {
+        let mut e = Engine::new(InputMethod::Vni);
+        let events = process_input(&mut e, "Nguyen64 D9ang8 Khoa");
+        assert_eq!(get_display(&events), "Nguyễn Đăng Khoa");
+    }
+
+    #[test]
+    fn telex_full_vietnamese_sentence() {
+        let mut e = Engine::new(InputMethod::Telex);
+        let events = process_input(&mut e, "Coongj hoaf xax hooij chur nghiax Vieetj Nam");
+        assert_eq!(get_display(&events), "Cộng hoà xã hội chủ nghĩa Việt Nam");
+    }
+
+    #[test]
+    fn vni_full_vietnamese_sentence() {
+        let mut e = Engine::new(InputMethod::Vni);
+        let events = process_input(&mut e, "Co6ng5 hoa2 xa4 ho6i5 chu3 nghia4 Vie6t5 Nam");
+        assert_eq!(get_display(&events), "Cộng hoà xã hội chủ nghĩa Việt Nam");
+    }
+
+    #[test]
+    fn telex_standard_proverb() {
+        let mut e = Engine::new(InputMethod::Telex);
+        let events = process_input(&mut e, "Khoong cos gif quis hown ddoocj laapj tuwj do");
+        assert_eq!(get_display(&events), "Không có gì quí hơn độc lập tự do");
+    }
+
+    #[test]
+    fn vni_standard_proverb() {
+        let mut e = Engine::new(InputMethod::Vni);
+        let events = process_input(&mut e, "Kho6ng co1 gi2 qui1 ho7n d9o65c la65p tu75 do");
+        assert_eq!(get_display(&events), "Không có gì quí hơn độc lập tự do");
+    }
+
+    #[test]
+    fn telex_complex_words() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "nghieeng ")), "nghiêng ");
+        assert_eq!(get_display(&process_input(&mut e, "quyeets ")), "quyết ");
+        assert_eq!(get_display(&process_input(&mut e, "truwowngf ")), "trường ");
+        assert_eq!(get_display(&process_input(&mut e, "thuwf ")), "thừ ");
+        assert_eq!(get_display(&process_input(&mut e, "ddieefu ")), "điều ");
+        assert_eq!(get_display(&process_input(&mut e, "khuaays ")), "khuấy ");
+        assert_eq!(get_display(&process_input(&mut e, "chuyeern ")), "chuyển ");
+        assert_eq!(get_display(&process_input(&mut e, "muooxng ")), "muỗng ");
+        assert_eq!(get_display(&process_input(&mut e, "tuyeetj ")), "tuyệt ");
+    }
+
+    #[test]
+    fn vni_complex_words() {
+        let mut e = Engine::new(InputMethod::Vni);
+        assert_eq!(get_display(&process_input(&mut e, "nghie6ng ")), "nghiêng ");
+        assert_eq!(get_display(&process_input(&mut e, "quye6t1 ")), "quyết ");
+        assert_eq!(get_display(&process_input(&mut e, "tru7o7ng2 ")), "trường ");
+        assert_eq!(get_display(&process_input(&mut e, "thu72 ")), "thừ ");
+        assert_eq!(get_display(&process_input(&mut e, "d9ie6u2 ")), "điều ");
+        assert_eq!(get_display(&process_input(&mut e, "khua6y1 ")), "khuấy ");
+        assert_eq!(get_display(&process_input(&mut e, "chuye6n3 ")), "chuyển ");
+        assert_eq!(get_display(&process_input(&mut e, "muo6ng4 ")), "muỗng ");
+        assert_eq!(get_display(&process_input(&mut e, "tuye6t5 ")), "tuyệt ");
+    }
 }

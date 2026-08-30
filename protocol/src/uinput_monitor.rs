@@ -395,17 +395,37 @@ impl UinputInjector {
             return InjectResult::Success;
         }
 
-        // Unicode: backspaces via uinput, then clipboard copy + paste (both via uinput)
+        // Unicode: backspaces via uinput, then type via wtype (Wayland direct virtual keyboard) or clipboard fallback
         if backspaces > 0 {
-            for _ in 0..backspaces { let _ = self.send_backspace(); }
+            for _ in 0..backspaces {
+                let _ = self.send_backspace();
+            }
         }
-        if !self.paste_via_clipboard(text) {
-            eprintln!(
-                "[vietc] send_string failed for '{}' (clipboard unavailable)",
-                text.escape_default()
-            );
+        if !Self::type_via_wtype(text) {
+            if !self.paste_via_clipboard(text) {
+                eprintln!(
+                    "[vietc] send_string failed for '{}' (wtype & clipboard unavailable)",
+                    text.escape_default()
+                );
+            }
         }
         InjectResult::Success
+    }
+
+    /// Type Unicode text directly using wtype via the Wayland virtual keyboard protocol.
+    fn type_via_wtype(text: &str) -> bool {
+        let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
+        if !is_wayland {
+            return false;
+        }
+        let mut cmd = Self::user_cmd("wtype");
+        cmd.args(["--", text]);
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::null());
+        match cmd.status() {
+            Ok(s) => s.success(),
+            Err(_) => false,
+        }
     }
 
     /// Read the user's current clipboard contents (wl-paste on Wayland, xclip
@@ -526,11 +546,7 @@ impl UinputInjector {
     fn copy_to_clipboard(s: &str) -> bool {
         let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
         let (prog, args): (&str, &[&str]) = if is_wayland {
-            // On Wayland/GNOME, wl-copy exits before the compositor reads
-            // the clipboard data.  --paste-once keeps it alive until pasted,
-            // eliminating the 300–900 ms compositor lookup delay.  We spawn
-            // it detached (no .wait()) — the child lives until Ctrl+V lands.
-            ("wl-copy", &["--paste-once"])
+            ("wl-copy", &[])
         } else {
             ("xclip", &["-selection", "clipboard", "-i"])
         };

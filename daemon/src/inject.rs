@@ -29,10 +29,6 @@ pub fn execute_commands(
     }
 
     injector.flush();
-
-    if !commands.is_empty() {
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
 }
 
 pub fn create_injector(

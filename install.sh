@@ -237,7 +237,7 @@ install_deps() {
     # Check if distro is explicitly supported
     local matched=false
     case "$DISTRO" in
-        ubuntu|debian|linuxmint|mint|pop|neon|zorin|elementary|fedora|rhel|centos|arch|manjaro|cachyos|endeavouros|garuda|artix)
+        ubuntu|debian|linuxmint|mint|pop|neon|zorin|elementary|fedora|rhel|centos|arch|manjaro|cachyos|endeavouros|garuda|artix|omarchy)
             matched=true
             ;;
     esac
@@ -275,7 +275,7 @@ install_deps() {
                 dnf install -y libX11-devel libXtst-devel dbus-devel libevdev-devel wayland-devel git \
                   libevdev libX11 libXtst dbus-libs libwayland-client xclip wl-clipboard curl
                 ;;
-            arch|manjaro|cachyos|endeavouros|garuda|artix)
+            arch|manjaro|cachyos|endeavouros|garuda|artix|omarchy)
                 pacman -Sy --needed --noconfirm base-devel pkgconf git \
                   libevdev libx11 libxtst dbus wayland xclip wl-clipboard curl
                 ;;
@@ -295,7 +295,7 @@ install_deps() {
             fedora|rhel|centos)
                 dnf install -y libevdev libX11 libXtst dbus-libs libwayland-client xclip wl-clipboard curl
                 ;;
-            arch|manjaro|cachyos|endeavouros|garuda|artix)
+            arch|manjaro|cachyos|endeavouros|garuda|artix|omarchy)
                 pacman -Sy --needed --noconfirm libevdev libx11 libxtst dbus \
                   wayland xclip wl-clipboard curl
                 ;;
@@ -313,59 +313,99 @@ cleanup() { rm -rf "$TMPDIR"; }
 trap cleanup EXIT
 
 if [ "$FROM_SOURCE" = true ]; then
-    # Install Rust if missing — check both root and the invoking user's cargo
-    # (install.sh is run via sudo, so root's PATH often lacks cargo even when the user has it)
-    CARGO_BIN=""
-    if command -v cargo &>/dev/null; then
-        CARGO_BIN="$(command -v cargo)"
-    elif [ -n "${SUDO_USER:-}" ] && [ -x "/home/$SUDO_USER/.cargo/bin/cargo" ]; then
-        CARGO_BIN="/home/$SUDO_USER/.cargo/bin/cargo"
-        export PATH="/home/$SUDO_USER/.cargo/bin:$PATH"
-        echo "Using cargo from $CARGO_BIN (SUDO_USER=$SUDO_USER)"
-    elif [ -x "$HOME/.cargo/bin/cargo" ]; then
-        CARGO_BIN="$HOME/.cargo/bin/cargo"
-        export PATH="$HOME/.cargo/bin:$PATH"
-    fi
-    if [ -z "$CARGO_BIN" ]; then
-        t install_rust
-        echo "Downloading rustup (may take a minute, no progress shown with -sSf)..."
-        # Try user-owned install first (avoids polluting /root), fall back to root if no SUDO_USER
-        if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-            # Install for the invoking user, not root
-            sudo -u "$SUDO_USER" bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path' 2>&1 || \
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
-            export PATH="/home/$SUDO_USER/.cargo/bin:$HOME/.cargo/bin:$PATH"
+    # Resolve real invoking user (when run via sudo) and their home.
+    # Rust is always installed for that user; cargo build must also run as that user
+    # with correct CARGO_HOME/RUSTUP_HOME, otherwise root's HOME=/root mismatches
+    # the shim's rustup home and yields "no default toolchain".
+    REAL_USER="${SUDO_USER:-$USER}"
+    REAL_HOME="$(getent passwd "$REAL_USER" 2>/dev/null | cut -d: -f6)"
+    [ -z "$REAL_HOME" ] && REAL_HOME="$HOME"
+    [ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
+    export CARGO_HOME="$REAL_HOME/.cargo"
+    export RUSTUP_HOME="$REAL_HOME/.rustup"
+    export PATH="$CARGO_HOME/bin:$PATH"
+
+    # Helper to run cargo/rustup as the build user with correct env
+    run_as_build_user() {
+        if [ "$REAL_USER" != "root" ] && [ "$(id -u)" = "0" ]; then
+            sudo -u "$REAL_USER" env PATH="$CARGO_HOME/bin:$PATH" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$RUSTUP_HOME" "$@"
         else
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
-            export PATH="$HOME/.cargo/bin:$PATH"
+            env PATH="$CARGO_HOME/bin:$PATH" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$RUSTUP_HOME" "$@"
         fi
-        # Verify
-        if ! command -v cargo &>/dev/null && [ -x "/home/${SUDO_USER:-$USER}/.cargo/bin/cargo" ]; then
-            export PATH="/home/${SUDO_USER:-$USER}/.cargo/bin:$PATH"
-        fi
-        if ! command -v cargo &>/dev/null; then
-            echo "ERROR: cargo still not found after rustup. Try manual install:" >&2
-            echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y" >&2
-            echo "  source \"\$HOME/.cargo/env\"" >&2
-            echo "Or use prebuilt binary to skip Rust:" >&2
-            echo "  sudo ./install.sh --prebuilt" >&2
-            exit 1
-        fi
-    else
-        # cargo exists but may have no default toolchain (common when sudo finds user's cargo via PATH but root's rustup has no default)
-        if ! cargo --version >/dev/null 2>&1; then
-            echo "cargo found at $CARGO_BIN but no default toolchain — setting rustup default stable..."
-            rustup default stable 2>&1 || true
-            if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-                sudo -u "$SUDO_USER" rustup default stable 2>&1 || true
-                sudo -u "$SUDO_USER" bash -c 'source "$HOME/.cargo/env" 2>/dev/null; rustup default stable 2>&1 || true' || true
+    }
+
+    CARGO_BIN=""
+    if [ -x "$CARGO_HOME/bin/cargo" ]; then
+        CARGO_BIN="$CARGO_HOME/bin/cargo"
+        echo "Using cargo from $CARGO_BIN (user=$REAL_USER)"
+    elif command -v cargo &>/dev/null; then
+        CARGO_BIN="$(command -v cargo)"
+    fi
+
+    # Check if cargo is usable for the build user (handles stale wrapper with no toolchain)
+    if [ -z "$CARGO_BIN" ] || ! run_as_build_user cargo --version >/dev/null 2>&1; then
+        if [ -z "$CARGO_BIN" ]; then
+            t install_rust
+            echo "Downloading rustup (may take a minute, no progress shown with -sSf)..."
+            if [ "$REAL_USER" != "root" ]; then
+                sudo -u "$REAL_USER" bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path' 2>&1 || \
+                curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+            else
+                curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
             fi
-            # Ensure both PATHs contain the cargo bin for the subsequent build (root runs cargo build)
-            export PATH="/home/${SUDO_USER:-$USER}/.cargo/bin:$HOME/.cargo/bin:$PATH"
-            if ! cargo --version >/dev/null 2>&1; then
+            export PATH="$CARGO_HOME/bin:$PATH"
+            if ! run_as_build_user cargo --version >/dev/null 2>&1; then
+                echo "ERROR: cargo still not found after rustup. Try manual install:" >&2
+                echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y" >&2
+                echo "  source \"\$HOME/.cargo/env\"" >&2
+                echo "Or use prebuilt binary to skip Rust:" >&2
+                echo "  sudo ./install.sh --prebuilt" >&2
+                exit 1
+            fi
+        else
+            echo "cargo found at $CARGO_BIN but no default toolchain — setting rustup default stable..."
+            run_as_build_user rustup default stable 2>&1 || true
+            if ! run_as_build_user cargo --version >/dev/null 2>&1; then
                 echo "Still no toolchain, will try RUSTUP_TOOLCHAIN=stable fallback for build"
                 export RUSTUP_TOOLCHAIN=stable
             fi
+        fi
+    fi
+
+    # Ensure cargo persists for future shells (we used --no-modify-path)
+    # Omarchy's .bashrc has an early `[[ $- != *i* ]] && return` guard, so cargo must be
+    # injected before that line, not appended at EOF where it would only affect interactive shells.
+    if [ "$REAL_USER" != "root" ]; then
+        for _rc in "$REAL_HOME/.bashrc" "$REAL_HOME/.zshrc" "$REAL_HOME/.bash_profile" "$REAL_HOME/.profile"; do
+            if [ -f "$_rc" ]; then
+                if ! grep -qF '.cargo/bin' "$_rc" && ! grep -qF 'cargo/env' "$_rc"; then
+                    if [ "$_rc" = "$REAL_HOME/.bashrc" ] && grep -qF '[[ $- != *i* ]] && return' "$_rc"; then
+                        # Insert before the interactive guard
+                        _tmp="$(mktemp)"
+                        awk '
+                            /\[\[ \$- != \*i\* ]] && return/ && !done {
+                                print "# Rust cargo (needed for vietc build)"
+                                print "export PATH=\"$HOME/.cargo/bin:$PATH\""
+                                print ""
+                                done=1
+                            }
+                            {print}
+                        ' "$_rc" > "$_tmp" && cat "$_tmp" > "$_rc" && rm -f "$_tmp"
+                    else
+                        echo '' >> "$_rc"
+                        echo '# Added by vietc installer: Rust cargo' >> "$_rc"
+                        echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> "$_rc"
+                    fi
+                    chown "$REAL_USER":"$REAL_USER" "$_rc" 2>/dev/null || true
+                fi
+            fi
+        done
+        # Also ensure systemd user env via environment.d for Wayland sessions (omarchy/uwsm)
+        mkdir -p "$REAL_HOME/.config/environment.d"
+        if [ ! -f "$REAL_HOME/.config/environment.d/cargo.conf" ]; then
+            # Use absolute path so systemd/user session picks it up without shell expansion quirks
+            echo "PATH=$REAL_HOME/.cargo/bin:\$PATH" > "$REAL_HOME/.config/environment.d/cargo.conf"
+            chown -R "$REAL_USER":"$REAL_USER" "$REAL_HOME/.config/environment.d" 2>/dev/null || true
         fi
     fi
 
@@ -374,6 +414,10 @@ if [ "$FROM_SOURCE" = true ]; then
         t cloning
         git clone -b staging https://github.com/vndangkhoa/vietc.git "$TMPDIR/source"
         cd "$TMPDIR/source"
+        # If building as non-root but TMPDIR was created as root, ensure build user can write
+        if [ "$REAL_USER" != "root" ] && [ "$(id -u)" = "0" ]; then
+            chown -R "$REAL_USER":"$REAL_USER" "$TMPDIR/source" 2>/dev/null || true
+        fi
     fi
 
     # Install build dependencies (needed to compile the daemon)
@@ -389,15 +433,21 @@ if [ "$FROM_SOURCE" = true ]; then
             dnf install -y gcc pkgconf-pkg-config libxkbcommon-devel \
               libX11-devel libXtst-devel wayland-devel libevdev-devel dbus-devel
             ;;
-        arch|manjaro|cachyos|endeavouros|garuda|artix)
+        arch|manjaro|cachyos|endeavouros|garuda|artix|omarchy)
             pacman -Sy --needed --noconfirm base-devel pkgconf \
               libxkbcommon wayland libevdev dbus
             ;;
     esac
 
     t building
-    cargo build --release
-    (cd ui && cargo build --release)
+    # If project dir is owned by REAL_USER but we chown target cache to that user to avoid permission issues
+    if [ "$REAL_USER" != "root" ] && [ "$(id -u)" = "0" ]; then
+        # Ensure existing target dirs are writable by build user
+        chown -R "$REAL_USER":"$REAL_USER" . 2>/dev/null || true
+        [ -d ui ] && chown -R "$REAL_USER":"$REAL_USER" ui 2>/dev/null || true
+    fi
+    run_as_build_user cargo build --release
+    (cd ui && run_as_build_user cargo build --release)
 else
     t fetching_release
     RELEASE_JSON=$(curl -sSfL "https://api.github.com/repos/vndangkhoa/vietc/releases/latest" 2>/dev/null || echo "")
@@ -638,7 +688,7 @@ setup_bamboo() {
                     t bamboo_install_manual
             fi
             ;;
-        arch|manjaro|cachyos|endeavouros|garuda|artix)
+        arch|manjaro|cachyos|endeavouros|garuda|artix|omarchy)
             if [ ! -f /usr/lib/ibus/ibus-engine-bamboo ]; then
                 (command -v yay &>/dev/null && yay -S --noconfirm ibus-bamboo) || \
                 (command -v paru &>/dev/null && paru -S --noconfirm ibus-bamboo) || \

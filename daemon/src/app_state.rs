@@ -113,9 +113,118 @@ fn get_active_window_x11_dlopen() -> Option<String> {
     }
 }
 
-/// Get the active window's PID (works on Wayland GNOME via D-Bus, X11 via xprop)
+struct HyprWindowInfo {
+    address: String,
+    class: String,
+    title: String,
+    pid: u32,
+}
+
+fn get_hyprland_active_window() -> Option<HyprWindowInfo> {
+    if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_err()
+        && !std::env::var("XDG_CURRENT_DESKTOP").map_or(false, |d| d.to_lowercase().contains("hyprland"))
+    {
+        return None;
+    }
+
+    let output = run_as_user("hyprctl")
+        .args(["activewindow", "-j"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let json_str = String::from_utf8_lossy(&output.stdout);
+    if json_str.trim().is_empty() || json_str.trim() == "{}" {
+        return None;
+    }
+
+    let val: serde_json::Value = serde_json::from_str(&json_str).ok()?;
+    let address = val.get("address")?.as_str()?.to_string();
+    if address.is_empty() || address == "0x0" {
+        return None;
+    }
+    let class = val.get("class").and_then(|c| c.as_str()).unwrap_or_default().to_lowercase();
+    let title = val.get("title").and_then(|t| t.as_str()).unwrap_or_default().to_lowercase();
+    let pid = val.get("pid").and_then(|p| p.as_u64()).unwrap_or(0) as u32;
+
+    Some(HyprWindowInfo {
+        address,
+        class,
+        title,
+        pid,
+    })
+}
+
+fn get_sway_focused_window() -> Option<(String, String, String, u32)> {
+    if std::env::var("SWAYSOCK").is_err()
+        && !std::env::var("XDG_CURRENT_DESKTOP").map_or(false, |d| d.to_lowercase().contains("sway"))
+    {
+        return None;
+    }
+
+    let output = run_as_user("swaymsg")
+        .args(["-t", "get_tree"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let val: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    find_sway_focused_node(&val)
+}
+
+fn find_sway_focused_node(val: &serde_json::Value) -> Option<(String, String, String, u32)> {
+    if val.get("focused").and_then(|b| b.as_bool()) == Some(true) {
+        let id = val.get("id").and_then(|i| i.as_i64()).map(|i| format!("0x{:x}", i)).unwrap_or_default();
+        let class = val.get("app_id")
+            .and_then(|a| a.as_str())
+            .or_else(|| val.get("window_properties").and_then(|w| w.get("class")).and_then(|c| c.as_str()))
+            .unwrap_or_default()
+            .to_lowercase();
+        let title = val.get("name").and_then(|n| n.as_str()).unwrap_or_default().to_lowercase();
+        let pid = val.get("pid").and_then(|p| p.as_u64()).unwrap_or(0) as u32;
+        return Some((id, class, title, pid));
+    }
+
+    if let Some(nodes) = val.get("nodes").and_then(|n| n.as_array()) {
+        for node in nodes {
+            if let Some(res) = find_sway_focused_node(node) {
+                return Some(res);
+            }
+        }
+    }
+    if let Some(floating) = val.get("floating_nodes").and_then(|n| n.as_array()) {
+        for node in floating {
+            if let Some(res) = find_sway_focused_node(node) {
+                return Some(res);
+            }
+        }
+    }
+    None
+}
+
+/// Get the active window's PID (works on Wayland GNOME via D-Bus, Hyprland, Sway, X11 via xprop)
 pub fn get_active_window_pid() -> Option<u32> {
-    // Try GNOME Shell D-Bus first (works on Wayland)
+    // Try Hyprland first
+    if let Some(info) = get_hyprland_active_window() {
+        if info.pid > 0 {
+            return Some(info.pid);
+        }
+    }
+
+    // Try Sway
+    if let Some((_, _, _, pid)) = get_sway_focused_window() {
+        if pid > 0 {
+            return Some(pid);
+        }
+    }
+
+    // Try GNOME Shell D-Bus (works on Wayland)
     if let Some(pid) = get_gnome_focused_pid() {
         return Some(pid);
     }
@@ -152,6 +261,20 @@ fn get_xprop_window_pid() -> Option<u32> {
 
 /// Get the active window's title (lowercase)
 pub fn get_active_window_title() -> Option<String> {
+    // Try Hyprland first
+    if let Some(info) = get_hyprland_active_window() {
+        if !info.title.is_empty() {
+            return Some(info.title);
+        }
+    }
+
+    // Try Sway
+    if let Some((_, _, title, _)) = get_sway_focused_window() {
+        if !title.is_empty() {
+            return Some(title);
+        }
+    }
+
     // Try GNOME Shell D-Bus (Wayland GNOME)
     if let Some(title) = get_gnome_window_title() {
         return Some(title.to_lowercase());
@@ -185,9 +308,23 @@ fn get_gnome_window_title() -> Option<String> {
     if title.is_empty() { None } else { Some(title) }
 }
 
-/// Get the active window's X11 ID (unique per window — even within the same
-/// application).  Returns a unique window-identifier string.
+/// Get the active window's X11 or Wayland ID (unique per window).
+/// Returns a unique window-identifier string.
 pub fn get_active_window_id() -> Option<String> {
+    // Try Hyprland first
+    if let Some(info) = get_hyprland_active_window() {
+        if !info.address.is_empty() {
+            return Some(info.address);
+        }
+    }
+
+    // Try Sway
+    if let Some((id, _, _, _)) = get_sway_focused_window() {
+        if !id.is_empty() {
+            return Some(id);
+        }
+    }
+
     // Try GNOME Shell D-Bus (Wayland GNOME) — returns hex window ID
     if let Some(id) = get_gnome_active_window_id() {
         return Some(id);
@@ -240,6 +377,20 @@ fn get_gnome_active_window_id() -> Option<String> {
 
 /// Detect the currently focused window's class name
 pub fn get_focused_window_class() -> Option<String> {
+    // Try Hyprland first
+    if let Some(info) = get_hyprland_active_window() {
+        if !info.class.is_empty() {
+            return Some(info.class);
+        }
+    }
+
+    // Try Sway
+    if let Some((_, class, _, _)) = get_sway_focused_window() {
+        if !class.is_empty() {
+            return Some(class);
+        }
+    }
+
     // Try GNOME Shell D-Bus (Wayland GNOME)
     if let Some(class) = get_gnome_focused_wm_class() {
         return Some(class);
@@ -270,9 +421,7 @@ pub fn get_focused_window_class() -> Option<String> {
         return Some(class);
     }
 
-    // Wayland-native window detection via AT-SPI2 (GNOME Shell `Eval` is gated
-    // off and xprop cannot see Wayland-native windows, so this is the only
-    // reliable source for Firefox/gedit/Ptyxis etc. on this session).
+    // Wayland-native window detection via AT-SPI2
     if let Some(class) = crate::password_detector::get_focused_window_class_atspi() {
         return Some(class);
     }
@@ -604,6 +753,17 @@ impl AppStateManager {
         self.update_effective_method();
     }
 
+    /// Set the user's global enabled state
+    pub fn set_global_enabled(&mut self, enabled: bool) {
+        self.global_enabled = enabled;
+    }
+
+    /// Clear app overrides
+    pub fn clear_overrides(&mut self) {
+        self.overrides.clear();
+        let _ = self.save_overrides();
+    }
+
     /// Set the user's global input method and recompute effective method
     pub fn set_global_method(&mut self, method: &str) {
         self.global_method = method.to_string();
@@ -761,13 +921,6 @@ impl AppStateManager {
             eprintln!("[vietc] Failed to save app overrides: {}", e);
         }
         new_state
-    }
-
-    /// Clear all overrides
-    #[allow(dead_code)]
-    pub fn clear_overrides(&mut self) {
-        self.overrides.clear();
-        eprintln!("[vietc] All app overrides cleared");
     }
 
     /// Update app lists from reloaded config

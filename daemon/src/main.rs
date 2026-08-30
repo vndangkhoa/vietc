@@ -221,6 +221,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         thread::spawn(move || {
             let mut window_check_counter = 0;
             let status_path = config_path.parent().unwrap().join("status");
+            let method_path = config_path.parent().unwrap().join("method");
+            let mut last_method = String::new();
             loop {
                 if let Some(id) = app_state::get_active_window_id() {
                     let mut lock = shared_active_window.lock().unwrap();
@@ -228,8 +230,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         log_info(&format!("[vietc] bg: window ID '{}' -> '{}'", *lock, id));
                         *lock = id;
                     }
-                } else {
-                    log_info("[vietc] bg: window ID poll failed");
                 }
                 if let Some(class) = app_state::get_focused_window_class() {
                     let mut lock = shared_window_class.lock().unwrap();
@@ -243,6 +243,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let current_enabled = engine_enabled.load(Ordering::SeqCst);
                     if is_vn != current_enabled {
                         status_changed.store(true, Ordering::SeqCst);
+                    }
+                }
+
+                if let Ok(content) = std::fs::read_to_string(&method_path) {
+                    let m = content.trim();
+                    if !m.is_empty() && m != last_method {
+                        if !last_method.is_empty() {
+                            status_changed.store(true, Ordering::SeqCst);
+                        }
+                        last_method = m.to_string();
                     }
                 }
 
@@ -264,9 +274,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // On Wayland, prefer the compositor input-method protocol: it needs no
-    // root, no evdev grab, no uinput and no input-group udev rule. If the
-    // compositor doesn't expose zwp_input_method_v2, fall back to evdev.
+    // Primary engine: hardware keyboard interception via evdev + uinput.
+    // Handles all Wayland compositors (Hyprland, Sway, GNOME, KDE, River, etc.)
+    // and X11 seamlessly. Rootless when in `input` group.
+    match open_keyboard_devices() {
+        Ok(mut devices) => {
+            match run_with_evdev(
+                &mut devices,
+                &mut daemon,
+                shared_active_window.clone(),
+                shared_window_class.clone(),
+                config_changed.clone(),
+                status_changed.clone(),
+                engine_enabled.clone(),
+                display,
+            ) {
+                Ok(()) => {
+                    log_info("[vietc] evdev session ended");
+                    return Ok(());
+                }
+                Err(e) => {
+                    log_info(&format!(
+                        "[vietc] evdev exited with error: {} — trying fallbacks",
+                        e
+                    ));
+                }
+            }
+        }
+        Err(e) => {
+            log_info(&format!("[vietc] evdev not available: {}", e));
+        }
+    }
+
+    // Fallback on Wayland: compositor input-method protocol
     #[cfg(feature = "wayland")]
     if display == display::DisplayServer::Wayland {
         match wayland_im::run_wayland_im(&daemon.config, engine_enabled.clone(), display) {
@@ -276,59 +316,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Err(e) => {
                 log_info(&format!(
-                    "[vietc] Wayland IM unavailable ({}), falling back to evdev/uinput/X11",
+                    "[vietc] Wayland IM unavailable ({}), falling back",
                     e
                 ));
-                // IBus won't auto-yield here, so stop it to avoid a second IME
-                // competing with the evdev/uinput or X11 fallback paths.
-                // Don't stop IBus if we already tried (or will try) the native
-                // IBus engine path — that path *requires* ibus-daemon.
-                if !should_use_ibus {
-                    stop_ibus();
-                }
             }
         }
     }
 
-    // On a Wayland session without zwp_input_method_v2 (e.g. current Mutter),
-    // the only capture path that works is the rootless X11 keymap path over
-    // XWayland — it covers X11/XWayland windows. The evdev grab path cannot be
-    // used here: the compositor owns the input seat, so a grab "succeeds" but
-    // receives no events, and keystrokes never reach vietc. So when DISPLAY is
-    // set we use the X11 keymap path and skip evdev. evdev remains the fallback
-    // for headless / pure-Wayland setups that grant uinput/setcap.
-    if std::env::var("DISPLAY").is_err() {
-        match open_keyboard_devices() {
-            Ok(mut devices) => {
-                match run_with_evdev(
-                    &mut devices,
-                    &mut daemon,
-                    shared_active_window.clone(),
-                    shared_window_class.clone(),
-                    config_changed.clone(),
-                    status_changed.clone(),
-                    engine_enabled.clone(),
-                    display,
-                ) {
-                    Ok(()) => {
-                        log_info("[vietc] evdev returned, trying X11 capture as fallback");
-                    }
-                    Err(e) => {
-                        log_info(&format!(
-                            "[vietc] evdev exited with error: {} — trying X11 capture",
-                            e
-                        ));
-                    }
-                }
-            }
-            Err(e) => {
-                log_info(&format!("[vietc] evdev not available: {}", e));
-            }
-        }
-    } else {
-        log_info("[vietc] DISPLAY available — using rootless X11 keymap path (X11/XWayland windows)");
-    }
-
+    // Fallback on X11: X11 keymap-based capture
     #[cfg(feature = "x11")]
     if std::env::var("DISPLAY").is_ok() {
         log_info("[vietc] Trying X11 keymap-based capture (rootless via XWayland)");

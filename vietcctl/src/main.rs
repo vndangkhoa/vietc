@@ -71,9 +71,17 @@ fn mode_file() -> PathBuf {
 }
 
 fn read_mode() -> Mode {
-    std::fs::read_to_string(mode_file())
-        .map(|s| Mode::from_str(&s))
-        .unwrap_or(Mode::Vni)
+    let status = std::fs::read_to_string(config_dir().join("vietc").join("status"))
+        .unwrap_or_default();
+    let method = std::fs::read_to_string(config_dir().join("vietc").join("method"))
+        .unwrap_or_default();
+    if status.trim() == "en" {
+        Mode::En
+    } else if method.trim() == "telex" {
+        Mode::Telex
+    } else {
+        Mode::Vni
+    }
 }
 
 fn write_mode(mode: Mode) {
