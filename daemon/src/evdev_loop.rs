@@ -481,13 +481,15 @@ pub fn run_with_evdev(
                                         commands,
                                     ));
                                 }
-                                log_info(&format!(
-                                    "[vietc] inject: engine={} ch='{}' buf={} cmds={:?}",
-                                    if daemon.engine.is_enabled() { "VN" } else { "EN" },
-                                    ch,
-                                    buf_before,
-                                    commands
-                                ));
+                                if debug_logging {
+                                    log_info(&format!(
+                                        "[vietc] inject: engine={} ch='{}' buf={} cmds={:?}",
+                                        if daemon.engine.is_enabled() { "VN" } else { "EN" },
+                                        ch,
+                                        buf_before,
+                                        commands
+                                    ));
+                                }
                                 consumed_keys.insert(keycode);
                                 execute_commands(&*injector, &commands);
                                 if is_flush_char(ch) && daemon.engine.is_enabled() {

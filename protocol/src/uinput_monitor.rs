@@ -164,38 +164,119 @@ impl UinputInjector {
     }
 
     fn send_key_stroke(&self, keycode: u16, shift: bool) {
+        let mut events = Vec::with_capacity(8);
         if shift {
-            self.send_uinput_event(EV_KEY, 42, 1);
-            self.send_uinput_event(0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            events.push(input_event {
+                time: timeval { tv_sec: 0, tv_usec: 0 },
+                type_: EV_KEY,
+                code: 42,
+                value: 1,
+            });
+            events.push(input_event {
+                time: timeval { tv_sec: 0, tv_usec: 0 },
+                type_: 0,
+                code: 0,
+                value: 0,
+            });
         }
 
-        self.send_uinput_event(EV_KEY, keycode, 1);
-        self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_millis(2));
-
-        self.send_uinput_event(EV_KEY, keycode, 0);
-        self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        events.push(input_event {
+            time: timeval { tv_sec: 0, tv_usec: 0 },
+            type_: EV_KEY,
+            code: keycode,
+            value: 1,
+        });
+        events.push(input_event {
+            time: timeval { tv_sec: 0, tv_usec: 0 },
+            type_: 0,
+            code: 0,
+            value: 0,
+        });
+        events.push(input_event {
+            time: timeval { tv_sec: 0, tv_usec: 0 },
+            type_: EV_KEY,
+            code: keycode,
+            value: 0,
+        });
+        events.push(input_event {
+            time: timeval { tv_sec: 0, tv_usec: 0 },
+            type_: 0,
+            code: 0,
+            value: 0,
+        });
 
         if shift {
-            self.send_uinput_event(EV_KEY, 42, 0);
-            self.send_uinput_event(0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            events.push(input_event {
+                time: timeval { tv_sec: 0, tv_usec: 0 },
+                type_: EV_KEY,
+                code: 42,
+                value: 0,
+            });
+            events.push(input_event {
+                time: timeval { tv_sec: 0, tv_usec: 0 },
+                type_: 0,
+                code: 0,
+                value: 0,
+            });
+        }
+
+        unsafe {
+            let ptr = events.as_ptr() as *const u8;
+            let len = events.len() * std::mem::size_of::<input_event>();
+            let _ = libc::write(
+                self.file.as_raw_fd() as libc::c_int,
+                ptr as *const libc::c_void,
+                len,
+            );
+        }
+    }
+
+    fn send_backspaces(&self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        let mut events = Vec::with_capacity(count * 4);
+        for _ in 0..count {
+            events.push(input_event {
+                time: timeval { tv_sec: 0, tv_usec: 0 },
+                type_: EV_KEY,
+                code: 14,
+                value: 1,
+            });
+            events.push(input_event {
+                time: timeval { tv_sec: 0, tv_usec: 0 },
+                type_: 0,
+                code: 0,
+                value: 0,
+            });
+            events.push(input_event {
+                time: timeval { tv_sec: 0, tv_usec: 0 },
+                type_: EV_KEY,
+                code: 14,
+                value: 0,
+            });
+            events.push(input_event {
+                time: timeval { tv_sec: 0, tv_usec: 0 },
+                type_: 0,
+                code: 0,
+                value: 0,
+            });
+        }
+        unsafe {
+            let ptr = events.as_ptr() as *const u8;
+            let len = events.len() * std::mem::size_of::<input_event>();
+            let _ = libc::write(
+                self.file.as_raw_fd() as libc::c_int,
+                ptr as *const libc::c_void,
+                len,
+            );
         }
     }
 }
 
 impl KeyInjector for UinputInjector {
     fn send_backspace(&self) -> InjectResult {
-        self.send_uinput_event(EV_KEY, 14, 1);
-        self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_millis(2));
-
-        self.send_uinput_event(EV_KEY, 14, 0);
-        self.send_uinput_event(0, 0, 0);
-        std::thread::sleep(std::time::Duration::from_millis(2));
-
+        self.send_backspaces(1);
         InjectResult::Success
     }
 
@@ -381,26 +462,23 @@ impl UinputInjector {
     /// best available method: ydotool (uinput) for ASCII, xdotool (X11) or
     /// clipboard for Unicode.
     fn inject_replacement_atomic(&self, backspaces: usize, text: &str) -> InjectResult {
-        let t0 = std::time::Instant::now();
-        // If all ASCII, send keycodes directly
+        if backspaces > 0 {
+            self.send_backspaces(backspaces);
+        }
+
+        // If all ASCII, send keycodes directly via uinput
         if text.chars().all(|c| char_to_linux_keycode(c).is_some() || c == '\n') {
-            if backspaces > 0 {
-                for _ in 0..backspaces { let _ = self.send_backspace(); }
-            }
             for ch in text.chars() {
-                if ch == '\n' { self.send_enter(); }
-                else { let _ = self.send_char(ch); }
+                if ch == '\n' {
+                    self.send_enter();
+                } else {
+                    let _ = self.send_char(ch);
+                }
             }
-            eprintln!("[vietc] inject: ASCII backspaces={} text='{}' took {}ms", backspaces, text.escape_default(), (std::time::Instant::now() - t0).as_millis());
             return InjectResult::Success;
         }
 
-        // Unicode: backspaces via uinput, then type via wtype (Wayland direct virtual keyboard) or clipboard fallback
-        if backspaces > 0 {
-            for _ in 0..backspaces {
-                let _ = self.send_backspace();
-            }
-        }
+        // Unicode: type via wtype (Wayland direct virtual keyboard with 0ms delay) or clipboard fallback
         if !Self::type_via_wtype(text) {
             if !self.paste_via_clipboard(text) {
                 eprintln!(
@@ -419,7 +497,7 @@ impl UinputInjector {
             return false;
         }
         let mut cmd = Self::user_cmd("wtype");
-        cmd.args(["--", text]);
+        cmd.args(["-d", "0", "--", text]);
         cmd.stdout(std::process::Stdio::null());
         cmd.stderr(std::process::Stdio::null());
         match cmd.status() {
