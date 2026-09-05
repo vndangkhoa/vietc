@@ -497,7 +497,7 @@ impl UinputInjector {
             return false;
         }
         let mut cmd = Self::user_cmd("wtype");
-        cmd.args(["-d", "0", "--", text]);
+        cmd.args(["--", text]);
         cmd.stdout(std::process::Stdio::null());
         cmd.stderr(std::process::Stdio::null());
         match cmd.status() {
