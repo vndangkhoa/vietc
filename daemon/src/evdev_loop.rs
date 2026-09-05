@@ -57,14 +57,8 @@ pub fn run_with_evdev(
     }
     let grabbed = any_grabbed;
 
-    // Track all existing device paths at startup so secondary USB interfaces are never grabbed by hotplug.
+    // Track only currently opened device paths so newly connected keyboards can be hotplugged
     let mut known_paths: HashSet<String> = HashSet::new();
-    if let Ok(rd) = fs::read_dir("/dev/input") {
-        for entry in rd.flatten() {
-            let p = entry.path().to_string_lossy().to_string();
-            known_paths.insert(p);
-        }
-    }
     for (_, n) in devices.iter() {
         known_paths.insert(dev_path_of(n));
     }
@@ -151,26 +145,17 @@ pub fn run_with_evdev(
                     daemon.check_app_change_with(last_window_class.clone());
                 }
             }
-            // Hotplug: grab keyboards that appeared after startup (e.g. the
-            // vietc-vk virtual keyboard), so it can drive the engine even if
-            // it was opened after vietc started.
+            // Hotplug: dynamically attach keyboards connected after startup
             let new_devs = discover_new_keyboards(&known_paths);
             for (mut dev, name) in new_devs {
                 known_paths.insert(dev_path_of(&name));
-                let dev_name_lower = name.to_lowercase();
-                let already_has_keyboard = devices.iter().any(|(_, n)| {
-                    let nl = n.to_lowercase();
-                    nl.contains("keyboard") && nl.contains("wireless receiver")
-                });
-                if already_has_keyboard && dev_name_lower.contains("wireless receiver") && !dev_name_lower.contains("keyboard") {
-                    continue;
-                }
                 if daemon.grab_enabled {
                     if dev.grab().is_ok() {
                         log_info(&format!("[vietc] Hotplug grabbed keyboard: {}", name));
                     }
                 }
                 let caps = is_caps_lock_on(&dev);
+                log_info(&format!("[vietc] Hotplug connected keyboard: {}", name));
                 devices.push((dev, name.clone()));
                 device_states.push((evdev::AttributeSet::new(), caps));
             }
@@ -570,10 +555,12 @@ fn devices_name_at(devices: &[(evdev::Device, String)], d: usize) -> &str {
 }
 
 /// Discover keyboard devices present in /dev/input that are not already known.
-/// Used for hotplug so a virtual keyboard (e.g. vietc-vk) opened after vietc
-/// started is still grabbed and can drive the engine.
+/// Used for hotplug so newly connected keyboards (USB/wireless/virtual) are attached dynamically.
 fn discover_new_keyboards(existing: &HashSet<String>) -> Vec<(evdev::Device, String)> {
     let mut out = Vec::new();
+    let mut added_paths = HashSet::new();
+
+    // 1. Scan /dev/input/by-path/*-event-kbd
     let by_path = std::path::Path::new("/dev/input/by-path");
     if by_path.exists() {
         if let Ok(rd) = fs::read_dir(by_path) {
@@ -582,7 +569,7 @@ fn discover_new_keyboards(existing: &HashSet<String>) -> Vec<(evdev::Device, Str
                 if name.ends_with("-event-kbd") {
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        if !existing.contains(&p) {
+                        if !existing.contains(&p) && added_paths.insert(p.clone()) {
                             if let Ok(device) = evdev::Device::open(&real_path) {
                                 let dev_name = device.name().unwrap_or("unknown").to_string();
                                 if crate::device::is_valid_keyboard(&device) {
@@ -595,5 +582,29 @@ fn discover_new_keyboards(existing: &HashSet<String>) -> Vec<(evdev::Device, Str
             }
         }
     }
+
+    // 2. Scan /dev/input/by-id/*-event-kbd
+    let by_id = std::path::Path::new("/dev/input/by-id");
+    if by_id.exists() {
+        if let Ok(rd) = fs::read_dir(by_id) {
+            for entry in rd.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with("-event-kbd") {
+                    if let Ok(real_path) = fs::canonicalize(entry.path()) {
+                        let p = real_path.to_string_lossy().to_string();
+                        if !existing.contains(&p) && added_paths.insert(p.clone()) {
+                            if let Ok(device) = evdev::Device::open(&real_path) {
+                                let dev_name = device.name().unwrap_or("unknown").to_string();
+                                if crate::device::is_valid_keyboard(&device) {
+                                    out.push((device, format!("{} ({})", real_path.display(), dev_name)));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     out
 }

@@ -70,7 +70,42 @@ pub fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn s
         }
     }
 
-    // Strategy 2: Fallback / additional scan of /dev/input/event* if no devices found
+    // Strategy 2: Open keyboard devices via /dev/input/by-id/*-event-kbd
+    let by_id = std::path::Path::new("/dev/input/by-id");
+    if by_id.exists() {
+        if let Ok(rd) = fs::read_dir(by_id) {
+            for entry in rd.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with("-event-kbd") {
+                    if let Ok(real_path) = fs::canonicalize(entry.path()) {
+                        let p = real_path.to_string_lossy().to_string();
+                        if seen_paths.insert(p.clone()) {
+                            match evdev::Device::open(&real_path) {
+                                Ok(device) => {
+                                    let dev_name = device.name().unwrap_or("unknown").to_string();
+                                    if is_valid_keyboard(&device) {
+                                        log_info(&format!(
+                                            "[vietc] Found keyboard (by-id): {} ({})",
+                                            real_path.display(),
+                                            dev_name
+                                        ));
+                                        devices.push((device, format!("{} ({})", real_path.display(), dev_name)));
+                                    }
+                                }
+                                Err(e) => {
+                                    if e.raw_os_error() == Some(libc::EACCES) {
+                                        permission_denied_count += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Strategy 3: Fallback / additional scan of /dev/input/event* if no devices found
     if devices.is_empty() {
         let dir = std::path::Path::new("/dev/input");
         if dir.exists() {

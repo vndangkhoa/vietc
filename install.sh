@@ -559,8 +559,8 @@ mkdir -p /etc/modules-load.d
 echo "uinput" > /etc/modules-load.d/vietc.conf
 modprobe uinput 2>/dev/null || true
 cat > /etc/udev/rules.d/99-vietc.rules << 'EOF'
-KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", GROUP="input", MODE="0660"
-SUBSYSTEM=="input", KERNEL=="event*", TAG+="uaccess", GROUP="input", MODE="0660"
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", GROUP="input", MODE="0666"
+SUBSYSTEM=="input", KERNEL=="event*", TAG+="uaccess", GROUP="input", MODE="0666"
 EOF
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger 2>/dev/null || true
