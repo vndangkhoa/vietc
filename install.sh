@@ -421,10 +421,12 @@ if [ "$FROM_SOURCE" = true ]; then
         fi
     fi
 
-    # Clone staging if not in repo
+    # Clone staging if not in repo (fallback to main if staging missing)
     if [ ! -f Cargo.toml ] || [ ! -d .git ]; then
         t cloning
-        git clone -b staging https://github.com/vndangkhoa/vietc.git "$TMPDIR/source"
+        if ! git clone -b staging https://github.com/vndangkhoa/vietc.git "$TMPDIR/source" 2>/dev/null; then
+            git clone https://github.com/vndangkhoa/vietc.git "$TMPDIR/source"
+        fi
         cd "$TMPDIR/source"
         # If building as non-root but TMPDIR was created as root, ensure build user can write
         if [ "$REAL_USER" != "root" ] && [ "$(id -u)" = "0" ]; then
