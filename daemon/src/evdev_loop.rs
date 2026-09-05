@@ -329,8 +329,8 @@ pub fn run_with_evdev(
                         continue;
                     }
 
-                    if value == 1 || value == 2 {
-                        if value == 1 && debug_logging {
+                    if value == 1 {
+                        if debug_logging {
                             log_info(&format!(
                                 "[vietc] grabbed key: code={} ch='{}' buf='{}' enabled={}",
                                 keycode,
@@ -339,84 +339,82 @@ pub fn run_with_evdev(
                                 daemon.engine.is_enabled(),
                             ));
                         }
-                        if value == 1 && consumed_keys.contains(&keycode) {
+                        if consumed_keys.contains(&keycode) {
                             consumed_keys.remove(&keycode);
                         }
                         if let Some(mut ch) = key_to_char(key) {
-                            if value == 1 {
-                                let gap = last_key_time.elapsed();
-                                last_key_time = std::time::Instant::now();
+                            let gap = last_key_time.elapsed();
+                            last_key_time = std::time::Instant::now();
 
-                                let active_window_id = shared_active_window.lock().unwrap().clone();
-                                let active_window_class = shared_window_class.lock().unwrap().clone();
-                                let mut new_window = None;
+                            let active_window_id = shared_active_window.lock().unwrap().clone();
+                            let active_window_class = shared_window_class.lock().unwrap().clone();
+                            let mut new_window = None;
 
-                                if !active_window_id.is_empty() && active_window_id != last_active_window {
-                                    new_window = Some(active_window_id.clone());
-                                } else if !active_window_class.is_empty()
-                                    && active_window_class != last_window_class
-                                {
-                                    new_window = Some(active_window_class.clone());
+                            if !active_window_id.is_empty() && active_window_id != last_active_window {
+                                new_window = Some(active_window_id.clone());
+                            } else if !active_window_class.is_empty()
+                                && active_window_class != last_window_class
+                            {
+                                new_window = Some(active_window_class.clone());
+                            }
+
+                            if let Some(id) = new_window {
+                                log_info(&format!(
+                                    "[vietc] Window changed: '{}' -> '{}' (gap={:?})",
+                                    last_active_window, id, gap
+                                ));
+                                last_active_window = id.clone();
+                                if !active_window_class.is_empty() {
+                                    last_window_class = active_window_class.clone();
                                 }
+                                daemon.engine.reset();
+                                daemon.replay_reset();
 
-                                if let Some(id) = new_window {
-                                    log_info(&format!(
-                                        "[vietc] Window changed: '{}' -> '{}' (gap={:?})",
-                                        last_active_window, id, gap
-                                    ));
-                                    last_active_window = id.clone();
-                                    if !active_window_class.is_empty() {
-                                        last_window_class = active_window_class.clone();
-                                    }
-                                    daemon.engine.reset();
-                                    daemon.replay_reset();
-
-                                    if daemon.config.app_state.enabled {
-                                        let class = shared_window_class.lock().unwrap().clone();
-                                        let class = if class.is_empty() {
-                                            crate::app_state::get_focused_window_class().unwrap_or_default()
-                                        } else {
-                                            class
-                                        };
-                                        injector.set_active_window(&class);
-                                        daemon.check_app_change_with(class);
-                                    }
-
-                                    if daemon.config.password_detection.enabled {
-                                        let is_pw = daemon.app_state.check_password_field();
-                                        if is_pw && daemon.engine.is_enabled() {
-                                            daemon.engine.set_enabled(false);
-                                            daemon.engine.reset();
-                                            daemon.replay_reset();
-                                            daemon.write_status();
-                                        }
-                                    }
-                                } else if daemon.config.app_state.enabled {
+                                if daemon.config.app_state.enabled {
                                     let class = shared_window_class.lock().unwrap().clone();
-                                    if !class.is_empty() {
-                                        injector.set_active_window(&class);
-                                    }
+                                    let class = if class.is_empty() {
+                                        crate::app_state::get_focused_window_class().unwrap_or_default()
+                                    } else {
+                                        class
+                                    };
+                                    injector.set_active_window(&class);
+                                    daemon.check_app_change_with(class);
                                 }
 
                                 if daemon.config.password_detection.enabled {
-                                    password_check_counter += 1;
-                                    if password_check_counter >= 30 {
-                                        password_check_counter = 0;
-                                        let is_pw = daemon.app_state.check_password_field();
-                                        let currently_enabled = daemon.engine.is_enabled();
-                                        if is_pw && currently_enabled {
-                                            daemon.engine.set_enabled(false);
+                                    let is_pw = daemon.app_state.check_password_field();
+                                    if is_pw && daemon.engine.is_enabled() {
+                                        daemon.engine.set_enabled(false);
+                                        daemon.engine.reset();
+                                        daemon.replay_reset();
+                                        daemon.write_status();
+                                    }
+                                }
+                            } else if daemon.config.app_state.enabled {
+                                let class = shared_window_class.lock().unwrap().clone();
+                                if !class.is_empty() {
+                                    injector.set_active_window(&class);
+                                }
+                            }
+
+                            if daemon.config.password_detection.enabled {
+                                password_check_counter += 1;
+                                if password_check_counter >= 30 {
+                                    password_check_counter = 0;
+                                    let is_pw = daemon.app_state.check_password_field();
+                                    let currently_enabled = daemon.engine.is_enabled();
+                                    if is_pw && currently_enabled {
+                                        daemon.engine.set_enabled(false);
+                                        daemon.engine.reset();
+                                        daemon.replay_reset();
+                                        daemon.write_status();
+                                        log_info("[vietc] Password field detected (periodic) — engine disabled");
+                                    } else if !is_pw && !currently_enabled {
+                                        if daemon.app_state.get_default_state() {
+                                            daemon.engine.set_enabled(true);
                                             daemon.engine.reset();
                                             daemon.replay_reset();
                                             daemon.write_status();
-                                            log_info("[vietc] Password field detected (periodic) — engine disabled");
-                                        } else if !is_pw && !currently_enabled {
-                                            if daemon.app_state.get_default_state() {
-                                                daemon.engine.set_enabled(true);
-                                                daemon.engine.reset();
-                                                daemon.replay_reset();
-                                                daemon.write_status();
-                                            }
                                         }
                                     }
                                 }
@@ -456,16 +454,20 @@ pub fn run_with_evdev(
                             } else {
                                 if debug_logging {
                                     log_info(&format!(
-                                        "[vietc] grabbed forward: ch='{}' (no commands, val={})",
+                                        "[vietc] grabbed forward: ch='{}' (no commands)",
                                         ch.escape_default(),
-                                        value,
                                     ));
                                 }
-                                injector.send_key_event(keycode, value);
+                                injector.send_key_event(keycode, 1);
                             }
                         } else {
-                            injector.send_key_event(keycode, value);
+                            injector.send_key_event(keycode, 1);
                         }
+                    } else if value == 2 {
+                        if consumed_keys.contains(&keycode) {
+                            continue;
+                        }
+                        injector.send_key_event(keycode, 2);
                     } else if value == 0 {
                         if consumed_keys.remove(&keycode) {
                             continue;

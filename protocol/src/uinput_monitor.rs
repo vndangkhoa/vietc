@@ -52,6 +52,77 @@ struct ClipInner {
     active_window: String,
 }
 
+use std::io::Write;
+use std::process::{Child, ChildStdin, Stdio};
+
+struct WtypeStream {
+    child: Option<Child>,
+    stdin: Option<ChildStdin>,
+}
+
+impl WtypeStream {
+    fn new() -> Self {
+        let mut stream = Self { child: None, stdin: None };
+        if std::env::var("WAYLAND_DISPLAY").is_ok() {
+            stream.ensure_running();
+        }
+        stream
+    }
+
+    fn ensure_running(&mut self) -> bool {
+        if self.stdin.is_some() {
+            if let Some(ref mut child) = self.child {
+                if let Ok(None) = child.try_wait() {
+                    return true;
+                }
+            }
+        }
+
+        let mut cmd = UinputInjector::user_cmd("wtype");
+        cmd.arg("-");
+        cmd.stdin(Stdio::piped());
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::null());
+
+        match cmd.spawn() {
+            Ok(mut child) => {
+                self.stdin = child.stdin.take();
+                self.child = Some(child);
+                true
+            }
+            Err(_) => {
+                self.child = None;
+                self.stdin = None;
+                false
+            }
+        }
+    }
+
+    fn send_text(&mut self, text: &str) -> bool {
+        if !self.ensure_running() {
+            return false;
+        }
+
+        if let Some(ref mut stdin) = self.stdin {
+            if stdin.write_all(text.as_bytes()).is_ok() && stdin.flush().is_ok() {
+                return true;
+            }
+        }
+
+        self.child = None;
+        self.stdin = None;
+        if self.ensure_running() {
+            if let Some(ref mut stdin) = self.stdin {
+                if stdin.write_all(text.as_bytes()).is_ok() && stdin.flush().is_ok() {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+}
+
 struct ClipState {
     inner: Mutex<ClipInner>,
     cv: Condvar,
@@ -60,6 +131,7 @@ struct ClipState {
 pub struct UinputInjector {
     file: File,
     clip: Arc<ClipState>,
+    wtype: Mutex<WtypeStream>,
 }
 
 unsafe impl Send for UinputInjector {}
@@ -138,7 +210,11 @@ impl UinputInjector {
             std::thread::spawn(move || run_restorer(clip));
         }
 
-        Ok(Self { file, clip })
+        Ok(Self {
+            file,
+            clip,
+            wtype: Mutex::new(WtypeStream::new()),
+        })
     }
 
     fn send_uinput_event(&self, type_: u16, code: u16, value: i32) {
@@ -478,8 +554,16 @@ impl UinputInjector {
             return InjectResult::Success;
         }
 
-        // Unicode: type via wtype (Wayland direct virtual keyboard with 0ms delay) or clipboard fallback
-        if !Self::type_via_wtype(text) {
+        // Unicode: type via persistent wtype (Wayland direct virtual keyboard, 0ms latency) or fallback to clipboard
+        let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
+        let mut ok = false;
+        if is_wayland {
+            if let Ok(mut w) = self.wtype.lock() {
+                ok = w.send_text(text);
+            }
+        }
+
+        if !ok {
             if !self.paste_via_clipboard(text) {
                 eprintln!(
                     "[vietc] send_string failed for '{}' (wtype & clipboard unavailable)",
@@ -488,22 +572,6 @@ impl UinputInjector {
             }
         }
         InjectResult::Success
-    }
-
-    /// Type Unicode text directly using wtype via the Wayland virtual keyboard protocol.
-    fn type_via_wtype(text: &str) -> bool {
-        let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
-        if !is_wayland {
-            return false;
-        }
-        let mut cmd = Self::user_cmd("wtype");
-        cmd.args(["--", text]);
-        cmd.stdout(std::process::Stdio::null());
-        cmd.stderr(std::process::Stdio::null());
-        match cmd.status() {
-            Ok(s) => s.success(),
-            Err(_) => false,
-        }
     }
 
     /// Read the user's current clipboard contents (wl-paste on Wayland, xclip
