@@ -65,7 +65,7 @@ t() {
             unsupported_distro) echo -e "${YELLOW}Không hỗ trợ: $1. Hãy cài đặt thủ công các thư viện phụ thuộc.${NC}" ;;
             install_runtime_deps) echo -e "Đang cài đặt thư viện phụ thuộc chạy..." ;;
             install_rust) echo -e "Đang cài đặt Rust..." ;;
-            cloning) echo -e "Đang clone nhánh staging để biên dịch..." ;;
+            cloning) echo -e "Đang clone mã nguồn để biên dịch..." ;;
             building) echo -e "Đang biên dịch từ mã nguồn..." ;;
             fetching_release) echo -e "Đang tải thông tin bản phát hành mới nhất..." ;;
             fetch_failed) echo -e "${RED}Không thể tải thông tin bản phát hành mới nhất.${NC}" ;;
@@ -142,7 +142,7 @@ t() {
             unsupported_distro) echo -e "${YELLOW}Unsupported: $1. Install deps manually.${NC}" ;;
             install_runtime_deps) echo -e "Installing runtime dependencies..." ;;
             install_rust) echo -e "Installing Rust..." ;;
-            cloning) echo -e "Cloning staging branch to build..." ;;
+            cloning) echo -e "Cloning source to build..." ;;
             building) echo -e "Building from source..." ;;
             fetching_release) echo -e "Fetching latest release..." ;;
             fetch_failed) echo -e "${RED}Failed to fetch latest release info.${NC}" ;;
@@ -421,12 +421,10 @@ if [ "$FROM_SOURCE" = true ]; then
         fi
     fi
 
-    # Clone staging if not in repo (fallback to main if staging missing)
+    # Clone source if not in repo
     if [ ! -f Cargo.toml ] || [ ! -d .git ]; then
         t cloning
-        if ! git clone -b staging https://github.com/vndangkhoa/vietc.git "$TMPDIR/source" 2>/dev/null; then
-            git clone https://github.com/vndangkhoa/vietc.git "$TMPDIR/source"
-        fi
+        git clone https://github.com/vndangkhoa/vietc.git "$TMPDIR/source"
         cd "$TMPDIR/source"
         # If building as non-root but TMPDIR was created as root, ensure build user can write
         if [ "$REAL_USER" != "root" ] && [ "$(id -u)" = "0" ]; then
