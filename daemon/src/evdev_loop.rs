@@ -394,21 +394,15 @@ pub fn run_with_evdev(
                             last_key_time = std::time::Instant::now();
 
                             let active_window_id = shared_active_window.lock().unwrap().clone();
-                            let mut new_window = None;
                             let active_window_class = shared_window_class.lock().unwrap().clone();
+                            let mut new_window = None;
 
-                            if active_window_id != last_active_window {
+                            if !active_window_id.is_empty() && active_window_id != last_active_window {
                                 new_window = Some(active_window_id.clone());
                             } else if !active_window_class.is_empty()
                                 && active_window_class != last_window_class
                             {
                                 new_window = Some(active_window_class.clone());
-                            } else {
-                                if let Some(id) = crate::app_state::get_active_window_id() {
-                                    if id != active_window_id {
-                                        new_window = Some(id);
-                                    }
-                                }
                             }
 
                             if let Some(id) = new_window {
