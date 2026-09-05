@@ -606,5 +606,28 @@ fn discover_new_keyboards(existing: &HashSet<String>) -> Vec<(evdev::Device, Str
         }
     }
 
+    // 3. Scan /dev/input/event* for Bluetooth & direct devices without by-path/by-id symlinks
+    let dir = std::path::Path::new("/dev/input");
+    if dir.exists() {
+        if let Ok(rd) = fs::read_dir(dir) {
+            for entry in rd.flatten() {
+                let name_str = entry.file_name().to_string_lossy().to_string();
+                if name_str.starts_with("event") {
+                    if let Ok(real_path) = fs::canonicalize(entry.path()) {
+                        let p = real_path.to_string_lossy().to_string();
+                        if !existing.contains(&p) && added_paths.insert(p.clone()) {
+                            if let Ok(device) = evdev::Device::open(&real_path) {
+                                let dev_name = device.name().unwrap_or("unknown").to_string();
+                                if crate::device::is_valid_keyboard(&device) {
+                                    out.push((device, format!("{} ({})", real_path.display(), dev_name)));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     out
 }

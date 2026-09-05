@@ -105,27 +105,27 @@ pub fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn s
         }
     }
 
-    // Strategy 3: Fallback / additional scan of /dev/input/event* if no devices found
-    if devices.is_empty() {
-        let dir = std::path::Path::new("/dev/input");
-        if dir.exists() {
-            if let Ok(rd) = fs::read_dir(dir) {
-                for entry in rd.flatten() {
-                    let name_str = entry.file_name().to_string_lossy().to_string();
-                    if name_str.starts_with("event") {
-                        total_event_count += 1;
-                        let p = entry.path().to_string_lossy().to_string();
+    // Strategy 3: Scan /dev/input/event* for Bluetooth & direct devices without by-path/by-id symlinks
+    let dir = std::path::Path::new("/dev/input");
+    if dir.exists() {
+        if let Ok(rd) = fs::read_dir(dir) {
+            for entry in rd.flatten() {
+                let name_str = entry.file_name().to_string_lossy().to_string();
+                if name_str.starts_with("event") {
+                    total_event_count += 1;
+                    if let Ok(real_path) = fs::canonicalize(entry.path()) {
+                        let p = real_path.to_string_lossy().to_string();
                         if seen_paths.insert(p) {
-                            match evdev::Device::open(entry.path()) {
+                            match evdev::Device::open(&real_path) {
                                 Ok(device) => {
                                     let dev_name = device.name().unwrap_or("unknown").to_string();
                                     if is_valid_keyboard(&device) {
                                         log_info(&format!(
-                                            "[vietc] Found keyboard device: {} ({})",
-                                            entry.path().display(),
+                                            "[vietc] Found keyboard (bluetooth/direct): {} ({})",
+                                            real_path.display(),
                                             dev_name
                                         ));
-                                        devices.push((device, format!("{} ({})", entry.path().display(), dev_name)));
+                                        devices.push((device, format!("{} ({})", real_path.display(), dev_name)));
                                     }
                                 }
                                 Err(e) => {
