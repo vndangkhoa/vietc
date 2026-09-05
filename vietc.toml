@@ -4,6 +4,8 @@ toggle_method_key = "shift"
 start_enabled = true
 grab = false
 debug = false
+deduplicate_keys = true
+deduplicate_window_ms = 120
 # Ubuntu GNOME Wayland: auto-enable native IBus engine where
 # zwp_input_method_v2 is unavailable (Mutter). Mirrors Funput's
 # strategy: be an IBus engine. Set false to force legacy path.

@@ -243,6 +243,9 @@ pub fn run_with_evdev(
                         daemon.config.deduplicate_window_ms,
                         std::time::Instant::now(),
                     ) {
+                        if debug_logging {
+                            log_info(&format!("[vietc] dedup dropped keycode {} (window {}ms)", keycode, daemon.config.deduplicate_window_ms));
+                        }
                         consumed_keys.insert(keycode);
                         continue;
                     }

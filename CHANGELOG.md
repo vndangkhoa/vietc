@@ -4,6 +4,17 @@
   <a href="CHANGELOG.vi.md">Tiếng Việt</a>
 </p>
 
+## v0.1.24 (2026-09-05)
+
+### Fixed
+
+- **Password field English fallback**: Ensure `password_detection.enabled=true` (`daemon/src/password_detector.rs:30`) correctly forces `EN` in `sudo`, `polkit`, `pinentry` and browser password fields - verified `journalctl` now shows `Password field detected — engine disabled` and `status` `en` when typing `password`.
+
+- **English duplicate word fix**: Enable `deduplicate_keys=true,120ms` by default (`daemon/src/config.rs:82`, `vietc.toml:7`) to handle fast `hello`/`while`/`double` duplicate `hheelloo`/`whilee`/`contiinue` without `a terminal is required` `sudo -u` failure (`install.sh:340` `runuser`/`su` fallback).
+
+- **Omawrite initial-letter double**: Fix `daemon/src/device.rs:62` virtual `phys=None` and `daemon/src/evdev_loop.rs:65` path-map dedup for `eventXX` reuse that caused `RRùa`/`TThỏ`/`NNguyễn`/`DaaaĐăng`/`nngày`/`ccon`/`tronggg` when typing `rùa`, `thỏ`, `ngày`, `con` quickly.
+
+
 ## v0.1.23 (2026-09-05)
 
 ### Fixed

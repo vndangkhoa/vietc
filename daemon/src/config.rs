@@ -80,7 +80,7 @@ pub struct Config {
 }
 
 fn default_dedup_window_ms() -> u64 {
-    1000
+    120
 }
 
 #[derive(Debug, Deserialize)]
@@ -341,7 +341,7 @@ impl Default for Config {
             debug: false,
             ibus_engine: false,
             controller_mode: false,
-            deduplicate_keys: false,
+            deduplicate_keys: true,
             deduplicate_two_back: false,
             deduplicate_window_ms: default_dedup_window_ms(),
             auto_ibus: true,

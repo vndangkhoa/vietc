@@ -201,6 +201,17 @@
 
 ## v0.1.0 (26-06-2026)
 
+## v0.1.24 (2026-09-05)
+
+### Sửa lỗi
+
+- **Gõ mật khẩu luôn tiếng Anh**: Đảm bảo `password_detection.enabled=true` (`daemon/src/password_detector.rs:30`) tự động chuyển `EN` khi `AT-SPI2` hoặc tiêu đề `password`/`sudo`/`mật khẩu` - đã kiểm `Password field detected — engine disabled`.
+
+- **Sửa gõ đôi tiếng Anh**: Bật `deduplicate_keys=true,120ms` mặc định (`daemon/src/config.rs:82`, `vietc.toml:7`) để xử lý `hello`/`while`/`double` không còn `hheelloo`/`whilee`/`contiinue` và không còn `a terminal is required` (`install.sh:340`).
+
+- **Sửa double chữ đầu trong Omawrite**: Sửa `daemon/src/device.rs:62` và `daemon/src/evdev_loop.rs:65` dedup cho thiết bị ảo, hết `RRùa`/`TThỏ`/`NNguyễn`/`DaaaĐăng`/`nngày`/`ccon`/`tronggg`.
+
+
 ## v0.1.23 (2026-09-05)
 
 ### Sửa lỗi

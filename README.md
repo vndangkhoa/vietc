@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Nền_tảng-Linux_(Wayland_|_X11)-blue?style=for-the-badge" alt="Platform">
   <img src="https://img.shields.io/badge/Ngôn_ngữ-Rust_1.85+-orange?style=for-the-badge" alt="Rust">
   <img src="https://img.shields.io/badge/Giấy_phép-MIT-green?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/Phiên_bản-0.1.23-purple?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/Phiên_bản-0.1.24-purple?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/Kiểm_thử-151_đạt_(100%25)-brightgreen?style=for-the-badge" alt="Tests">
 </p>
 

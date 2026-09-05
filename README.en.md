@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Linux%20(Wayland%20%7C%20X11)-blue?style=flat-square)](https://github.com/vndangkhoa/vietc)
 [![Rust](https://img.shields.io/badge/Rust-1.85+-orange?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-0.1.23-purple?style=flat-square)](https://github.com/vndangkhoa/vietc)
+[![Version](https://img.shields.io/badge/Version-0.1.24-purple?style=flat-square)](https://github.com/vndangkhoa/vietc)
 [![Tests](https://img.shields.io/badge/Tests-151_passing-brightgreen?style=flat-square)](https://github.com/vndangkhoa/vietc)
 
 [Overview](#-overview) • [Quick Start](#-quick-start-1-command-install) • [Features](#-features) • [Usage](#-usage) • [Configuration](#-configuration) • [Architecture](#-architecture) • [Testing](#-testing) • [🇻🇳 Tiếng Việt](README.md)
