@@ -244,11 +244,11 @@ pub fn run_with_evdev(
                     && is_toggle_combination_state(&key_state, &daemon.config.toggle_key)
                 {
                     consumed_keys.insert(keycode);
-                    daemon.toggle();
+                    daemon.toggle_method();
                     continue;
                 }
 
-                // Ctrl+Shift: toggle EN -> VNI -> TELEX -> EN
+                // Ctrl+Shift: also toggle EN -> VNI -> TELEX -> EN
                 // Only trigger if the current key event is a Ctrl or Shift modifier key
                 if value == 1 && is_method_toggle_key(key) && is_method_toggle_state(&key_state)
                 {

@@ -881,14 +881,16 @@ fn handle_process_key_event(
         *state.ctrl_shift_latched.lock().unwrap() = false;
     }
 
-    // Ctrl+Shift cycles ENG -> VNI -> TELEX -> ENG.
-    // Handles both Ctrl-then-Shift and Shift-then-Ctrl.
+    // Ctrl+Space or Ctrl+Shift cycles ENG -> VNI -> TELEX -> ENG.
+    // Handles both Ctrl-then-Shift and Shift-then-Ctrl, as well as Ctrl+Space.
+    let is_space_key = keyval == 0x0020 || keyval == 32;
     let is_shift_key = keyval == 0xFFE1 || keyval == 0xFFE2 || keyval == 65505 || keyval == 65506;
     let is_ctrl_key = keyval == 0xFFE3 || keyval == 0xFFE4 || keyval == 65507 || keyval == 65508;
     let is_ctrl_shift = (is_shift_key && (state_flags & CTRL) != 0)
         || (is_ctrl_key && (state_flags & SHIFT) != 0);
+    let is_ctrl_space = is_space_key && (state_flags & CTRL) != 0;
 
-    if is_ctrl_shift {
+    if is_ctrl_shift || is_ctrl_space {
         let mut latched = state.ctrl_shift_latched.lock().unwrap();
         let mut last_toggle = state.last_ctrl_shift.lock().unwrap();
         let now = std::time::Instant::now();

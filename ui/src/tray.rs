@@ -327,7 +327,7 @@ impl Tray for VietTray {
             .into(),
             MenuItem::Separator,
             StandardItem {
-                label: "Switch Mode (Ctrl + Shift)".into(),
+                label: "Switch Mode (Ctrl + Space)".into(),
                 activate: Box::new(|this: &mut VietTray| {
                     let (next_mode, next_im) = if this.mode == "en" {
                         ("vn", "vni")

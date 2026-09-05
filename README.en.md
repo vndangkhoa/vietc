@@ -33,7 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/install.sh | 
 ```
 
 ### How to Switch Modes
-- Press **`Ctrl + Shift`** to cycle: **⚪ EN (English) ➔ 🔴 VNI ➔ 🔵 TELEX ➔ ⚪ EN**
+- Press **`Ctrl + Space`** (or `Ctrl + Shift`) to cycle: **⚪ EN (English) ➔ 🔴 VNI ➔ 🔵 TELEX ➔ ⚪ EN**
 - Or click the dynamic system tray icon (**EN / VN / TLX**) anytime.
 - CLI controls: `vietcctl status` | `vietcctl cycle` | `vietcctl method telex`
 
@@ -109,8 +109,7 @@ Viet+ is tested and optimized across modern hype, gaming, and mainstream Linux d
 
 | Action | Shortcut / Command |
 | :--- | :--- |
-| **Cycle 3 Modes** (EN ➔ VNI ➔ TELEX) | `Ctrl + Shift` (or left-click tray icon) |
-| **Toggle VN / EN** | `Ctrl + Space` |
+| **Cycle 3 Modes** (EN ➔ VNI ➔ TELEX) | **`Ctrl + Space`** / `Ctrl + Shift` (or left-click tray icon) |
 | **Check Current Status** | `vietcctl status` |
 | **Switch Method via CLI** | `vietcctl method telex` / `vietcctl method vni` |
 | **Restart Service** | `systemctl --user restart vietc.service` |

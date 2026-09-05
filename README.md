@@ -44,7 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/vndangkhoa/vietc/main/install.sh | 
 ```
 
 ### Chuyển đổi chế độ gõ
-- Nhấn **`Ctrl + Shift`** để xoay vòng: **⚪ ENG (Tiếng Anh) ➔ 🔴 VNI ➔ 🔵 TELEX ➔ ⚪ ENG**
+- Nhấn **`Ctrl + Space`** (hoặc `Ctrl + Shift`) để xoay vòng: **⚪ ENG (Tiếng Anh) ➔ 🔴 VNI ➔ 🔵 TELEX ➔ ⚪ ENG**
 - Hoặc nhấp chuột vào biểu tượng khay hệ thống động (**EN / VN / TLX**) bất cứ lúc nào.
 - Dòng lệnh CLI: `vietcctl status` | `vietcctl cycle` | `vietcctl method telex`
 
@@ -120,8 +120,7 @@ Viet+ được kiểm thử và tối ưu chuyên sâu cho các bản phân ph�
 
 | Thao tác | Phím tắt / Lệnh |
 | :--- | :--- |
-| **Xoay vòng 3 chế độ** (ENG ➔ VNI ➔ TELEX) | `Ctrl + Shift` (hoặc nhấp chuột trái vào khay) |
-| **Bật / Tắt Tiếng Việt** | `Ctrl + Space` |
+| **Xoay vòng 3 chế độ** (ENG ➔ VNI ➔ TELEX) | **`Ctrl + Space`** / `Ctrl + Shift` (hoặc nhấp chuột trái vào khay) |
 | **Kiểm tra trạng thái** | `vietcctl status` |
 | **Chuyển chế độ qua CLI** | `vietcctl method telex` / `vietcctl method vni` |
 | **Khởi động lại dịch vụ** | `systemctl --user restart vietc.service` |
