@@ -31,8 +31,8 @@ fn virtual_keyboard_create_destroy() {
 /// Test that clipboard can be written and read (xclip or wl-paste).
 #[test]
 fn clipboard_read_write() {
-    if !common::has_display() {
-        eprintln!("SKIPPING: no display server (DISPLAY/WAYLAND_DISPLAY not set)");
+    if !is_root() || !common::has_display() {
+        eprintln!("SKIPPING: needs root and display server");
         return;
     }
     clear_clipboard();

@@ -550,9 +550,12 @@ pub fn run_with_evdev(
             dead.sort_unstable();
             dead.dedup();
             for &d in dead.iter().rev() {
+                let name = devices[d].1.clone();
                 devices.remove(d);
                 device_states.remove(d);
-                known_paths.retain(|p| p != &dev_path_of(&devices_name_at(devices, d)));
+                let path = dev_path_of(&name);
+                known_paths.retain(|p| p != &path);
+                log_info(&format!("[vietc] Device disconnected/removed: {}", name));
             }
         }
     }
