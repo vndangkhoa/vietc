@@ -9,7 +9,7 @@ use crate::display;
 #[cfg(feature = "x11")]
 use crate::display::DisplayServer;
 use crate::event::{
-    is_caps_lock_on, is_flush_char, is_method_toggle_key, is_method_toggle_state,
+    is_caps_lock_on, is_flush_char,
     is_modifier_pressed, is_modifier_held_shift, is_toggle_combination_state,
     is_toggle_key, is_vn_control_key, key_to_char,
 };
@@ -57,10 +57,15 @@ pub fn run_with_evdev(
     }
     let grabbed = any_grabbed;
 
-    // Track only currently opened device paths so newly connected keyboards can be hotplugged
+    // Track currently opened device paths and physical IDs so newly connected keyboards can be hotplugged without duplicates
     let mut known_paths: HashSet<String> = HashSet::new();
+    let mut known_phys_ids: HashSet<String> = HashSet::new();
     for (_, n) in devices.iter() {
-        known_paths.insert(dev_path_of(n));
+        let p = dev_path_of(n);
+        known_paths.insert(p.clone());
+        if let Some(phys) = crate::device::get_device_phys_id(std::path::Path::new(&p)) {
+            known_phys_ids.insert(phys);
+        }
     }
 
     if !grabbed {
@@ -90,7 +95,6 @@ pub fn run_with_evdev(
     let mut dedup = crate::key_dedup::DedupState::new();
     let mut last_active_window = String::new();
     let mut last_window_class = String::new();
-    let mut skip_count = 0u32;
     let mut password_check_counter: u32 = 0;
     let mut last_key_time = std::time::Instant::now();
 
@@ -110,10 +114,6 @@ pub fn run_with_evdev(
             log_info("[vietc] Exiting on signal");
             return Ok(());
         }
-
-        // Removed idle-timeout grab-release: it fired at 300ms, before the user
-        // could switch to the target app and start typing, degrading to non-grabbed
-        // mode with its inherent race conditions for the entire session.
 
         // Poll ALL devices simultaneously
         let mut pfds: Vec<libc::pollfd> = devices
@@ -146,7 +146,7 @@ pub fn run_with_evdev(
                 }
             }
             // Hotplug: dynamically attach keyboards connected after startup
-            let new_devs = discover_new_keyboards(&known_paths);
+            let new_devs = discover_new_keyboards(&known_paths, &mut known_phys_ids);
             for (mut dev, name) in new_devs {
                 known_paths.insert(dev_path_of(&name));
                 if daemon.grab_enabled {
@@ -233,15 +233,6 @@ pub fn run_with_evdev(
                     continue;
                 }
 
-                // Ctrl+Shift: also toggle EN -> VNI -> TELEX -> EN
-                // Only trigger if the current key event is a Ctrl or Shift modifier key
-                if value == 1 && is_method_toggle_key(key) && is_method_toggle_state(&key_state)
-                {
-                    consumed_keys.insert(keycode);
-                    daemon.toggle_method();
-                    continue;
-                }
-
                 if value == 1 && daemon.config.deduplicate_keys {
                     let dedupable = keycode < 256 && !is_modifier_pressed(&key_state);
                     if dedup.observe(
@@ -254,29 +245,6 @@ pub fn run_with_evdev(
                     ) {
                         consumed_keys.insert(keycode);
                         continue;
-                    }
-                }
-
-                // Password field check (fresh AT-SPI2 check): disable engine if typing
-                // into a password field. Also reset buffers on transition to prevent
-                // stale engine content bleeding into the password field.
-                if value == 1 {
-                    let is_pw = daemon.app_state.check_password_field();
-                    let currently_enabled = daemon.engine.is_enabled();
-                    if is_pw && currently_enabled {
-                        daemon.engine.set_enabled(false);
-                        daemon.engine.reset();
-                        daemon.replay_reset();
-                        daemon.write_status();
-                        log_info("[vietc] Password field detected — engine disabled");
-                    } else if !is_pw && !currently_enabled && daemon.config.start_enabled {
-                        let default_state = daemon.app_state.get_default_state();
-                        if default_state {
-                            daemon.engine.set_enabled(true);
-                            daemon.engine.reset();
-                            daemon.replay_reset();
-                            daemon.write_status();
-                        }
                     }
                 }
 
@@ -361,8 +329,8 @@ pub fn run_with_evdev(
                         continue;
                     }
 
-                    if value == 1 {
-                        if debug_logging {
+                    if value == 1 || value == 2 {
+                        if value == 1 && debug_logging {
                             log_info(&format!(
                                 "[vietc] grabbed key: code={} ch='{}' buf='{}' enabled={}",
                                 keycode,
@@ -371,82 +339,84 @@ pub fn run_with_evdev(
                                 daemon.engine.is_enabled(),
                             ));
                         }
-                        if consumed_keys.contains(&keycode) {
+                        if value == 1 && consumed_keys.contains(&keycode) {
                             consumed_keys.remove(&keycode);
                         }
                         if let Some(mut ch) = key_to_char(key) {
-                            let gap = last_key_time.elapsed();
-                            last_key_time = std::time::Instant::now();
+                            if value == 1 {
+                                let gap = last_key_time.elapsed();
+                                last_key_time = std::time::Instant::now();
 
-                            let active_window_id = shared_active_window.lock().unwrap().clone();
-                            let active_window_class = shared_window_class.lock().unwrap().clone();
-                            let mut new_window = None;
+                                let active_window_id = shared_active_window.lock().unwrap().clone();
+                                let active_window_class = shared_window_class.lock().unwrap().clone();
+                                let mut new_window = None;
 
-                            if !active_window_id.is_empty() && active_window_id != last_active_window {
-                                new_window = Some(active_window_id.clone());
-                            } else if !active_window_class.is_empty()
-                                && active_window_class != last_window_class
-                            {
-                                new_window = Some(active_window_class.clone());
-                            }
-
-                            if let Some(id) = new_window {
-                                log_info(&format!(
-                                    "[vietc] Window changed: '{}' -> '{}' (gap={:?})",
-                                    last_active_window, id, gap
-                                ));
-                                last_active_window = id.clone();
-                                if !active_window_class.is_empty() {
-                                    last_window_class = active_window_class.clone();
-                                }
-                                daemon.engine.reset();
-                                daemon.replay_reset();
-
-                                if daemon.config.app_state.enabled {
-                                    let class = shared_window_class.lock().unwrap().clone();
-                                    let class = if class.is_empty() {
-                                        crate::app_state::get_focused_window_class().unwrap_or_default()
-                                    } else {
-                                        class
-                                    };
-                                    injector.set_active_window(&class);
-                                    daemon.check_app_change_with(class);
+                                if !active_window_id.is_empty() && active_window_id != last_active_window {
+                                    new_window = Some(active_window_id.clone());
+                                } else if !active_window_class.is_empty()
+                                    && active_window_class != last_window_class
+                                {
+                                    new_window = Some(active_window_class.clone());
                                 }
 
-                                if daemon.config.password_detection.enabled {
-                                    let is_pw = daemon.app_state.check_password_field();
-                                    if is_pw && daemon.engine.is_enabled() {
-                                        daemon.engine.set_enabled(false);
-                                        daemon.engine.reset();
-                                        daemon.replay_reset();
-                                        daemon.write_status();
+                                if let Some(id) = new_window {
+                                    log_info(&format!(
+                                        "[vietc] Window changed: '{}' -> '{}' (gap={:?})",
+                                        last_active_window, id, gap
+                                    ));
+                                    last_active_window = id.clone();
+                                    if !active_window_class.is_empty() {
+                                        last_window_class = active_window_class.clone();
                                     }
-                                }
-                            } else if daemon.config.app_state.enabled {
-                                let class = shared_window_class.lock().unwrap().clone();
-                                if !class.is_empty() {
-                                    injector.set_active_window(&class);
-                                }
-                            }
+                                    daemon.engine.reset();
+                                    daemon.replay_reset();
 
-                            if daemon.config.password_detection.enabled {
-                                password_check_counter += 1;
-                                if password_check_counter >= 30 {
-                                    password_check_counter = 0;
-                                    let is_pw = daemon.app_state.check_password_field();
-                                    let currently_enabled = daemon.engine.is_enabled();
-                                    if is_pw && currently_enabled {
-                                        daemon.engine.set_enabled(false);
-                                        daemon.engine.reset();
-                                        daemon.replay_reset();
-                                        daemon.write_status();
-                                        log_info("[vietc] Password field detected (periodic) — engine disabled");
-                                    } else if !is_pw && !currently_enabled {
-                                        if daemon.app_state.get_default_state() {
-                                            daemon.engine.set_enabled(true);
+                                    if daemon.config.app_state.enabled {
+                                        let class = shared_window_class.lock().unwrap().clone();
+                                        let class = if class.is_empty() {
+                                            crate::app_state::get_focused_window_class().unwrap_or_default()
+                                        } else {
+                                            class
+                                        };
+                                        injector.set_active_window(&class);
+                                        daemon.check_app_change_with(class);
+                                    }
+
+                                    if daemon.config.password_detection.enabled {
+                                        let is_pw = daemon.app_state.check_password_field();
+                                        if is_pw && daemon.engine.is_enabled() {
+                                            daemon.engine.set_enabled(false);
                                             daemon.engine.reset();
                                             daemon.replay_reset();
                                             daemon.write_status();
+                                        }
+                                    }
+                                } else if daemon.config.app_state.enabled {
+                                    let class = shared_window_class.lock().unwrap().clone();
+                                    if !class.is_empty() {
+                                        injector.set_active_window(&class);
+                                    }
+                                }
+
+                                if daemon.config.password_detection.enabled {
+                                    password_check_counter += 1;
+                                    if password_check_counter >= 30 {
+                                        password_check_counter = 0;
+                                        let is_pw = daemon.app_state.check_password_field();
+                                        let currently_enabled = daemon.engine.is_enabled();
+                                        if is_pw && currently_enabled {
+                                            daemon.engine.set_enabled(false);
+                                            daemon.engine.reset();
+                                            daemon.replay_reset();
+                                            daemon.write_status();
+                                            log_info("[vietc] Password field detected (periodic) — engine disabled");
+                                        } else if !is_pw && !currently_enabled {
+                                            if daemon.app_state.get_default_state() {
+                                                daemon.engine.set_enabled(true);
+                                                daemon.engine.reset();
+                                                daemon.replay_reset();
+                                                daemon.write_status();
+                                            }
                                         }
                                     }
                                 }
@@ -466,22 +436,12 @@ pub fn run_with_evdev(
                                         commands,
                                     ));
                                 }
-                                if debug_logging {
-                                    log_info(&format!(
-                                        "[vietc] inject: engine={} ch='{}' buf={} cmds={:?}",
-                                        if daemon.engine.is_enabled() { "VN" } else { "EN" },
-                                        ch,
-                                        buf_before,
-                                        commands
-                                    ));
-                                }
                                 consumed_keys.insert(keycode);
                                 execute_commands(&*injector, &commands);
                                 if is_flush_char(ch) && daemon.engine.is_enabled() {
                                     injector.send_key_event(keycode, 1);
                                     injector.send_key_event(keycode, 0);
                                 }
-                                skip_count = 3;
                             } else if daemon.engine.is_enabled()
                                 && is_vn_control_key(daemon.app_state.effective_method(), ch)
                                 && daemon.engine.buffer().chars().count() <= buf_before
@@ -496,24 +456,18 @@ pub fn run_with_evdev(
                             } else {
                                 if debug_logging {
                                     log_info(&format!(
-                                        "[vietc] grabbed forward: ch='{}' (no commands)",
+                                        "[vietc] grabbed forward: ch='{}' (no commands, val={})",
                                         ch.escape_default(),
+                                        value,
                                     ));
                                 }
-                                injector.send_key_event(keycode, 1);
+                                injector.send_key_event(keycode, value);
                             }
                         } else {
-                            injector.send_key_event(keycode, 1);
+                            injector.send_key_event(keycode, value);
                         }
-                    } else if value == 2 {
-                        if consumed_keys.contains(&keycode) || skip_count > 0 {
-                            if skip_count > 0 { skip_count -= 1; }
-                            continue;
-                        }
-                        injector.send_key_event(keycode, 2);
                     } else if value == 0 {
-                        if consumed_keys.contains(&keycode) {
-                            consumed_keys.remove(&keycode);
+                        if consumed_keys.remove(&keycode) {
                             continue;
                         }
                         injector.send_key_event(keycode, 0);
@@ -536,6 +490,9 @@ pub fn run_with_evdev(
                 device_states.remove(d);
                 let path = dev_path_of(&name);
                 known_paths.retain(|p| p != &path);
+                if let Some(phys_id) = crate::device::get_device_phys_id(std::path::Path::new(&path)) {
+                    known_phys_ids.remove(&phys_id);
+                }
                 log_info(&format!("[vietc] Device disconnected/removed: {}", name));
             }
         }
@@ -556,7 +513,10 @@ fn devices_name_at(devices: &[(evdev::Device, String)], d: usize) -> &str {
 
 /// Discover keyboard devices present in /dev/input that are not already known.
 /// Used for hotplug so newly connected keyboards (USB/wireless/virtual) are attached dynamically.
-fn discover_new_keyboards(existing: &HashSet<String>) -> Vec<(evdev::Device, String)> {
+fn discover_new_keyboards(
+    existing_paths: &HashSet<String>,
+    existing_phys: &mut HashSet<String>,
+) -> Vec<(evdev::Device, String)> {
     let mut out = Vec::new();
     let mut added_paths = HashSet::new();
 
@@ -569,11 +529,17 @@ fn discover_new_keyboards(existing: &HashSet<String>) -> Vec<(evdev::Device, Str
                 if name.ends_with("-event-kbd") {
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        if !existing.contains(&p) && added_paths.insert(p.clone()) {
-                            if let Ok(device) = evdev::Device::open(&real_path) {
-                                let dev_name = device.name().unwrap_or("unknown").to_string();
-                                if crate::device::is_valid_keyboard(&device) {
-                                    out.push((device, format!("{} ({})", real_path.display(), dev_name)));
+                        if let Some(phys_id) = crate::device::get_device_phys_id(&real_path) {
+                            if !existing_phys.contains(&phys_id)
+                                && !existing_paths.contains(&p)
+                                && added_paths.insert(p.clone())
+                            {
+                                if let Ok(device) = evdev::Device::open(&real_path) {
+                                    let dev_name = device.name().unwrap_or("unknown").to_string();
+                                    if crate::device::is_valid_keyboard(&device) {
+                                        existing_phys.insert(phys_id);
+                                        out.push((device, format!("{} ({})", real_path.display(), dev_name)));
+                                    }
                                 }
                             }
                         }
@@ -592,11 +558,17 @@ fn discover_new_keyboards(existing: &HashSet<String>) -> Vec<(evdev::Device, Str
                 if name.ends_with("-event-kbd") {
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        if !existing.contains(&p) && added_paths.insert(p.clone()) {
-                            if let Ok(device) = evdev::Device::open(&real_path) {
-                                let dev_name = device.name().unwrap_or("unknown").to_string();
-                                if crate::device::is_valid_keyboard(&device) {
-                                    out.push((device, format!("{} ({})", real_path.display(), dev_name)));
+                        if let Some(phys_id) = crate::device::get_device_phys_id(&real_path) {
+                            if !existing_phys.contains(&phys_id)
+                                && !existing_paths.contains(&p)
+                                && added_paths.insert(p.clone())
+                            {
+                                if let Ok(device) = evdev::Device::open(&real_path) {
+                                    let dev_name = device.name().unwrap_or("unknown").to_string();
+                                    if crate::device::is_valid_keyboard(&device) {
+                                        existing_phys.insert(phys_id);
+                                        out.push((device, format!("{} ({})", real_path.display(), dev_name)));
+                                    }
                                 }
                             }
                         }
@@ -615,11 +587,17 @@ fn discover_new_keyboards(existing: &HashSet<String>) -> Vec<(evdev::Device, Str
                 if name_str.starts_with("event") {
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        if !existing.contains(&p) && added_paths.insert(p.clone()) {
-                            if let Ok(device) = evdev::Device::open(&real_path) {
-                                let dev_name = device.name().unwrap_or("unknown").to_string();
-                                if crate::device::is_valid_keyboard(&device) {
-                                    out.push((device, format!("{} ({})", real_path.display(), dev_name)));
+                        if let Some(phys_id) = crate::device::get_device_phys_id(&real_path) {
+                            if !existing_phys.contains(&phys_id)
+                                && !existing_paths.contains(&p)
+                                && added_paths.insert(p.clone())
+                            {
+                                if let Ok(device) = evdev::Device::open(&real_path) {
+                                    let dev_name = device.name().unwrap_or("unknown").to_string();
+                                    if crate::device::is_valid_keyboard(&device) {
+                                        existing_phys.insert(phys_id);
+                                        out.push((device, format!("{} ({})", real_path.display(), dev_name)));
+                                    }
                                 }
                             }
                         }

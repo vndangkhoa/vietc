@@ -37,27 +37,6 @@ pub fn is_caps_lock_on(device: &evdev::Device) -> bool {
     }
 }
 
-pub fn is_method_toggle_key(key: evdev::Key) -> bool {
-    matches!(
-        key,
-        evdev::Key::KEY_LEFTCTRL
-            | evdev::Key::KEY_RIGHTCTRL
-            | evdev::Key::KEY_LEFTSHIFT
-            | evdev::Key::KEY_RIGHTSHIFT
-    )
-}
-
-pub fn is_method_toggle_state(key_state: &evdev::AttributeSet<evdev::Key>) -> bool {
-    let ctrl_pressed = key_state.contains(evdev::Key::KEY_LEFTCTRL)
-        || key_state.contains(evdev::Key::KEY_RIGHTCTRL);
-    let shift_pressed = key_state.contains(evdev::Key::KEY_LEFTSHIFT)
-        || key_state.contains(evdev::Key::KEY_RIGHTSHIFT);
-    ctrl_pressed && shift_pressed
-        && !key_state.contains(evdev::Key::KEY_LEFTALT)
-        && !key_state.contains(evdev::Key::KEY_RIGHTALT)
-        && !key_state.contains(evdev::Key::KEY_LEFTMETA)
-        && !key_state.contains(evdev::Key::KEY_RIGHTMETA)
-}
 
 pub fn is_toggle_key(key: evdev::Key, key_name: &str) -> bool {
     if key == evdev::Key::KEY_LEFTCTRL || key == evdev::Key::KEY_RIGHTCTRL {
@@ -240,24 +219,6 @@ mod tests {
         assert_eq!(render("telex", keys), expected);
     }
 
-    #[test]
-    fn test_method_toggle_key_and_state() {
-        assert!(is_method_toggle_key(evdev::Key::KEY_LEFTCTRL));
-        assert!(is_method_toggle_key(evdev::Key::KEY_RIGHTCTRL));
-        assert!(is_method_toggle_key(evdev::Key::KEY_LEFTSHIFT));
-        assert!(is_method_toggle_key(evdev::Key::KEY_RIGHTSHIFT));
-        assert!(!is_method_toggle_key(evdev::Key::KEY_T));
-        assert!(!is_method_toggle_key(evdev::Key::KEY_C));
-
-        let mut key_state = evdev::AttributeSet::<evdev::Key>::new();
-        key_state.insert(evdev::Key::KEY_LEFTCTRL);
-        key_state.insert(evdev::Key::KEY_LEFTSHIFT);
-        assert!(is_method_toggle_state(&key_state));
-
-        // Adding Alt or Meta cancels method toggle combo
-        key_state.insert(evdev::Key::KEY_LEFTALT);
-        assert!(!is_method_toggle_state(&key_state));
-    }
 
     #[test]
     fn test_toggle_key_filtering() {
