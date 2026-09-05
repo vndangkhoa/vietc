@@ -340,7 +340,14 @@ if [ "$FROM_SOURCE" = true ]; then
     # Helper to run cargo/rustup as the build user with correct env
     run_as_build_user() {
         if [ "$REAL_USER" != "root" ] && [ "$(id -u)" = "0" ]; then
-            sudo -u "$REAL_USER" env PATH="$CARGO_HOME/bin:$PATH" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$RUSTUP_HOME" "$@"
+            # Prefer runuser (no password, root->user) then su, fallback to sudo
+            if command -v runuser >/dev/null 2>&1; then
+                runuser -u "$REAL_USER" -- env PATH="$CARGO_HOME/bin:$PATH" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$RUSTUP_HOME" "$@"
+            elif command -v su >/dev/null 2>&1; then
+                su "$REAL_USER" -s /bin/bash -c "env PATH=\"$CARGO_HOME/bin:\$PATH\" CARGO_HOME=\"$CARGO_HOME\" RUSTUP_HOME=\"$RUSTUP_HOME\" \"\$0\" \"\$@\"" -- "$@"
+            else
+                sudo -u "$REAL_USER" env PATH="$CARGO_HOME/bin:$PATH" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$RUSTUP_HOME" "$@"
+            fi
         else
             env PATH="$CARGO_HOME/bin:$PATH" CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$RUSTUP_HOME" "$@"
         fi
@@ -360,7 +367,7 @@ if [ "$FROM_SOURCE" = true ]; then
             t install_rust
             echo "Downloading rustup (may take a minute, no progress shown with -sSf)..."
             if [ "$REAL_USER" != "root" ]; then
-                sudo -u "$REAL_USER" bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path' 2>&1 || \
+                run_as_build_user bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path' 2>&1 || \
                 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
             else
                 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
