@@ -8,14 +8,14 @@ pub fn is_valid_keyboard(device: &evdev::Device) -> bool {
     if dev_name.eq_ignore_ascii_case("vietc") {
         return false;
     }
-    if dev_name_lower.contains("mouse")
-        || dev_name_lower.contains("touchpad")
-        || dev_name_lower.contains("trackpoint")
-    {
+    if dev_name_lower.contains("touchpad") || dev_name_lower.contains("trackpoint") {
         return false;
     }
+    // Reject pointers/mice based on relative axes (REL_X / REL_Y)
     if let Some(rel) = device.supported_relative_axes() {
-        if rel.contains(evdev::RelativeAxisType::REL_X) {
+        if rel.contains(evdev::RelativeAxisType::REL_X)
+            || rel.contains(evdev::RelativeAxisType::REL_Y)
+        {
             return false;
         }
     }
