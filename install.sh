@@ -108,7 +108,7 @@ t() {
                 echo -e "Khi dừng, nó khởi động lại IBus. Giao diện tùy chọn: chạy ${GREEN}vietc-tray${NC} thủ công."
                 echo ""
                 echo -e "Thử nghiệm: gõ tiếng Việt trong bất kỳ ứng dụng nào."
-                echo -e "Bật/tắt VN/EN: ${GREEN}Ctrl+Space${NC}  Chuyển VNI/Telex: ${GREEN}Ctrl+Shift${NC}" ;;
+                echo -e "Chuyển đổi kiểu gõ (ENG ➔ VNI ➔ TELEX): ${GREEN}Ctrl+Space${NC} hoặc ${GREEN}Ctrl+Shift${NC}" ;;
             see_config) echo -e "Xem ${GREEN}vietc.toml${NC} để biết cách cấu hình." ;;
             fallback_note)
                 echo -e "Chế độ dự phòng đặc quyền (evdev/uinput) vẫn khả dụng nếu không có v2"
@@ -120,8 +120,8 @@ t() {
             ns_bamboo) echo -e "  3. (Chế độ Bamboo) Thiết lập mỗi ứng dụng một lần:" ;;
             ns_bamboo2) echo -e "     ptyxis -> BambooUs (Tiếng Anh), firefox/gedit -> Bamboo (Tiếng Việt)." ;;
             ns_bamboo3) echo -e "     Sau đó nhấn Ctrl+Space trái ở bất kỳ đâu để xoay vòng EN -> VNI -> TELEX." ;;
-            ns_grab) echo -e "  3. (Chế độ Grab) Đầu vào đã hoạt động. Bật/tắt VN/EN bằng Ctrl+Space," ;;
-            ns_grab2) echo -e "     chuyển VNI/Telex bằng Ctrl+Shift." ;;
+            ns_grab) echo -e "  3. (Chế độ Grab) Đầu vào đã hoạt động. Xoay vòng kiểu gõ (ENG ➔ VNI ➔ TELEX)" ;;
+            ns_grab2) echo -e "     bằng ${GREEN}Ctrl+Space${NC} hoặc ${GREEN}Ctrl+Shift${NC}." ;;
             ns_active) echo -e "Đầu vào đã hoạt động trong phiên này. Để khởi động lại sau này:" ;;
             ns_manage) echo -e "  ${GREEN}systemctl --user restart vietc.service${NC}" ;;
             ns_uninstall_hdr) echo -e "Để gỡ cài đặt:" ;;
@@ -184,7 +184,7 @@ t() {
                 echo -e "On stop it restarts IBus. Optional UI: run ${GREEN}vietc-tray${NC} manually."
                 echo ""
                 echo -e "Test: type in Vietnamese in any app."
-                echo -e "Toggle VN/EN: ${GREEN}Ctrl+Space${NC}  Switch VNI/Telex: ${GREEN}Ctrl+Shift${NC}" ;;
+                echo -e "Cycle typing mode (ENG ➔ VNI ➔ TELEX): ${GREEN}Ctrl+Space${NC} or ${GREEN}Ctrl+Shift${NC}" ;;
             see_config) echo -e "See ${GREEN}vietc.toml${NC} for configuration." ;;
             fallback_note)
                 echo -e "Privileged fallback (evdev/uinput) is still available if neither v2 nor"
@@ -196,8 +196,8 @@ t() {
             ns_bamboo) echo -e "  3. (Bamboo mode) Set each app once:" ;;
             ns_bamboo2) echo -e "     ptyxis -> BambooUs (English), firefox/gedit -> Bamboo (Vietnamese)." ;;
             ns_bamboo3) echo -e "     Then press Left Ctrl+Space anywhere to cycle EN -> VNI -> TELEX." ;;
-            ns_grab) echo -e "  3. (Grab mode) Input is active now. Toggle VN/EN with Ctrl+Space," ;;
-            ns_grab2) echo -e "     switch VNI/Telex with Ctrl+Shift." ;;
+            ns_grab) echo -e "  3. (Grab mode) Input is active now. Cycle typing mode (ENG ➔ VNI ➔ TELEX)" ;;
+            ns_grab2) echo -e "     with ${GREEN}Ctrl+Space${NC} or ${GREEN}Ctrl+Shift${NC}." ;;
             ns_active) echo -e "Input is active in this session. To restart later:" ;;
             ns_manage) echo -e "  ${GREEN}systemctl --user restart vietc.service${NC}" ;;
             ns_uninstall_hdr) echo -e "To uninstall:" ;;
