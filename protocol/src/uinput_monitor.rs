@@ -491,18 +491,19 @@ impl UinputInjector {
             return InjectResult::Success;
         }
 
-        // Unicode: try single wtype invocation for both backspaces and text (Wayland, atomic)
+        // Unicode: backspaces via uinput (reliable for Qt Omawrite, where wtype BackSpace is ignored),
+        // text via wtype (Wayland) when available. Verified: wtype -k BackSpace alone leaves Omawrite's
+        // "Nguye" undeleted (clipboard still "Nguye" after 5 wtype BackSpaces), while uinput BackSpace
+        // correctly deletes and subsequent wtype -- "rùa" yields correct "rùa" without "rrùa" duplication.
         let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
         if is_wayland {
+            if backspaces > 0 {
+                self.send_backspaces(backspaces);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
             let mut cmd = Self::user_cmd("wtype");
-            for _ in 0..backspaces {
-                cmd.arg("-k");
-                cmd.arg("BackSpace");
-            }
-            if !text.is_empty() {
-                cmd.arg("--");
-                cmd.arg(text);
-            }
+            cmd.arg("--");
+            cmd.arg(text);
             cmd.stdout(std::process::Stdio::null());
             cmd.stderr(std::process::Stdio::null());
             match cmd.status() {
@@ -516,13 +517,7 @@ impl UinputInjector {
                     eprintln!("[vietc] wtype spawn failed: {}", e);
                 }
             }
-            // wtype failed — fall through to clipboard. Need to have sent
-            // backspaces already? No, wtype's backspaces were not delivered, so
-            // send them via uinput now before clipboard paste.
-            if backspaces > 0 {
-                self.send_backspaces(backspaces);
-                std::thread::sleep(std::time::Duration::from_millis(5));
-            }
+            // wtype failed — backspaces already sent via uinput, just try clipboard for text
             if !self.paste_via_clipboard(text) {
                 eprintln!(
                     "[vietc] send_string failed for '{}' (wtype & clipboard unavailable)",
