@@ -1,0 +1,14 @@
+Origin: Viet+ Vietnamese IME
+Label: vietc
+Suite: stable
+Codename: stable
+Architectures: amd64
+Components: main
+Description: Viet+ unofficial APT repository
+Date: Sat, 05 Sep 2026 05:34:46 +0000
+MD5Sum:
+ b7d6ae30c0c200a490ffae651d27f248 940 Packages
+ 72d4ba88910e7c064fcb8f6f29beff11 665 Packages.gz
+SHA256:
+ f1af0c4ca7321c44d58dfecc4f9838c580c497886b904654c3bc5ea3bb5575e6 940 Packages
+ 49df8af5dfc4a568e5acf749ee4d997c7b358fb4d379a186e2fb2a5741b483a8 665 Packages.gz
