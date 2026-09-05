@@ -52,76 +52,7 @@ struct ClipInner {
     active_window: String,
 }
 
-use std::io::Write;
-use std::process::{Child, ChildStdin, Stdio};
 
-struct WtypeStream {
-    child: Option<Child>,
-    stdin: Option<ChildStdin>,
-}
-
-impl WtypeStream {
-    fn new() -> Self {
-        let mut stream = Self { child: None, stdin: None };
-        if std::env::var("WAYLAND_DISPLAY").is_ok() {
-            stream.ensure_running();
-        }
-        stream
-    }
-
-    fn ensure_running(&mut self) -> bool {
-        if self.stdin.is_some() {
-            if let Some(ref mut child) = self.child {
-                if let Ok(None) = child.try_wait() {
-                    return true;
-                }
-            }
-        }
-
-        let mut cmd = UinputInjector::user_cmd("wtype");
-        cmd.arg("-");
-        cmd.stdin(Stdio::piped());
-        cmd.stdout(Stdio::null());
-        cmd.stderr(Stdio::null());
-
-        match cmd.spawn() {
-            Ok(mut child) => {
-                self.stdin = child.stdin.take();
-                self.child = Some(child);
-                true
-            }
-            Err(_) => {
-                self.child = None;
-                self.stdin = None;
-                false
-            }
-        }
-    }
-
-    fn send_text(&mut self, text: &str) -> bool {
-        if !self.ensure_running() {
-            return false;
-        }
-
-        if let Some(ref mut stdin) = self.stdin {
-            if stdin.write_all(text.as_bytes()).is_ok() && stdin.flush().is_ok() {
-                return true;
-            }
-        }
-
-        self.child = None;
-        self.stdin = None;
-        if self.ensure_running() {
-            if let Some(ref mut stdin) = self.stdin {
-                if stdin.write_all(text.as_bytes()).is_ok() && stdin.flush().is_ok() {
-                    return true;
-                }
-            }
-        }
-
-        false
-    }
-}
 
 struct ClipState {
     inner: Mutex<ClipInner>,
@@ -131,7 +62,6 @@ struct ClipState {
 pub struct UinputInjector {
     file: File,
     clip: Arc<ClipState>,
-    wtype: Mutex<WtypeStream>,
 }
 
 unsafe impl Send for UinputInjector {}
@@ -213,7 +143,6 @@ impl UinputInjector {
         Ok(Self {
             file,
             clip,
-            wtype: Mutex::new(WtypeStream::new()),
         })
     }
 
@@ -533,17 +462,25 @@ impl UinputInjector {
     }
 
     /// Send backspaces and text through a single injection channel to avoid
-    /// reordering between input methods. Backspaces always go through uinput
-    /// (kernel device, no display server dependency). Text is typed via the
-    /// best available method: ydotool (uinput) for ASCII, xdotool (X11) or
-    /// clipboard for Unicode.
+    /// reordering between input methods. For ASCII we use uinput directly
+    /// (single kernel device). For Unicode on Wayland we use a single `wtype`
+    /// invocation that sends both backspaces and text via the Wayland virtual
+    /// keyboard protocol, so the compositor sees them atomically. Clipboard
+    /// paste (Ctrl+V via uinput) is the last resort and also stays on the
+    /// uinput channel for backspaces.
     fn inject_replacement_atomic(&self, backspaces: usize, text: &str) -> InjectResult {
-        if backspaces > 0 {
-            self.send_backspaces(backspaces);
+        if text.is_empty() {
+            if backspaces > 0 {
+                self.send_backspaces(backspaces);
+            }
+            return InjectResult::Success;
         }
 
-        // If all ASCII, send keycodes directly via uinput
+        // Fast path: pure ASCII (including newline) via uinput batch — single channel
         if text.chars().all(|c| char_to_linux_keycode(c).is_some() || c == '\n') {
+            if backspaces > 0 {
+                self.send_backspaces(backspaces);
+            }
             for ch in text.chars() {
                 if ch == '\n' {
                     self.send_enter();
@@ -554,22 +491,57 @@ impl UinputInjector {
             return InjectResult::Success;
         }
 
-        // Unicode: type via persistent wtype (Wayland direct virtual keyboard, 0ms latency) or fallback to clipboard
+        // Unicode: try single wtype invocation for both backspaces and text (Wayland, atomic)
         let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
-        let mut ok = false;
         if is_wayland {
-            if let Ok(mut w) = self.wtype.lock() {
-                ok = w.send_text(text);
+            let mut cmd = Self::user_cmd("wtype");
+            for _ in 0..backspaces {
+                cmd.arg("-k");
+                cmd.arg("BackSpace");
             }
-        }
-
-        if !ok {
+            if !text.is_empty() {
+                cmd.arg("--");
+                cmd.arg(text);
+            }
+            cmd.stdout(std::process::Stdio::null());
+            cmd.stderr(std::process::Stdio::null());
+            match cmd.status() {
+                Ok(status) if status.success() => {
+                    return InjectResult::Success;
+                }
+                Ok(status) => {
+                    eprintln!("[vietc] wtype exited with {}", status);
+                }
+                Err(e) => {
+                    eprintln!("[vietc] wtype spawn failed: {}", e);
+                }
+            }
+            // wtype failed — fall through to clipboard. Need to have sent
+            // backspaces already? No, wtype's backspaces were not delivered, so
+            // send them via uinput now before clipboard paste.
+            if backspaces > 0 {
+                self.send_backspaces(backspaces);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
             if !self.paste_via_clipboard(text) {
                 eprintln!(
                     "[vietc] send_string failed for '{}' (wtype & clipboard unavailable)",
                     text.escape_default()
                 );
             }
+            return InjectResult::Success;
+        }
+
+        // X11 or no Wayland: backspaces via uinput, text via clipboard
+        if backspaces > 0 {
+            self.send_backspaces(backspaces);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        if !self.paste_via_clipboard(text) {
+            eprintln!(
+                "[vietc] send_string failed for '{}' (clipboard unavailable)",
+                text.escape_default()
+            );
         }
         InjectResult::Success
     }

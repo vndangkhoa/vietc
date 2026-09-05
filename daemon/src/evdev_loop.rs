@@ -491,9 +491,18 @@ pub fn run_with_evdev(
                 devices.remove(d);
                 device_states.remove(d);
                 let path = dev_path_of(&name);
-                known_paths.retain(|p| p != &path);
-                if let Some(phys_id) = crate::device::get_device_phys_id(std::path::Path::new(&path)) {
-                    known_phys_ids.remove(&phys_id);
+                known_paths.remove(&path);
+                // Rebuild phys set from remaining paths — virtual uinput
+                // devices disappear from sysfs on close, so recomputing phys_id
+                // for the dead path would return None and leave a stale entry
+                // that blocks the next virtual keyboard with the same input
+                // number (e.g. re-used /dev/input/event31 → same
+                // sysfs:/sys/devices/virtual/input/input31).
+                known_phys_ids.clear();
+                for p in known_paths.iter() {
+                    if let Some(pid) = crate::device::get_device_phys_id(std::path::Path::new(p)) {
+                        known_phys_ids.insert(pid);
+                    }
                 }
                 log_info(&format!("[vietc] Device disconnected/removed: {}", name));
             }
@@ -531,18 +540,25 @@ fn discover_new_keyboards(
                 if name.ends_with("-event-kbd") {
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        if let Some(phys_id) = crate::device::get_device_phys_id(&real_path) {
-                            if !existing_phys.contains(&phys_id)
-                                && !existing_paths.contains(&p)
-                                && added_paths.insert(p.clone())
-                            {
-                                if let Ok(device) = evdev::Device::open(&real_path) {
-                                    let dev_name = device.name().unwrap_or("unknown").to_string();
-                                    if crate::device::is_valid_keyboard(&device) {
-                                        existing_phys.insert(phys_id);
-                                        out.push((device, format!("{} ({})", real_path.display(), dev_name)));
-                                    }
+                        let phys_opt = crate::device::get_device_phys_id(&real_path);
+                        if let Some(phys_id) = &phys_opt {
+                            if existing_phys.contains(phys_id) {
+                                continue;
+                            }
+                        }
+                        if existing_paths.contains(&p) {
+                            continue;
+                        }
+                        if !added_paths.insert(p.clone()) {
+                            continue;
+                        }
+                        if let Ok(device) = evdev::Device::open(&real_path) {
+                            let dev_name = device.name().unwrap_or("unknown").to_string();
+                            if crate::device::is_valid_keyboard(&device) {
+                                if let Some(pid) = phys_opt {
+                                    existing_phys.insert(pid);
                                 }
+                                out.push((device, format!("{} ({})", real_path.display(), dev_name)));
                             }
                         }
                     }
@@ -560,18 +576,25 @@ fn discover_new_keyboards(
                 if name.ends_with("-event-kbd") {
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        if let Some(phys_id) = crate::device::get_device_phys_id(&real_path) {
-                            if !existing_phys.contains(&phys_id)
-                                && !existing_paths.contains(&p)
-                                && added_paths.insert(p.clone())
-                            {
-                                if let Ok(device) = evdev::Device::open(&real_path) {
-                                    let dev_name = device.name().unwrap_or("unknown").to_string();
-                                    if crate::device::is_valid_keyboard(&device) {
-                                        existing_phys.insert(phys_id);
-                                        out.push((device, format!("{} ({})", real_path.display(), dev_name)));
-                                    }
+                        let phys_opt = crate::device::get_device_phys_id(&real_path);
+                        if let Some(phys_id) = &phys_opt {
+                            if existing_phys.contains(phys_id) {
+                                continue;
+                            }
+                        }
+                        if existing_paths.contains(&p) {
+                            continue;
+                        }
+                        if !added_paths.insert(p.clone()) {
+                            continue;
+                        }
+                        if let Ok(device) = evdev::Device::open(&real_path) {
+                            let dev_name = device.name().unwrap_or("unknown").to_string();
+                            if crate::device::is_valid_keyboard(&device) {
+                                if let Some(pid) = phys_opt {
+                                    existing_phys.insert(pid);
                                 }
+                                out.push((device, format!("{} ({})", real_path.display(), dev_name)));
                             }
                         }
                     }
@@ -589,18 +612,25 @@ fn discover_new_keyboards(
                 if name_str.starts_with("event") {
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        if let Some(phys_id) = crate::device::get_device_phys_id(&real_path) {
-                            if !existing_phys.contains(&phys_id)
-                                && !existing_paths.contains(&p)
-                                && added_paths.insert(p.clone())
-                            {
-                                if let Ok(device) = evdev::Device::open(&real_path) {
-                                    let dev_name = device.name().unwrap_or("unknown").to_string();
-                                    if crate::device::is_valid_keyboard(&device) {
-                                        existing_phys.insert(phys_id);
-                                        out.push((device, format!("{} ({})", real_path.display(), dev_name)));
-                                    }
+                        let phys_opt = crate::device::get_device_phys_id(&real_path);
+                        if let Some(phys_id) = &phys_opt {
+                            if existing_phys.contains(phys_id) {
+                                continue;
+                            }
+                        }
+                        if existing_paths.contains(&p) {
+                            continue;
+                        }
+                        if !added_paths.insert(p.clone()) {
+                            continue;
+                        }
+                        if let Ok(device) = evdev::Device::open(&real_path) {
+                            let dev_name = device.name().unwrap_or("unknown").to_string();
+                            if crate::device::is_valid_keyboard(&device) {
+                                if let Some(pid) = phys_opt {
+                                    existing_phys.insert(pid);
                                 }
+                                out.push((device, format!("{} ({})", real_path.display(), dev_name)));
                             }
                         }
                     }

@@ -201,4 +201,26 @@
 
 ## v0.1.0 (26-06-2026)
 
-- Bản phát hành đầu tiên — chuyển đổi từ bamboo engine, bắt phím evdev, giả lập uinput.
+## v0.1.23 (2026-09-05)
+
+### Sửa lỗi
+
+- **Loại bỏ gõ đôi và mất chữ khi gõ nhanh**: Sửa `daemon/src/evdev_loop.rs:236` xử lý `value==2` lặp và `daemon/src/device.rs:62` lọc `phys` cho dongle 2.4G combo (lọc `REL_X`/`REL_Y` và dedup theo `phys` base). Đã kiểm `hello`/`continue` không còn `hheelloo`/`contiinue` trong Omawrite (Qt Wayland) và VS Code.
+
+- **Tiêm Unicode nguyên tử cho Wayland**: Thay `wtype -` stream (`protocol/src/uinput_monitor.rs:55`) bằng `wtype -k BackSpace ... -- <text>` đơn lẻ (`protocol/src/uinput_monitor.rs:469`) nên `Backspace(5), Type("ngày")` được compositor thấy nguyên tử. Trước đó `uinput` backspace + `wtype` text đua nhau, gây `khhhhhhoa`/`aaaaaaanh`/`tthân`/`nngày`/`ccon` trong Omawrite và mất `tiếng` với `tieengs` Telex.
+
+- **Hotplug bàn phím ảo cho test và Omawrite**: Sửa `daemon/src/device.rs:62` fallback cho uinput ảo `/virtual/` (trả `None` nên dedup chỉ theo path) và `daemon/src/evdev_loop.rs:65`/`494` rebuild `known_phys_ids` khi disconnect. Trước đó `sysfs:/sys/devices/virtual/input/inputXX` tái sử dụng `inputXX` khiến `vietc-vk`/`Omawrite` thứ hai bị bỏ qua, dẫn tới `tieengs` thô thay vì `tiếng`.
+
+- **Xử lý BackSpace cho Omawrite (Qt)**: Đã kiểm `wtype -k BackSpace` qua Wayland giờ xóa đúng trong `Qt TextArea` khi gửi nguyên tử cùng text; gửi rời rạc để lại `Nguye` không xóa gây `NguNguyễn`.
+
+### Kiểm thử
+
+- **Omawrite Telex/VNI**: `tieengs` -> `tiếng`, `vo4` -> `võ`, `nguye6n4` -> `nguyễn`, `khoa` `thân` `ngày` `con` không còn `khoaaa` `thhân` `nngày` `ccon`; câu `võ nguyễn đăng khoa`, `rùa và thỏ là đôi bạn thân`, `một ngày trời nắng thỏ rủ rùa con đi dạo` giờ đúng trong Omawrite.
+- **Gõ nhanh**: `abcdefghijklmnopqrstuvwxyz` không mất, `hello` không đôi với `deduplicate_keys=true,80ms` (`~/.config/vietc/config.toml:5`).
+
+### Thay đổi
+
+- `~/.config/vietc/config.toml` giờ hỗ trợ `deduplicate_keys` và `deduplicate_window_ms` (mặc định `false`/`80`) cho double phần cứng.
+- `install.sh` giờ cài `wtype`/`wl-clipboard` và đặt `Ctrl+Space` (`vietcctl`) đúng.
+
+

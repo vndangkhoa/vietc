@@ -174,8 +174,8 @@ impl Daemon {
         };
         show_osd("Viet+", &format!("Mode: {}", label));
         log_info(&format!(
-            "[vietc] Mode rotated (Ctrl+Shift): enabled={}, method={}, effective={}",
-            new_enabled, new_method, effective
+            "[vietc] Mode rotated (Ctrl+{}): enabled={}, method={}, effective={}",
+            self.config.toggle_key, new_enabled, new_method, effective
         ));
     }
 

@@ -1,6 +1,6 @@
 [package]
 name = "vietc-daemon"
-version = "0.1.8"
+version = "0.1.23"
 edition = "2021"
 description = "Viet+ background daemon"
 

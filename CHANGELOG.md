@@ -4,6 +4,29 @@
   <a href="CHANGELOG.vi.md">Tiếng Việt</a>
 </p>
 
+## v0.1.23 (2026-09-05)
+
+### Fixed
+
+- **Eliminate double keystrokes and text loss on fast typing**: Fixed `daemon/src/evdev_loop.rs:236` `DedupState` handling for `value==2` repeats and `daemon/src/device.rs:62` phys dedup for 2.4G combo dongles (now filters by `REL_X`/`REL_Y` and dedupes by `phys` base). Verified `hello`/`continue` no longer doubles to `hheelloo`/`contiinue` in Omawrite (Qt Wayland) and VS Code.
+
+- **Atomic Unicode injection for Wayland**: Replaced persistent `wtype -` stream (`protocol/src/uinput_monitor.rs:55`) with single atomic `wtype -k BackSpace ... -- <text>` (`protocol/src/uinput_monitor.rs:469`) so `Backspace(5), Type("ngày")` is seen atomically by the compositor. Previously `uinput` backspaces + `wtype` text raced, causing `khhhhhhoa`/`aaaaaaanh`/`tthân`/`nngày`/`ccon` in Omawrite and loss of `tiếng` in `tieengs` Telex.
+
+- **Virtual keyboard hotplug for tests and Omawrite**: Fixed `daemon/src/device.rs:62` fallback for `/virtual/` uinput devices (now `None` so dedup only by path) and `daemon/src/evdev_loop.rs:65`/`494` hotplug rebuild of `known_phys_ids` on disconnect. Previously `sysfs:/sys/devices/virtual/input/inputXX` reused same `inputXX` caused second `vietc-vk`/`Omawrite` virtual keyboard to be ignored, leading to raw `tieengs` instead of `tiếng`.
+
+- **Omawrite (Qt) backspace handling**: Verified `wtype -k BackSpace` via Wayland now correctly deletes in Omawrite `Qt TextArea` when sent atomically with text; separate `wtype` invocations left `Nguye` undeleted causing `NguNguyễn`.
+
+### Tested
+
+- **Omawrite Telex/VNI**: `tieengs` -> `tiếng`, `vo4` -> `võ`, `nguye6n4` -> `nguyễn`, `khoa` `thân` `ngày` `con` no longer double to `khoaaa` `thhân` `nngày` `ccon`; full sentences `võ nguyễn đăng khoa`, `rùa và thỏ là đôi bạn thân`, `một ngày trời nắng thỏ rủ rùa con đi dạo` now correct in Omawrite.
+- **Fast typing**: `abcdefghijklmnopqrstuvwxyz` no loss, `hello` no double with `deduplicate_keys=true,80ms` (`~/.config/vietc/config.toml:5`).
+
+### Changed
+
+- `~/.config/vietc/config.toml` now supports `deduplicate_keys` and `deduplicate_window_ms` (default `false`/`80`) for hardware double.
+- `install.sh` now installs `wtype`/`wl-clipboard` deps and sets `Ctrl+Space` (`vietcctl`) correctly.
+
+
 ## v0.1.8 (2026-07-13)
 
 ### Rootless Operation

@@ -59,11 +59,24 @@ pub fn get_device_phys_id(path: &std::path::Path) -> Option<String> {
         }
     }
 
-    // 3. Fallback to parent sysfs path
+    // 3. Fallback to parent sysfs path — use full canonical path (unique per event)
+    // Previous code used parent.parent() which collapsed all virtual uinput
+    // devices (e.g. /sys/devices/virtual/input/inputXX) to the same
+    // "sysfs:/sys/devices/virtual/input", causing only the first virtual
+    // keyboard to be grabbed and subsequent ones (e.g. vietc-vk, tests) to be
+    // ignored → raw input, no conversion, and apparent double/loss.
     if let Ok(canonical) = fs::canonicalize(dev_path) {
-        if let Some(parent) = canonical.parent().and_then(|p| p.parent()) {
-            return Some(format!("sysfs:{}", parent.display()));
+        let canon_str = canonical.display().to_string();
+        // Virtual uinput devices all live under /sys/devices/virtual/input/
+        // and reuse input numbers (input31, input32, ...) quickly. Using the
+        // canonical path as phys_id would still collide when the kernel
+        // reuses the same inputXX for a new device before the old stale entry
+        // is cleared. For virtual devices, return None so they are deduped
+        // only by their /dev/input/eventXX path, not by phys.
+        if canon_str.contains("/virtual/") {
+            return None;
         }
+        return Some(format!("sysfs:{}", canon_str));
     }
 
     Some(format!("path:{}", path.display()))
@@ -85,25 +98,34 @@ pub fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn s
                 if name.ends_with("-event-kbd") {
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        if let Some(phys_id) = get_device_phys_id(&real_path) {
-                            if seen_phys_ids.insert(phys_id) && seen_paths.insert(p.clone()) {
-                                match evdev::Device::open(&real_path) {
-                                    Ok(device) => {
-                                        let dev_name = device.name().unwrap_or("unknown").to_string();
-                                        if is_valid_keyboard(&device) {
-                                            log_info(&format!(
-                                                "[vietc] Found keyboard (by-path): {} ({})",
-                                                real_path.display(),
-                                                dev_name
-                                            ));
-                                            devices.push((device, format!("{} ({})", real_path.display(), dev_name)));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        if e.raw_os_error() == Some(libc::EACCES) {
-                                            permission_denied_count += 1;
-                                        }
-                                    }
+                        let phys_opt = get_device_phys_id(&real_path);
+                        if let Some(phys_id) = &phys_opt {
+                            if !seen_phys_ids.insert(phys_id.clone()) {
+                                continue;
+                            }
+                        }
+                        if !seen_paths.insert(p.clone()) {
+                            // Roll back phys insert if path was duplicate
+                            if let Some(pid) = phys_opt {
+                                seen_phys_ids.remove(&pid);
+                            }
+                            continue;
+                        }
+                        match evdev::Device::open(&real_path) {
+                            Ok(device) => {
+                                let dev_name = device.name().unwrap_or("unknown").to_string();
+                                if is_valid_keyboard(&device) {
+                                    log_info(&format!(
+                                        "[vietc] Found keyboard (by-path): {} ({})",
+                                        real_path.display(),
+                                        dev_name
+                                    ));
+                                    devices.push((device, format!("{} ({})", real_path.display(), dev_name)));
+                                }
+                            }
+                            Err(e) => {
+                                if e.raw_os_error() == Some(libc::EACCES) {
+                                    permission_denied_count += 1;
                                 }
                             }
                         }
@@ -122,25 +144,33 @@ pub fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn s
                 if name.ends_with("-event-kbd") {
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        if let Some(phys_id) = get_device_phys_id(&real_path) {
-                            if seen_phys_ids.insert(phys_id) && seen_paths.insert(p.clone()) {
-                                match evdev::Device::open(&real_path) {
-                                    Ok(device) => {
-                                        let dev_name = device.name().unwrap_or("unknown").to_string();
-                                        if is_valid_keyboard(&device) {
-                                            log_info(&format!(
-                                                "[vietc] Found keyboard (by-id): {} ({})",
-                                                real_path.display(),
-                                                dev_name
-                                            ));
-                                            devices.push((device, format!("{} ({})", real_path.display(), dev_name)));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        if e.raw_os_error() == Some(libc::EACCES) {
-                                            permission_denied_count += 1;
-                                        }
-                                    }
+                        let phys_opt = get_device_phys_id(&real_path);
+                        if let Some(phys_id) = &phys_opt {
+                            if !seen_phys_ids.insert(phys_id.clone()) {
+                                continue;
+                            }
+                        }
+                        if !seen_paths.insert(p.clone()) {
+                            if let Some(pid) = phys_opt {
+                                seen_phys_ids.remove(&pid);
+                            }
+                            continue;
+                        }
+                        match evdev::Device::open(&real_path) {
+                            Ok(device) => {
+                                let dev_name = device.name().unwrap_or("unknown").to_string();
+                                if is_valid_keyboard(&device) {
+                                    log_info(&format!(
+                                        "[vietc] Found keyboard (by-id): {} ({})",
+                                        real_path.display(),
+                                        dev_name
+                                    ));
+                                    devices.push((device, format!("{} ({})", real_path.display(), dev_name)));
+                                }
+                            }
+                            Err(e) => {
+                                if e.raw_os_error() == Some(libc::EACCES) {
+                                    permission_denied_count += 1;
                                 }
                             }
                         }
@@ -160,25 +190,33 @@ pub fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn s
                     total_event_count += 1;
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        if let Some(phys_id) = get_device_phys_id(&real_path) {
-                            if seen_phys_ids.insert(phys_id) && seen_paths.insert(p) {
-                                match evdev::Device::open(&real_path) {
-                                    Ok(device) => {
-                                        let dev_name = device.name().unwrap_or("unknown").to_string();
-                                        if is_valid_keyboard(&device) {
-                                            log_info(&format!(
-                                                "[vietc] Found keyboard (bluetooth/direct): {} ({})",
-                                                real_path.display(),
-                                                dev_name
-                                            ));
-                                            devices.push((device, format!("{} ({})", real_path.display(), dev_name)));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        if e.raw_os_error() == Some(libc::EACCES) {
-                                            permission_denied_count += 1;
-                                        }
-                                    }
+                        let phys_opt = get_device_phys_id(&real_path);
+                        if let Some(phys_id) = &phys_opt {
+                            if !seen_phys_ids.insert(phys_id.clone()) {
+                                continue;
+                            }
+                        }
+                        if !seen_paths.insert(p.clone()) {
+                            if let Some(pid) = phys_opt {
+                                seen_phys_ids.remove(&pid);
+                            }
+                            continue;
+                        }
+                        match evdev::Device::open(&real_path) {
+                            Ok(device) => {
+                                let dev_name = device.name().unwrap_or("unknown").to_string();
+                                if is_valid_keyboard(&device) {
+                                    log_info(&format!(
+                                        "[vietc] Found keyboard (bluetooth/direct): {} ({})",
+                                        real_path.display(),
+                                        dev_name
+                                    ));
+                                    devices.push((device, format!("{} ({})", real_path.display(), dev_name)));
+                                }
+                            }
+                            Err(e) => {
+                                if e.raw_os_error() == Some(libc::EACCES) {
+                                    permission_denied_count += 1;
                                 }
                             }
                         }
