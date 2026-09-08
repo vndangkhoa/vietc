@@ -198,8 +198,8 @@ struct IBusState {
     dedup_two_back: bool,
     dedup_window_ms: u64,
     aux_popup: Mutex<Option<(String, std::time::Instant)>>,
-    ctrl_shift_latched: Mutex<bool>,
-    last_ctrl_shift: Mutex<std::time::Instant>,
+    ctrl_space_latched: Mutex<bool>,
+    last_ctrl_space: Mutex<std::time::Instant>,
 }
 
 /// Maps an IBus keyval to a Unicode char we can feed the vietc engine.
@@ -526,8 +526,8 @@ pub fn run_ibus_engine(
         dedup_two_back,
         dedup_window_ms,
         aux_popup: Mutex::new(None),
-        ctrl_shift_latched: Mutex::new(false),
-        last_ctrl_shift: Mutex::new(std::time::Instant::now()),
+        ctrl_space_latched: Mutex::new(false),
+        last_ctrl_space: Mutex::new(std::time::Instant::now()),
     });
 
     // The Factory/Engine handler MUST be installed before we register, because
@@ -864,8 +864,8 @@ fn handle_process_key_event(
     // Without this check, every key is processed twice (once on press, once on release).
     const IBUS_RELEASE_MASK: u32 = 1 << 30;
     if (state_flags & IBUS_RELEASE_MASK) != 0 {
-        if (state_flags & CTRL) == 0 || (state_flags & SHIFT) == 0 {
-            *state.ctrl_shift_latched.lock().unwrap() = false;
+        if (state_flags & CTRL) == 0 || keyval == 32 || keyval == 0x20 {
+            *state.ctrl_space_latched.lock().unwrap() = false;
         }
         return false;
     }
@@ -876,23 +876,18 @@ fn handle_process_key_event(
     const ALT: u32 = 8;
     const SUPER: u32 = 64;
 
-    // Reset latch if either modifier is not pressed
-    if (state_flags & CTRL) == 0 || (state_flags & SHIFT) == 0 {
-        *state.ctrl_shift_latched.lock().unwrap() = false;
+    // Reset latch if Ctrl is not pressed
+    if (state_flags & CTRL) == 0 {
+        *state.ctrl_space_latched.lock().unwrap() = false;
     }
 
-    // Ctrl+Space or Ctrl+Shift cycles ENG -> VNI -> TELEX -> ENG.
-    // Handles both Ctrl-then-Shift and Shift-then-Ctrl, as well as Ctrl+Space.
-    let is_space_key = keyval == 0x0020 || keyval == 32;
-    let is_shift_key = keyval == 0xFFE1 || keyval == 0xFFE2 || keyval == 65505 || keyval == 65506;
-    let is_ctrl_key = keyval == 0xFFE3 || keyval == 0xFFE4 || keyval == 65507 || keyval == 65508;
-    let is_ctrl_shift = (is_shift_key && (state_flags & CTRL) != 0)
-        || (is_ctrl_key && (state_flags & SHIFT) != 0);
-    let is_ctrl_space = is_space_key && (state_flags & CTRL) != 0;
+    // Ctrl+Space cycles ENG -> VNI -> TELEX -> ENG.
+    let is_space = keyval == 32 || keyval == 0x20;
+    let is_ctrl_space = is_space && (state_flags & CTRL) != 0 && (state_flags & (ALT | SUPER)) == 0;
 
-    if is_ctrl_shift || is_ctrl_space {
-        let mut latched = state.ctrl_shift_latched.lock().unwrap();
-        let mut last_toggle = state.last_ctrl_shift.lock().unwrap();
+    if is_ctrl_space {
+        let mut latched = state.ctrl_space_latched.lock().unwrap();
+        let mut last_toggle = state.last_ctrl_space.lock().unwrap();
         let now = std::time::Instant::now();
 
         if *latched || now.duration_since(*last_toggle) < std::time::Duration::from_millis(200) {
@@ -942,7 +937,7 @@ fn handle_process_key_event(
             let _ = std::fs::write(config_vietc.join("method"), method_str);
         }
 
-        crate::log::log_info(&format!("[vietc-ibus] Ctrl+Shift cycle mode -> {}", label));
+        crate::log::log_info(&format!("[vietc-ibus] Ctrl+Space cycle mode -> {}", label));
         return true;
     }
 
@@ -954,6 +949,8 @@ fn handle_process_key_event(
     // Don't compose while Alt/Super is held, or Ctrl with a non-toggle key (e.g. Ctrl+A, Ctrl+C).
     // Auto-commit any in-progress preedit text before passing the shortcut through so
     // document operations like "Select All" include the word just typed.
+    let is_shift_key = keyval == 0xFFE1 || keyval == 0xFFE2 || keyval == 65505 || keyval == 65506;
+    let is_ctrl_key = keyval == 0xFFE3 || keyval == 0xFFE4 || keyval == 65507 || keyval == 65508;
     let is_shortcut = (state_flags & (ALT | SUPER) != 0)
         || ((state_flags & CTRL) != 0 && !is_shift_key && !is_ctrl_key);
 

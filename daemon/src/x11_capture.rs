@@ -92,7 +92,7 @@ pub fn run_with_x11(
                     if (event.state & 4) != 0 {
                         pressed_keys.remove(&event.keycode);
                         daemon.replay_reset();
-                        daemon.toggle();
+                        daemon.toggle_method();
                         continue;
                     }
                 }
@@ -228,15 +228,7 @@ pub fn run_with_x11_keymap(
             if ctrl_pressed { mod_state |= 4; }
             if alt_pressed { mod_state |= 8; }
 
-            let is_ctrl_key = keycode == 29 || keycode == 97;
-            let is_shift_key = keycode == 42 || keycode == 54;
-
             if ctrl_pressed && keycode == 57 {
-                daemon.toggle();
-                continue;
-            }
-
-            if ctrl_pressed && shift_pressed && (is_ctrl_key || is_shift_key) {
                 daemon.toggle_method();
                 continue;
             }

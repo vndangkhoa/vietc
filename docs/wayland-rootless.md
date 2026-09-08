@@ -29,8 +29,8 @@ remains to be done for full Wayland-native coverage.
     run the **native IBus engine** (`daemon/src/ibus_engine.rs`). This is the
     default on Ubuntu and covers every app (X11/XWayland + native Wayland) via
     the compositor-approved `org.freedesktop.IBus` D-Bus path. Takes precedence
-    and does NOT stop `ibus-daemon`. Toggle with `Ctrl+Space` and method with
-    `Ctrl+Shift`; preedit is now visible (smooth, like Funput).
+    and does NOT stop `ibus-daemon`. Cycle modes (EN -> VNI -> TELEX) with `Ctrl+Space`;
+    preedit is now visible (smooth, like Funput).
  2. Otherwise, build Wayland registry; if `zwp_input_method_manager_v2` is present,
     use the `zwp_input_method_v2` input-method path (true Wayland-native, rootless).
  3. Otherwise, if the keyboard devices are accessible (`input` group or root —

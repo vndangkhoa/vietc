@@ -404,7 +404,7 @@ journalctl --user -f -u vietc.service  # nếu chạy qua service`,
               </div>
               <h4 className="text-sm font-semibold text-slate-200 mb-2">Ubuntu 24.04+ Wayland</h4>
               <p className="text-slate-400 text-xs leading-relaxed">
-                Chạy như <code className="text-sky-400 font-mono">IBus engine</code> gốc qua D-Bus. <span className="text-emerald-400 font-semibold">Zero Underline</span>, xoay vòng 3 chế độ <code className="text-slate-300">Ctrl+Shift</code>, bao phủ 100% app Wayland-native (Firefox, Terminal, Gedit, VS Code).
+                Chạy như <code className="text-sky-400 font-mono">IBus engine</code> gốc qua D-Bus. <span className="text-emerald-400 font-semibold">Zero Underline</span>, xoay vòng 3 chế độ <code className="text-slate-300">Ctrl+Space</code>, bao phủ 100% app Wayland-native (Firefox, Terminal, Gedit, VS Code).
               </p>
               <div className="mt-3 text-[10px] font-mono text-sky-400 bg-sky-950/20 px-2 py-1 rounded border border-sky-500/10">GNOME Wayland → org.freedesktop.IBus</div>
             </div>

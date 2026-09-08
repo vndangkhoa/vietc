@@ -1,6 +1,6 @@
 input_method = "telex"
 toggle_key = "space"
-toggle_method_key = "shift"
+toggle_method_key = "space"
 start_enabled = true
 grab = false
 debug = false

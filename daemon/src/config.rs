@@ -175,7 +175,7 @@ fn default_toggle_key() -> String {
     "space".into()
 }
 fn default_toggle_method_key() -> String {
-    "shift".into()
+    "space".into()
 }
 fn default_start_enabled() -> bool {
     false
