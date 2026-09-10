@@ -79,6 +79,42 @@ mod tests {
     }
 
     #[test]
+    fn telex_reverts_double_vowel_for_english_continuation() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "teele")), "tele");
+    }
+
+    #[test]
+    fn telex_reverts_tone_for_english_continuation() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "fixx")), "fix");
+    }
+
+    #[test]
+    fn telex_reverts_double_d_for_english_continuation() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "addd")), "ad");
+    }
+
+    #[test]
+    fn telex_reverts_mark_modifier_for_english_continuation() {
+        let mut e = Engine::new(InputMethod::Telex);
+        assert_eq!(get_display(&process_input(&mut e, "aww")), "aw");
+    }
+
+    #[test]
+    fn replay_keystrokes_reverts_tone_for_english_continuation() {
+        let (output, did_flush) =
+            Engine::replay_keystrokes(
+                InputMethod::Telex,
+                &std::collections::HashMap::new(),
+                &['f', 'i', 'x', 'x'],
+            );
+        assert_eq!(output, "fix");
+        assert!(!did_flush);
+    }
+
+    #[test]
     fn telex_aw() {
         let mut e = Engine::new(InputMethod::Telex);
         assert_eq!(get_display(&process_input(&mut e, "aw")), "ă");

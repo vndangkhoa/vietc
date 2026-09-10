@@ -11,7 +11,28 @@ pub enum InputMethod {
 pub struct InputMethodRules {
     pub method: InputMethod,
     pub tone_keys: HashMap<char, (char, &'static str)>,
-    pub mark_rules: Vec<(String, String)>,
+    pub mark_rules: Vec<MarkRule>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MarkRule {
+    pub pattern: String,
+    pub result: String,
+    pub undo_behavior: Option<UndoBehavior>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UndoBehavior {
+    AppendTrigger,
+    ConsumeTrigger,
+}
+
+fn mark_rule(pattern: &str, result: &str, undo_behavior: Option<UndoBehavior>) -> MarkRule {
+    MarkRule {
+        pattern: pattern.into(),
+        result: result.into(),
+        undo_behavior,
+    }
 }
 
 fn tone_map(entries: &[(char, char, &'static str)]) -> HashMap<char, (char, &'static str)> {
@@ -30,13 +51,13 @@ pub fn get_rules(method: InputMethod) -> InputMethodRules {
                 ('j', 'j', "nang"),
             ]),
             mark_rules: vec![
-                ("aw".into(), "ă".into()),
-                ("aa".into(), "â".into()),
-                ("ee".into(), "ê".into()),
-                ("oo".into(), "ô".into()),
-                ("ow".into(), "ơ".into()),
-                ("uw".into(), "ư".into()),
-                ("dd".into(), "đ".into()),
+                mark_rule("aw", "ă", Some(UndoBehavior::AppendTrigger)),
+                mark_rule("aa", "â", Some(UndoBehavior::AppendTrigger)),
+                mark_rule("ee", "ê", Some(UndoBehavior::AppendTrigger)),
+                mark_rule("oo", "ô", Some(UndoBehavior::AppendTrigger)),
+                mark_rule("ow", "ơ", Some(UndoBehavior::AppendTrigger)),
+                mark_rule("uw", "ư", Some(UndoBehavior::AppendTrigger)),
+                mark_rule("dd", "đ", Some(UndoBehavior::ConsumeTrigger)),
             ],
         },
         InputMethod::Vni => InputMethodRules {
@@ -49,13 +70,13 @@ pub fn get_rules(method: InputMethod) -> InputMethodRules {
                 ('5', '5', "nang"),
             ]),
             mark_rules: vec![
-                ("a6".into(), "â".into()),
-                ("e6".into(), "ê".into()),
-                ("o6".into(), "ô".into()),
-                ("o7".into(), "ơ".into()),
-                ("u7".into(), "ư".into()),
-                ("a8".into(), "ă".into()),
-                ("d9".into(), "đ".into()),
+                mark_rule("a6", "â", None),
+                mark_rule("e6", "ê", None),
+                mark_rule("o6", "ô", None),
+                mark_rule("o7", "ơ", None),
+                mark_rule("u7", "ư", None),
+                mark_rule("a8", "ă", None),
+                mark_rule("d9", "đ", None),
             ],
         },
     }

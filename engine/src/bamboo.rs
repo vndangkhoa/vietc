@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-use crate::input_method::{InputMethod, InputMethodRules, get_rules};
+use crate::input_method::{get_rules, InputMethod, InputMethodRules, UndoBehavior};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -14,6 +14,12 @@ struct Transformation {
 pub enum Mode {
     Vietnamese,
     English,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TelexUndo {
+    AppendTrigger,
+    ConsumeTrigger,
 }
 
 impl Mode {
@@ -170,8 +176,8 @@ impl BambooEngine {
             let idx = self.composition.len() - 1 - offset;
             let ch = self.composition[idx].base_char.to_ascii_lowercase();
             let seq = format!("{}{}", ch, lower);
-            if let Some((p, r)) = self.rules.mark_rules.iter().find(|(p, _)| seq == *p) {
-                return Some((idx, p.clone(), r.clone()));
+            if let Some(rule) = self.rules.mark_rules.iter().find(|rule| seq == rule.pattern) {
+                return Some((idx, rule.pattern.clone(), rule.result.clone()));
             }
         }
         None
@@ -209,6 +215,62 @@ impl BambooEngine {
         } else {
             None
         }
+    }
+
+    pub fn undo_telex_transform(&mut self, trigger: char, raw: &str) -> Option<TelexUndo> {
+        if self.rules.method != InputMethod::Telex {
+            return None;
+        }
+
+        let trigger = trigger.to_ascii_lowercase();
+        if raw.chars().last().map(|last| last.to_ascii_lowercase()) == Some(trigger) {
+            for transformation in self.composition.iter_mut().rev() {
+                if transformation.tone_applied == Some(trigger) {
+                    transformation.tone_applied = None;
+                    return Some(TelexUndo::AppendTrigger);
+                }
+            }
+        }
+
+        let raw = raw.to_ascii_lowercase();
+        for rule in &self.rules.mark_rules {
+            let Some(undo_behavior) = rule.undo_behavior else {
+                continue;
+            };
+            if !rule.pattern.ends_with(trigger) || !has_active_mark_pattern(&raw, &rule.pattern) {
+                continue;
+            }
+
+            let Some(base_char) = rule.pattern.chars().next() else {
+                continue;
+            };
+            let Some(result) = rule.result.chars().next() else {
+                continue;
+            };
+
+            for transformation in self.composition.iter_mut().rev() {
+                if transformation.mark_applied.map(|ch| ch.to_ascii_lowercase()) == Some(result)
+                    && transformation.tone_applied.is_none()
+                {
+                    transformation.base_char = if transformation.is_upper {
+                        base_char.to_ascii_uppercase()
+                    } else {
+                        base_char
+                    };
+                    transformation.mark_applied = None;
+                    return Some(match undo_behavior {
+                        UndoBehavior::AppendTrigger => TelexUndo::AppendTrigger,
+                        UndoBehavior::ConsumeTrigger => TelexUndo::ConsumeTrigger,
+                    });
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn append_literal(&mut self, ch: char) {
+        self.append_char(ch);
     }
 
     fn append_char(&mut self, ch: char) {
@@ -333,6 +395,14 @@ impl BambooEngine {
 
         output
     }
+}
+
+fn has_active_mark_pattern(raw: &str, pattern: &str) -> bool {
+    let Some(pattern_start) = raw.rfind(pattern) else {
+        return false;
+    };
+    let suffix = &raw[pattern_start + pattern.len()..];
+    !suffix.chars().any(|ch| matches!(ch, 'a' | 'e' | 'i' | 'o' | 'u' | 'y'))
 }
 
 fn is_vowel(ch: char) -> bool {

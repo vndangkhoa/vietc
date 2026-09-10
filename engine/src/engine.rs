@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-use crate::bamboo::BambooEngine;
+use crate::bamboo::{BambooEngine, TelexUndo};
 use crate::english::EnglishDict;
 use crate::event::{Command, EventStore};
 use crate::input_method::InputMethod;
@@ -117,8 +117,8 @@ impl Engine {
 
         for &ch in keystrokes {
             if ch == '\x08' {
-                let _ = engine.bamboo.pop_last();
-                composing = engine.bamboo.get_output();
+                let _ = engine.process_key(ch);
+                composing = engine.buffer();
                 last_output = composing.clone();
                 continue;
             }
@@ -128,17 +128,13 @@ impl Engine {
                     last_output = composing.clone();
                 }
                 composing.clear();
-                engine.bamboo.reset();
+                engine.reset();
                 continue;
             }
 
-            if let Some(out) = engine.bamboo.process_key(ch) {
-                composing = out.clone();
-                last_output = out;
-            } else {
-                composing = engine.bamboo.get_output();
-                last_output = composing.clone();
-            }
+            let _ = engine.process_key(ch);
+            composing = engine.buffer();
+            last_output = composing.clone();
         }
 
         let output = engine.bamboo.get_output();
@@ -168,17 +164,13 @@ impl Engine {
         for event in events.iter() {
             match event {
                 crate::event::InputEvent::KeyTyped(ch) => {
-                    if let Some(out) = engine.bamboo.process_key(*ch) {
-                        composing = out.clone();
-                        last_output = out;
-                    } else {
-                        composing = engine.bamboo.get_output();
-                        last_output = composing.clone();
-                    }
+                    let _ = engine.process_key(*ch);
+                    composing = engine.buffer();
+                    last_output = composing.clone();
                 }
                 crate::event::InputEvent::Backspace => {
-                    let _ = engine.bamboo.pop_last();
-                    composing = engine.bamboo.get_output();
+                    let _ = engine.process_key('\x08');
+                    composing = engine.buffer();
                     last_output = composing.clone();
                 }
                 crate::event::InputEvent::Flush(_) => {
@@ -186,7 +178,7 @@ impl Engine {
                         last_output = composing.clone();
                     }
                     composing.clear();
-                    engine.bamboo.reset();
+                    engine.reset();
                 }
                 crate::event::InputEvent::Paste(text) => {
                     for ch in text.chars() {
@@ -318,6 +310,19 @@ impl Engine {
 
         let previous = self.bamboo.get_output();
         let prev_len = previous.chars().count();
+
+        if let Some(undo) = self.bamboo.undo_telex_transform(ch, &self.raw_buffer) {
+            self.raw_buffer.push(ch);
+            if undo == TelexUndo::AppendTrigger {
+                self.bamboo.append_literal(ch);
+            }
+            let output = self.bamboo.get_output();
+            return Some(EngineEvent::Replace {
+                backspaces: prev_len,
+                insert: match_casing(&self.raw_buffer, &output),
+            });
+        }
+
         self.raw_buffer.push(ch);
 
         if let Some(new_output) = self.bamboo.process_key(ch) {
