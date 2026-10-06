@@ -499,33 +499,71 @@ impl UinputInjector {
         if is_wayland {
             if backspaces > 0 {
                 self.send_backspaces(backspaces);
-                std::thread::sleep(std::time::Duration::from_millis(5));
-            }
-            let mut cmd = Self::user_cmd("wtype");
-            cmd.arg("--");
-            cmd.arg(text);
-            cmd.stdout(std::process::Stdio::null());
-            cmd.stderr(std::process::Stdio::null());
-            match cmd.status() {
-                Ok(status) if status.success() => {
-                    return InjectResult::Success;
-                }
-                Ok(status) => {
-                    eprintln!("[vietc] wtype exited with {}", status);
-                }
-                Err(e) => {
-                    eprintln!("[vietc] wtype spawn failed: {}", e);
-                }
-            }
-            // wtype failed — backspaces already sent via uinput, just try clipboard for text
-            if !self.paste_via_clipboard(text) {
-                eprintln!(
-                    "[vietc] send_string failed for '{}' (wtype & clipboard unavailable)",
-                    text.escape_default()
+
+                std::thread::sleep(
+                    std::time::Duration::from_millis(5)
                 );
             }
+
+            eprintln!(
+                "[vietc-debug] executing wtype with Shift prefix: text='{}'",
+                text.escape_default()
+            );
+
+            let started = std::time::Instant::now();
+
+            let mut cmd = Self::user_cmd("wtype");
+
+            // Chromium/Wayland workaround:
+            // send harmless Shift press/release before Unicode text.
+            cmd.args([
+                "-P",
+                "Shift_L",
+                "-p",
+                "Shift_L",
+                "--",
+                text,
+            ]);
+
+            let result = cmd.output();
+
+            match result {
+                Ok(output) => {
+                    eprintln!(
+                        "[vietc-debug] wtype finished: status={}, success={}, elapsed={}ms",
+                        output.status,
+                        output.status.success(),
+                        started.elapsed().as_millis()
+                    );
+
+                    if !output.stderr.is_empty() {
+                        eprintln!(
+                            "[vietc-debug] wtype stderr: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
+
+                    if output.status.success() {
+                        return InjectResult::Success;
+                    }
+                }
+
+                Err(e) => {
+                    eprintln!(
+                        "[vietc-debug] wtype spawn failed: {:?}",
+                        e
+                    );
+                }
+            }
+
+            // Existing fallback
+            if self.paste_via_clipboard(text) {
+                return InjectResult::Success;
+            }
+
             return InjectResult::Success;
-        }
+        }        // X11 or no Wayland: backspaces via uinput, text via clipboard
+
 
         // X11 or no Wayland: backspaces via uinput, text via clipboard
         if backspaces > 0 {
