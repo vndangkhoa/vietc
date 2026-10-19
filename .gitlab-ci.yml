@@ -1,0 +1,38 @@
+# Custom CI: Auto DevOps fails on this HTTP-only self-hosted GitLab (it assumes an
+# HTTPS dependency proxy/registry) and the runner has no privileged DinD. Build and
+# test the Rust workspace headlessly (mirrors the GitHub Actions recipe).
+
+stages:
+  - build
+  - test
+
+default:
+  image: rust:1-bookworm
+  before_script:
+    - apt-get update
+    - >
+      apt-get install -y --no-install-recommends
+      pkg-config libdbus-1-dev libx11-dev libxtst-dev libxext-dev
+      libxkbcommon-dev libevdev-dev libwayland-dev xclip xdotool
+  cache:
+    key: "cargo-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cargo/registry/
+
+variables:
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
+  CARGO_TERM_COLOR: always
+
+build:
+  stage: build
+  script:
+    - cargo build --release --features "x11,wayland"
+  artifacts:
+    paths:
+      - target/release/vietc*
+    expire_in: 1 week
+
+test:
+  stage: test
+  script:
+    - cargo test --release
