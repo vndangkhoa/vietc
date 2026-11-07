@@ -240,41 +240,45 @@ impl UinputInjector {
         if count == 0 {
             return;
         }
-        let mut events = Vec::with_capacity(count * 4);
-        for _ in 0..count {
-            events.push(input_event {
-                time: timeval { tv_sec: 0, tv_usec: 0 },
-                type_: EV_KEY,
-                code: 14,
-                value: 1,
-            });
-            events.push(input_event {
-                time: timeval { tv_sec: 0, tv_usec: 0 },
-                type_: 0,
-                code: 0,
-                value: 0,
-            });
-            events.push(input_event {
-                time: timeval { tv_sec: 0, tv_usec: 0 },
-                type_: EV_KEY,
-                code: 14,
-                value: 0,
-            });
-            events.push(input_event {
-                time: timeval { tv_sec: 0, tv_usec: 0 },
-                type_: 0,
-                code: 0,
-                value: 0,
-            });
-        }
-        unsafe {
-            let ptr = events.as_ptr() as *const u8;
-            let len = events.len() * std::mem::size_of::<input_event>();
-            let _ = libc::write(
-                self.file.as_raw_fd() as libc::c_int,
-                ptr as *const libc::c_void,
-                len,
-            );
+        for idx in 0..count {
+            let events = [
+                input_event {
+                    time: timeval { tv_sec: 0, tv_usec: 0 },
+                    type_: EV_KEY,
+                    code: 14,
+                    value: 1,
+                },
+                input_event {
+                    time: timeval { tv_sec: 0, tv_usec: 0 },
+                    type_: 0,
+                    code: 0,
+                    value: 0,
+                },
+                input_event {
+                    time: timeval { tv_sec: 0, tv_usec: 0 },
+                    type_: EV_KEY,
+                    code: 14,
+                    value: 0,
+                },
+                input_event {
+                    time: timeval { tv_sec: 0, tv_usec: 0 },
+                    type_: 0,
+                    code: 0,
+                    value: 0,
+                },
+            ];
+            unsafe {
+                let ptr = events.as_ptr() as *const u8;
+                let len = events.len() * std::mem::size_of::<input_event>();
+                let _ = libc::write(
+                    self.file.as_raw_fd() as libc::c_int,
+                    ptr as *const libc::c_void,
+                    len,
+                );
+            }
+            if idx + 1 < count {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
         }
     }
 }
@@ -499,71 +503,36 @@ impl UinputInjector {
         if is_wayland {
             if backspaces > 0 {
                 self.send_backspaces(backspaces);
-
-                std::thread::sleep(
-                    std::time::Duration::from_millis(5)
-                );
+                std::thread::sleep(std::time::Duration::from_millis(8));
             }
-
-            eprintln!(
-                "[vietc-debug] executing wtype with Shift prefix: text='{}'",
-                text.escape_default()
-            );
-
-            let started = std::time::Instant::now();
 
             let mut cmd = Self::user_cmd("wtype");
-
-            // Chromium/Wayland workaround:
-            // send harmless Shift press/release before Unicode text.
-            cmd.args([
-                "-P",
-                "Shift_L",
-                "-p",
-                "Shift_L",
-                "--",
-                text,
-            ]);
-
-            let result = cmd.output();
-
-            match result {
-                Ok(output) => {
-                    eprintln!(
-                        "[vietc-debug] wtype finished: status={}, success={}, elapsed={}ms",
-                        output.status,
-                        output.status.success(),
-                        started.elapsed().as_millis()
-                    );
-
-                    if !output.stderr.is_empty() {
-                        eprintln!(
-                            "[vietc-debug] wtype stderr: {}",
-                            String::from_utf8_lossy(&output.stderr)
-                        );
-                    }
-
-                    if output.status.success() {
-                        return InjectResult::Success;
-                    }
+            // Chromium/Wayland workaround (prefix harmless Shift_L tap) +
+            // 2ms transition sleep (-s 2) to prevent orphaned key-release repeats on Hyprland.
+            cmd.args(["-s", "2", "-P", "Shift_L", "-p", "Shift_L", "--", text]);
+            cmd.stdout(std::process::Stdio::null());
+            cmd.stderr(std::process::Stdio::null());
+            match cmd.status() {
+                Ok(status) if status.success() => {
+                    return InjectResult::Success;
                 }
-
+                Ok(status) => {
+                    eprintln!("[vietc] wtype exited with {}", status);
+                }
                 Err(e) => {
-                    eprintln!(
-                        "[vietc-debug] wtype spawn failed: {:?}",
-                        e
-                    );
+                    eprintln!("[vietc] wtype spawn failed: {}", e);
                 }
             }
 
-            // Existing fallback
-            if self.paste_via_clipboard(text) {
-                return InjectResult::Success;
+            // wtype failed — backspaces already sent via uinput, fallback to clipboard
+            if !self.paste_via_clipboard(text) {
+                eprintln!(
+                    "[vietc] send_string failed for '{}' (wtype & clipboard unavailable)",
+                    text.escape_default()
+                );
             }
-
             return InjectResult::Success;
-        }        // X11 or no Wayland: backspaces via uinput, text via clipboard
-
+        }
 
         // X11 or no Wayland: backspaces via uinput, text via clipboard
         if backspaces > 0 {

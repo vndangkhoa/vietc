@@ -2,9 +2,9 @@ input_method = "telex"
 toggle_key = "space"
 toggle_method_key = "space"
 start_enabled = true
-grab = false
+grab = true
 debug = false
-deduplicate_keys = true
+deduplicate_keys = false
 deduplicate_window_ms = 120
 # Ubuntu GNOME Wayland: auto-enable native IBus engine where
 # zwp_input_method_v2 is unavailable (Mutter). Mirrors Funput's
@@ -39,6 +39,7 @@ vietnamese_apps = [
     "telegram",
     "discord",
     "slack",
+    "zalo",
     "firefox",
     "chromium",
     "thunderbird",

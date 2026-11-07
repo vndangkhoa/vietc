@@ -32,7 +32,7 @@ pub struct Config {
     #[serde(default)]
     pub macros: HashMap<String, String>,
 
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub grab: bool,
 
     #[serde(default = "default_false")]
@@ -271,6 +271,7 @@ fn default_vietnamese_apps() -> Vec<String> {
         "telegram".into(),
         "discord".into(),
         "slack".into(),
+        "zalo".into(),
         "firefox".into(),
         "chromium".into(),
         "thunderbird".into(),
@@ -337,11 +338,11 @@ impl Default for Config {
             password_detection: PasswordDetectionConfig::default(),
             app_state: AppStateConfig::default(),
             macros,
-            grab: false, // default false so daemon works without root (needs input group for uinput)
+            grab: true,
             debug: false,
             ibus_engine: false,
             controller_mode: false,
-            deduplicate_keys: true,
+            deduplicate_keys: false,
             deduplicate_two_back: false,
             deduplicate_window_ms: default_dedup_window_ms(),
             auto_ibus: true,
@@ -669,5 +670,16 @@ toggle_method_key = "shift"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.toggle_method_key, "shift");
+    }
+
+    #[test]
+    fn default_grab_and_dedup_settings() {
+        let def = Config::default();
+        assert!(def.grab);
+        assert!(!def.deduplicate_keys);
+
+        let parsed: Config = toml::from_str("").unwrap();
+        assert!(parsed.grab);
+        assert!(!parsed.deduplicate_keys);
     }
 }

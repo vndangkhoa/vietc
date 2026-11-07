@@ -4,6 +4,24 @@
   <a href="CHANGELOG.md">English</a>
 </p>
 
+## v0.1.25 (2026-11-07)
+
+### Sửa lỗi
+
+- **Triệt tiêu lỗi dính chữ (`tietiêtiếng`) và lặp ký tự kéo dài trên Hyprland / Wayland**:
+  - Tự động tạm dừng `fcitx5` (`omarchy-fcitx5.service` / `fcitx5.service`) và `ibus` khi chạy chế độ `evdev` rồi khôi phục khi thoát (`daemon/src/main.rs`), ngăn `hl-virtual-keyboard-fcitx5` chặn `BackSpace` của `uinput` hoặc làm kẹt sự kiện nhả phím của `wtype`.
+  - Tối ưu chỉ xóa phần hậu tố thay đổi trong `Daemon::process_key` (`daemon/src/daemon.rs`, ví dụ `"tie"` + `'e'` chỉ gửi `Backspace(1) + "ê"` thay vì xóa gõ lại cả từ).
+  - Gửi tổ hợp nhấn+nhả nguyên tử cho phím ký tự trong `daemon/src/evdev_loop.rs`, nhả tạm `Shift` khi chèn dấu, đồng thời giãn nhịp `BackSpace` và thêm `-s 2` cho `wtype` (`protocol/src/uinput_monitor.rs`) để bộ đếm lặp phím 40Hz của Hyprland không bao giờ bị kẹt lặp chữ.
+
+- **Sửa lỗi không nhận bàn phím khi dùng chung chuột gaming đa giao diện (Multi-HID) trên Omarchy / Hyprland / Wayland**: Cập nhật `is_valid_keyboard()` (`daemon/src/device.rs`) để loại trừ các giao diện chuột/cuộn ngang (`REL_WHEEL`, `REL_HWHEEL`, `REL_WHEEL_HI_RES`, `REL_HWHEEL_HI_RES`, `BTN_LEFT`, `BTN_RIGHT`), chỉ đánh dấu `seen_phys_ids` sau khi xác thực bàn phím hợp lệ, và bỏ chặn `i != 0` trong `daemon/src/evdev_loop.rs` để bàn phím chính hoặc bàn phím rời luôn nhận gõ tiếng Việt.
+
+- **Bật mặc định `grab = true` và `deduplicate_keys = false`**: Đồng bộ `vietc.toml`, `daemon/src/config.rs` và `install.sh` để chiếm quyền evdev trực tiếp chống đua phím trên Wayland/Hyprland và giữ nguyên tổ hợp gõ đúp Telex (`aa`, `ee`, `oo`, `dd`).
+
+- **Giữ nguyên toàn bộ trường cấu hình khi lưu từ `vietc-tray`**: Bổ sung `#[serde(flatten)]` trong `ui/src/config.rs` để khi thao tác trên khay hệ thống không làm mất `auto_ibus`, `deduplicate_keys`, `password_detection`, `terminal_apps` và `bypass_apps`.
+
+- **Quy tắc udev `uaccess` & hỗ trợ sẵn Zalo**: Cập nhật `packaging/99-vietc.rules` với `TAG+="uaccess"` cho `/dev/uinput` và `/dev/input/event*`, đồng thời thêm `zalo` vào danh sách `vietnamese_apps` mặc định.
+
+
 ## Chưa phát hành (Unreleased)
 
 ### Tái cấu trúc mô-đun (Modular Refactoring)

@@ -262,6 +262,8 @@ impl Daemon {
 
     pub fn process_key(&mut self, ch: char) -> Vec<OutputCommand> {
         let mut commands = Vec::new();
+        let prev_buf = self.engine.buffer();
+        let prev_char_len = prev_buf.chars().count();
 
         if let Some(event) = self.engine.process_key(ch) {
             match event {
@@ -272,20 +274,38 @@ impl Daemon {
                     commands.push(OutputCommand::Type(text));
                 }
                 EngineEvent::AutoRestore(word) => {
-                    let len = word.len();
+                    let len = word.chars().count();
                     commands.push(OutputCommand::Backspace(len));
                     commands.push(OutputCommand::Type(word));
                 }
                 EngineEvent::Replace { backspaces, insert } => {
-                    commands.push(OutputCommand::Backspace(backspaces));
-                    commands.push(OutputCommand::Type(insert));
+                    let (adj_bs, adj_ins) = if backspaces == prev_char_len {
+                        trim_common_prefix(&prev_buf, backspaces, &insert)
+                    } else {
+                        (backspaces, insert)
+                    };
+                    if adj_bs > 0 {
+                        commands.push(OutputCommand::Backspace(adj_bs));
+                    }
+                    if !adj_ins.is_empty() {
+                        commands.push(OutputCommand::Type(adj_ins));
+                    }
                 }
                 EngineEvent::UndoTones {
                     backspaces,
                     restored,
                 } => {
-                    commands.push(OutputCommand::Backspace(backspaces));
-                    commands.push(OutputCommand::Type(restored));
+                    let (adj_bs, adj_ins) = if backspaces == prev_char_len {
+                        trim_common_prefix(&prev_buf, backspaces, &restored)
+                    } else {
+                        (backspaces, restored)
+                    };
+                    if adj_bs > 0 {
+                        commands.push(OutputCommand::Backspace(adj_bs));
+                    }
+                    if !adj_ins.is_empty() {
+                        commands.push(OutputCommand::Type(adj_ins));
+                    }
                 }
                 EngineEvent::Paste(text) => {
                     self.engine.exit_paste_mode();
@@ -497,6 +517,18 @@ impl Daemon {
     }
 }
 
+fn trim_common_prefix(prev: &str, backspaces: usize, next: &str) -> (usize, String) {
+    let common = prev
+        .chars()
+        .zip(next.chars())
+        .take_while(|(a, b)| a == b)
+        .count()
+        .min(backspaces);
+    let adj_bs = backspaces - common;
+    let adj_ins: String = next.chars().skip(common).collect();
+    (adj_bs, adj_ins)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -572,5 +604,42 @@ mod tests {
     fn keymap_multiple_words_no_bleed() {
         assert_eq!(simulate("to6 tie6ng1 "), "tô tiếng ");
         assert_eq!(simulate("tie6ng1 to6 "), "tiếng tô ");
+    }
+
+    #[test]
+    fn process_key_trims_unchanged_prefix_on_replace() {
+        let mut cfg = Config::default();
+        cfg.input_method = "telex".into();
+        let mut d = Daemon::new(
+            cfg,
+            PathBuf::from("/tmp/vietc_test_prefix.toml"),
+            Arc::new(AtomicBool::new(true)),
+        );
+        d.engine.set_enabled(true);
+        d.engine.set_method(InputMethod::Telex);
+
+        assert!(d.process_key('t').is_empty());
+        assert!(d.process_key('i').is_empty());
+        assert!(d.process_key('e').is_empty());
+
+        // "tie" + 'e' -> "tiê": prefix "ti" unchanged, only 1 backspace + "ê"
+        let cmds = d.process_key('e');
+        assert_eq!(
+            cmds,
+            vec![OutputCommand::Backspace(1), OutputCommand::Type("ê".into())]
+        );
+
+        assert!(d.process_key('n').is_empty());
+        assert!(d.process_key('g').is_empty());
+
+        // "tiêng" + 's' -> "tiếng": prefix "ti" unchanged, 3 backspaces + "ếng"
+        let cmds = d.process_key('s');
+        assert_eq!(
+            cmds,
+            vec![
+                OutputCommand::Backspace(3),
+                OutputCommand::Type("ếng".into())
+            ]
+        );
     }
 }

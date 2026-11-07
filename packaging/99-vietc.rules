@@ -1,3 +1,4 @@
 # Udev rule for Viet+ input method
-# Allows non-root users in the 'input' group to write to /dev/uinput
-KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
+# Allows logged-in desktop users (uaccess) and 'input' group members to access /dev/uinput and /dev/input/event*
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
+SUBSYSTEM=="input", KERNEL=="event*", TAG+="uaccess", GROUP="input", MODE="0660"

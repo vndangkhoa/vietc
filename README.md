@@ -2,7 +2,7 @@
   <a href="https://github.com/vndangkhoa/vietc/stargazers"><img src="https://img.shields.io/github/stars/vndangkhoa/vietc?style=for-the-badge&logo=apachespark&color=f59e0b" alt="GitHub Stars"></a>
   <img src="https://img.shields.io/badge/Nền_tảng-Linux_(Wayland_|_X11)-blue?style=for-the-badge&logo=linux&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/Ngôn_ngữ-Rust_1.85+-orange?style=for-the-badge&logo=rust&logoColor=white" alt="Rust">
-  <img src="https://img.shields.io/badge/Phiên_bản-0.1.24-purple?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/Phiên_bản-0.1.25-purple?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/Kiểm_thử-151_đạt_(100%25)-brightgreen?style=for-the-badge" alt="Tests">
   <a href="#giấy-phép"><img src="https://img.shields.io/badge/Giấy_phép-MIT-gray?style=for-the-badge" alt="License"></a>
 </p>

@@ -4,6 +4,24 @@
   <a href="CHANGELOG.vi.md">Tiếng Việt</a>
 </p>
 
+## v0.1.25 (2026-11-07)
+
+### Fixed
+
+- **Eliminate glued syllables & stuck repeating characters on Hyprland / Wayland**:
+  - Pause competing `fcitx5` (`omarchy-fcitx5.service` / `fcitx5.service`) and `ibus-daemon` during `evdev` capture and restore on exit (`daemon/src/main.rs`) so `hl-virtual-keyboard-fcitx5` never intercepts `uinput` BackSpaces or orphans `wtype` key-release events.
+  - Trim unchanged common prefixes in `Daemon::process_key` (`daemon/src/daemon.rs`) so diacritics only replace the changed suffix (e.g. `"tie"` + `'e'` sends `Backspace(1) + "ê"` instead of retyping the whole word).
+  - Emit atomic press+release taps for forwarded printable keys and unlatch `Shift` around replacements (`daemon/src/evdev_loop.rs`), plus pace `uinput` BackSpaces and pass `-s 2` to `wtype` (`protocol/src/uinput_monitor.rs`) so Hyprland's compositor repeat timer never fires runaway repeats.
+
+- **Multi-HID keyboard & composite gaming mouse fix on Omarchy / Hyprland / Wayland**: Updated `is_valid_keyboard()` (`daemon/src/device.rs`) to reject composite mouse/consumer interfaces advertising scroll wheels (`REL_WHEEL`, `REL_HWHEEL`, `REL_WHEEL_HI_RES`, `REL_HWHEEL_HI_RES`) or mouse buttons (`BTN_LEFT`, `BTN_RIGHT`), and only mark `seen_phys_ids` after keyboard validation succeeds (`daemon/src/device.rs`). Also removed the non-grabbed `i != 0` skip guard in `daemon/src/evdev_loop.rs` so keyboards enumerated after a multi-HID mouse or external USB/BT keyboards never drop typing input.
+
+- **Enable evdev `grab = true` and `deduplicate_keys = false` by default**: Aligned `vietc.toml`, `daemon/src/config.rs`, and `install.sh` with documented Wayland/Hyprland defaults so direct evdev grab eliminates key race conditions out of the box and Telex double-key composition (`aa`, `ee`, `oo`, `dd`) is never swallowed by key deduplication.
+
+- **Preserve daemon config fields when saving from `vietc-tray`**: Added `#[serde(flatten)]` extra-field maps in `ui/src/config.rs` so toggling settings from the system tray preserves `auto_ibus`, `deduplicate_keys`, `password_detection`, `terminal_apps`, and `bypass_apps` in `~/.config/vietc/config.toml`.
+
+- **Rootless udev `uaccess` rules & Zalo app preset**: Updated `packaging/99-vietc.rules` with `TAG+="uaccess"` for `/dev/uinput` and `/dev/input/event*`, and added `zalo` to default `vietnamese_apps`.
+
+
 ## v0.1.24 (2026-09-05)
 
 ### Fixed

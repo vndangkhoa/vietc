@@ -10,6 +10,9 @@ pub struct AutoRestoreConfig {
 
     #[serde(default = "default_restore_keys")]
     pub trigger_keys: Vec<String>,
+
+    #[serde(flatten)]
+    pub extra: std::collections::BTreeMap<String, toml::Value>,
 }
 
 impl Default for AutoRestoreConfig {
@@ -17,6 +20,7 @@ impl Default for AutoRestoreConfig {
         Self {
             enabled: true,
             trigger_keys: default_restore_keys(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -31,6 +35,9 @@ pub struct AppStateConfig {
 
     #[serde(default)]
     pub vietnamese_apps: Vec<String>,
+
+    #[serde(flatten)]
+    pub extra: std::collections::BTreeMap<String, toml::Value>,
 }
 
 impl Default for AppStateConfig {
@@ -39,6 +46,7 @@ impl Default for AppStateConfig {
             enabled: true,
             english_apps: vec![],
             vietnamese_apps: vec![],
+            extra: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -68,19 +76,22 @@ pub struct Config {
 
     #[serde(default = "default_false")]
     pub debug: bool,
+
+    #[serde(flatten)]
+    pub extra: std::collections::BTreeMap<String, toml::Value>,
 }
 
 fn default_input_method() -> String {
-    "vni".into()
+    "telex".into()
 }
 fn default_toggle_key() -> String {
     "space".into()
 }
 fn default_start_enabled() -> bool {
-    false
+    true
 }
 fn default_grab() -> bool {
-    false
+    true
 }
 fn default_true() -> bool {
     true
@@ -103,6 +114,7 @@ impl Default for Config {
             macros: std::collections::HashMap::new(),
             grab: default_grab(),
             debug: default_false(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -205,5 +217,61 @@ pub fn install_autostart() {
 
         let _ = fs::write(desktop_file, content);
         eprintln!("[vietc] Installed autostart entry");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roundtrip_preserves_daemon_fields() {
+        let raw = r#"
+input_method = "telex"
+toggle_key = "space"
+toggle_method_key = "space"
+start_enabled = true
+grab = true
+debug = false
+deduplicate_keys = false
+deduplicate_window_ms = 120
+auto_ibus = true
+
+[auto_restore]
+enabled = true
+trigger_keys = ["space", "escape"]
+
+[app_state]
+enabled = true
+english_apps = ["code", "ghostty"]
+vietnamese_apps = ["firefox", "zalo"]
+terminal_apps = ["kitty", "alacritty"]
+bypass_apps = ["steam"]
+terminal_input_method = "vni"
+
+[password_detection]
+enabled = true
+
+[macros]
+ko = "không"
+"#;
+        let mut cfg: Config = toml::from_str(raw).unwrap();
+        assert!(cfg.grab);
+        assert!(cfg.start_enabled);
+        cfg.input_method = "vni".into();
+
+        let serialized = toml::to_string_pretty(&cfg).unwrap();
+        let reparsed: toml::Value = toml::from_str(&serialized).unwrap();
+        assert_eq!(reparsed["auto_ibus"].as_bool(), Some(true));
+        assert_eq!(reparsed["deduplicate_keys"].as_bool(), Some(false));
+        assert_eq!(reparsed["toggle_method_key"].as_str(), Some("space"));
+        assert_eq!(
+            reparsed["app_state"]["terminal_input_method"].as_str(),
+            Some("vni")
+        );
+        assert_eq!(
+            reparsed["password_detection"]["enabled"].as_bool(),
+            Some(true)
+        );
     }
 }

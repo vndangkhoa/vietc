@@ -251,17 +251,12 @@ pub fn run_with_evdev(
                     }
                 }
 
-                // In non-grabbed mode only the primary device is processed
-                // through the engine, because non-primary devices aren't grabbed
-                // and their events reach the app directly — processing them would
-                // inject a second copy of every keystroke. In grabbed mode every
-                // keyboard is grabbed (originals suppressed), so all devices may
-                // be processed safely. This also lets a uinput virtual keyboard
-                // (e.g. the vietc-vk test tool) drive the engine.
-                if !grabbed && i != 0 {
-                    continue;
-                }
-
+                // Duplicate interfaces of the same physical device are already
+                // deduplicated by `phys` ID, and vietc's own uinput device is
+                // excluded in `is_valid_keyboard`, so every entry in `devices`
+                // is a distinct keyboard and must be processed in both grabbed
+                // and non-grabbed modes (e.g. external USB/BT keyboard alongside
+                // a laptop keyboard or gaming mouse macro HID).
                 if !grabbed {
                     if value != 1 {
                         continue;
@@ -316,9 +311,20 @@ pub fn run_with_evdev(
                         continue;
                     }
 
-                    // Engine disabled in grabbed mode: forward keys directly
+                    // Engine disabled in grabbed mode: forward printable keys as
+                    // atomic taps so no key can ever stick down in the compositor
                     if !daemon.engine.is_enabled() {
-                        injector.send_key_event(keycode, value);
+                        if key_to_char(key).is_some() {
+                            if value == 1 || value == 2 {
+                                consumed_keys.insert(keycode);
+                                injector.send_key_event(keycode, 1);
+                                injector.send_key_event(keycode, 0);
+                            } else if value == 0 {
+                                consumed_keys.remove(&keycode);
+                            }
+                        } else {
+                            injector.send_key_event(keycode, value);
+                        }
                         continue;
                     }
 
@@ -438,7 +444,23 @@ pub fn run_with_evdev(
                                     ));
                                 }
                                 consumed_keys.insert(keycode);
+                                // Temporarily release Shift on uinput during Backspace + Unicode replacement
+                                // so Shift+BackSpace or shifted wtype keymap never corrupts output.
+                                let lshift = key_state.contains(evdev::Key::KEY_LEFTSHIFT);
+                                let rshift = key_state.contains(evdev::Key::KEY_RIGHTSHIFT);
+                                if lshift {
+                                    injector.send_key_event(42, 0);
+                                }
+                                if rshift {
+                                    injector.send_key_event(54, 0);
+                                }
                                 execute_commands(&*injector, &commands);
+                                if lshift {
+                                    injector.send_key_event(42, 1);
+                                }
+                                if rshift {
+                                    injector.send_key_event(54, 1);
+                                }
                                 if is_flush_char(ch) && daemon.engine.is_enabled() {
                                     injector.send_key_event(keycode, 1);
                                     injector.send_key_event(keycode, 0);
@@ -461,12 +483,25 @@ pub fn run_with_evdev(
                                         ch.escape_default(),
                                     ));
                                 }
+                                // Send atomic tap (down + up) so printable keys are never left
+                                // held down on uinput during fast rollover or Wayland key-repeat
+                                consumed_keys.insert(keycode);
                                 injector.send_key_event(keycode, 1);
+                                injector.send_key_event(keycode, 0);
                             }
                         } else {
                             injector.send_key_event(keycode, 1);
                         }
                     } else if value == 2 {
+                        if let Some(ch) = key_to_char(key) {
+                            // Allow intentional key-hold repeat for flush/navigation chars (Space, Enter, '-', '=', '.')
+                            if is_flush_char(ch) {
+                                daemon.engine.reset();
+                                injector.send_key_event(keycode, 1);
+                                injector.send_key_event(keycode, 0);
+                            }
+                            continue;
+                        }
                         if consumed_keys.contains(&keycode) {
                             continue;
                         }

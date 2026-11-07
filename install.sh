@@ -765,10 +765,17 @@ if [ -n "$INSTALLING_USER" ] && [ "$INSTALLING_USER" != "root" ]; then
     # the file is the very old default (no auto_ibus key). New installs start clean
     # via /etc/vietc/config.toml copied to the user file below.
     if [ "$MODE" = "grab" ]; then
-        if [ -f "$USER_HOME/.config/vietc/config.toml" ] && ! grep -q "auto_ibus" "$USER_HOME/.config/vietc/config.toml" 2>/dev/null; then
-            # Migrate old config: keep a backup and let the new defaults take over
-            cp "$USER_HOME/.config/vietc/config.toml" "$USER_HOME/.config/vietc/config.toml.bak.$(date +%s)" 2>/dev/null || true
-            rm -f "$USER_HOME/.config/vietc/config.toml" 2>/dev/null || true
+        if [ -f "$USER_HOME/.config/vietc/config.toml" ]; then
+            if ! grep -q "auto_ibus" "$USER_HOME/.config/vietc/config.toml" 2>/dev/null; then
+                # Migrate old config: keep a backup and let the new defaults take over
+                cp "$USER_HOME/.config/vietc/config.toml" "$USER_HOME/.config/vietc/config.toml.bak.$(date +%s)" 2>/dev/null || true
+                rm -f "$USER_HOME/.config/vietc/config.toml" 2>/dev/null || true
+            elif grep -q "^grab = false" "$USER_HOME/.config/vietc/config.toml" 2>/dev/null; then
+                # Upgrade legacy non-grabbed default so multi-HID Wayland/Hyprland keyboards work reliably
+                cp "$USER_HOME/.config/vietc/config.toml" "$USER_HOME/.config/vietc/config.toml.bak.$(date +%s)" 2>/dev/null || true
+                sed -i 's/^grab = false$/grab = true/; s/^deduplicate_keys = true$/deduplicate_keys = false/' "$USER_HOME/.config/vietc/config.toml" 2>/dev/null || true
+                chown "$INSTALLING_USER" "$USER_HOME/.config/vietc/config.toml" 2>/dev/null || true
+            fi
         fi
     fi
 fi
@@ -861,12 +868,14 @@ else
     fi
     if [ ! -f /etc/vietc/config.toml ]; then
         cat > /etc/vietc/config.toml << 'EOF'
-input_method = "vni"
+input_method = "telex"
 toggle_key = "space"
 toggle_method_key = "space"
 start_enabled = true
-grab = false
+grab = true
 debug = false
+deduplicate_keys = false
+deduplicate_window_ms = 120
 # Ubuntu GNOME Wayland fix: auto-enable native IBus engine where
 # zwp_input_method_v2 is unavailable (Mutter). Mirrors Funput's Linux
 # strategy: be an IBus engine, don't fight it via evdev/X11.
@@ -882,7 +891,7 @@ trigger_keys = ["space", "escape"]
 [app_state]
 enabled = true
 english_apps = ["code", "jetbrains", "intellij", "pycharm", "webstorm", "vim", "nvim", "kitty", "alacritty", "foot", "ghostty"]
-vietnamese_apps = ["telegram", "discord", "slack", "firefox", "chromium", "thunderbird", "gedit", "gnome-text-editor", "org.gnome.TextEditor"]
+vietnamese_apps = ["telegram", "discord", "slack", "zalo", "firefox", "chromium", "thunderbird", "gedit", "gnome-text-editor", "org.gnome.TextEditor"]
 terminal_apps = ["terminal", "kitty", "alacritty", "foot", "wezterm", "konsole", "gnome-terminal", "gnome-terminal-server", "ptyxis", "kgx", "st", "urxvt", "xterm", "terminator", "tilix"]
 bypass_apps = ["steam", "dota", "csgo", "minecraft", "factorio"]
 terminal_input_method = "vni"

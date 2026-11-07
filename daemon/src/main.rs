@@ -57,49 +57,131 @@ fn boost_thread_priority() {
     }
 }
 
-/// Set when vietc stops a running IBus, so it can be restarted on exit.
+/// Set when vietc stops a running IBus or Fcitx5 daemon/unit, so it can be restarted on exit.
 static IBUS_STOPPED: AtomicBool = AtomicBool::new(false);
+static FCITX_OMARCHY_STOPPED: AtomicBool = AtomicBool::new(false);
+static FCITX_UNIT_STOPPED: AtomicBool = AtomicBool::new(false);
+static FCITX_PROC_STOPPED: AtomicBool = AtomicBool::new(false);
 
-/// Stop any running IBus daemon so it does not compete with vietc as a second
-/// X11/Wayland input method. A compositor that exposes zwp_input_method_v2
-/// makes IBus auto-yield, but on the X11/XWayland fallback path IBus must be
-/// stopped explicitly or both IMEs will fight over the same keystrokes.
-fn stop_ibus() {
-    match std::process::Command::new("ibus").arg("exit").status() {
-        Ok(status) => {
+/// Stop any running IBus / Fcitx5 daemon so it does not compete with vietc as a
+/// second X11/Wayland input method. On Hyprland/Wayland (including Omarchy's
+/// `omarchy-fcitx5.service`), an active `fcitx5` holds `zwp_input_method_v2`
+/// (`hl-virtual-keyboard-fcitx5`), which intercepts `uinput` BackSpaces and races
+/// with `wtype` (`zwp_virtual_keyboard_v1`), causing glued syllables and orphaned
+/// key-release runaway character repeats.
+fn stop_competing_imes() {
+    if std::process::Command::new("pgrep")
+        .args(["-x", "ibus-daemon"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+    {
+        if let Ok(status) = std::process::Command::new("ibus").arg("exit").status() {
             log_info(&format!("[vietc] stopped IBus (status {})", status));
             IBUS_STOPPED.store(true, Ordering::SeqCst);
         }
-        Err(_) => {
-            // IBus not installed or not running — nothing to do.
+    }
+
+    // Check systemd user services for fcitx5 first (e.g. Omarchy's omarchy-fcitx5.service has Restart=always)
+    if std::process::Command::new("systemctl")
+        .args(["--user", "is-active", "--quiet", "omarchy-fcitx5.service"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+    {
+        if std::process::Command::new("systemctl")
+            .args(["--user", "stop", "omarchy-fcitx5.service"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            log_info("[vietc] paused omarchy-fcitx5.service to prevent Wayland virtual-keyboard race");
+            FCITX_OMARCHY_STOPPED.store(true, Ordering::SeqCst);
+            return;
+        }
+    }
+
+    if std::process::Command::new("systemctl")
+        .args(["--user", "is-active", "--quiet", "fcitx5.service"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+    {
+        if std::process::Command::new("systemctl")
+            .args(["--user", "stop", "fcitx5.service"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            log_info("[vietc] paused fcitx5.service to prevent Wayland virtual-keyboard race");
+            FCITX_UNIT_STOPPED.store(true, Ordering::SeqCst);
+            return;
+        }
+    }
+
+    if std::process::Command::new("pgrep")
+        .args(["-x", "fcitx5"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+    {
+        let exited = std::process::Command::new("fcitx5-remote")
+            .arg("-e")
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+            || std::process::Command::new("pkill")
+                .args(["-x", "fcitx5"])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+        if exited {
+            log_info("[vietc] paused standalone fcitx5 to prevent Wayland virtual-keyboard race");
+            FCITX_PROC_STOPPED.store(true, Ordering::SeqCst);
         }
     }
 }
 
-/// Restart IBus if vietc stopped it, restoring the user's previous input
-/// method when vietc quits. Best-effort; failures are ignored.
-fn restart_ibus() {
+/// Restart IBus / Fcitx5 if vietc stopped them, restoring the user's previous
+/// input method when vietc quits. Best-effort; failures are ignored.
+fn restart_competing_imes() {
     if IBUS_STOPPED.load(Ordering::SeqCst) {
         match std::process::Command::new("ibus-daemon").arg("-d").status() {
             Ok(_) => log_info("[vietc] restarted IBus"),
             Err(e) => log_info(&format!("[vietc] could not restart IBus: {}", e)),
         }
     }
+    if FCITX_OMARCHY_STOPPED.load(Ordering::SeqCst) {
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "start", "omarchy-fcitx5.service"])
+            .status();
+        log_info("[vietc] restarted omarchy-fcitx5.service");
+    } else if FCITX_UNIT_STOPPED.load(Ordering::SeqCst) {
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "start", "fcitx5.service"])
+            .status();
+        log_info("[vietc] restarted fcitx5.service");
+    } else if FCITX_PROC_STOPPED.load(Ordering::SeqCst) {
+        let _ = std::process::Command::new("fcitx5")
+            .args(["-d", "--disable", "notificationitem"])
+            .status();
+        log_info("[vietc] restarted fcitx5");
+    }
 }
 
-/// Restarts IBus on drop (i.e. when vietc exits cleanly via signal/return).
-struct IbusRestartGuard;
-impl Drop for IbusRestartGuard {
+/// Restarts competing IMEs on drop (i.e. when vietc exits cleanly via signal/return).
+struct ImeRestartGuard;
+impl Drop for ImeRestartGuard {
     fn drop(&mut self) {
-        restart_ibus();
+        restart_competing_imes();
     }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     install_signal_handlers();
     ensure_single_instance("vietc-daemon");
-    // Restart IBus on clean exit if we stopped it.
-    let _ibus_guard = IbusRestartGuard;
+    // Restart IBus/Fcitx5 on clean exit if we paused them.
+    let _ime_guard = ImeRestartGuard;
 
     recover_display_env();
     let config_path = config::find_config_path();
@@ -289,6 +371,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // and X11 seamlessly. Rootless when in `input` group.
     match open_keyboard_devices() {
         Ok(mut devices) => {
+            if !devices.is_empty() {
+                stop_competing_imes();
+            }
             match run_with_evdev(
                 &mut devices,
                 &mut daemon,
