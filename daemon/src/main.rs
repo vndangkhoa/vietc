@@ -156,12 +156,12 @@ fn restart_competing_imes() {
     }
     if FCITX_OMARCHY_STOPPED.load(Ordering::SeqCst) {
         let _ = std::process::Command::new("systemctl")
-            .args(["--user", "start", "omarchy-fcitx5.service"])
+            .args(["--user", "start", "--no-block", "omarchy-fcitx5.service"])
             .status();
         log_info("[vietc] restarted omarchy-fcitx5.service");
     } else if FCITX_UNIT_STOPPED.load(Ordering::SeqCst) {
         let _ = std::process::Command::new("systemctl")
-            .args(["--user", "start", "fcitx5.service"])
+            .args(["--user", "start", "--no-block", "fcitx5.service"])
             .status();
         log_info("[vietc] restarted fcitx5.service");
     } else if FCITX_PROC_STOPPED.load(Ordering::SeqCst) {
