@@ -25,6 +25,20 @@ pub fn is_modifier_pressed(key_state: &evdev::AttributeSet<evdev::Key>) -> bool 
         || key_state.contains(evdev::Key::KEY_RIGHTMETA)
 }
 
+pub fn is_modifier_key(key: evdev::Key) -> bool {
+    matches!(
+        key,
+        evdev::Key::KEY_LEFTCTRL
+            | evdev::Key::KEY_RIGHTCTRL
+            | evdev::Key::KEY_LEFTALT
+            | evdev::Key::KEY_RIGHTALT
+            | evdev::Key::KEY_LEFTMETA
+            | evdev::Key::KEY_RIGHTMETA
+            | evdev::Key::KEY_LEFTSHIFT
+            | evdev::Key::KEY_RIGHTSHIFT
+    )
+}
+
 pub fn is_modifier_held_shift(key_state: &evdev::AttributeSet<evdev::Key>) -> bool {
     key_state.contains(evdev::Key::KEY_LEFTSHIFT) || key_state.contains(evdev::Key::KEY_RIGHTSHIFT)
 }

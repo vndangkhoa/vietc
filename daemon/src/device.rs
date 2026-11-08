@@ -94,8 +94,14 @@ pub fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn s
     let mut devices: Vec<(evdev::Device, String)> = Vec::new();
     let mut permission_denied_count = 0u32;
     let mut total_event_count = 0u32;
+    // Deduplicate only by canonical `/dev/input/eventX` path so every valid
+    // keyboard HID interface (including secondary NKRO/rollover endpoints such
+    // as `usb-.../input1` alongside `usb-.../input0`) is opened and grabbed.
+    // Leaving a secondary keyboard interface ungrabbed lets chorded/NKRO keys
+    // (e.g. `Ctrl+C`, `Ctrl+V`) leak directly to the compositor alongside
+    // vietc's uinput keyboard. Sibling interfaces sharing a `phys` ID are
+    // grouped in `evdev_loop` for shared modifier state and cross-fd dedup.
     let mut seen_paths = std::collections::HashSet::new();
-    let mut seen_phys_ids = std::collections::HashSet::new();
 
     // Strategy 1: Open primary keyboard devices via /dev/input/by-path/*-event-kbd
     let by_path = std::path::Path::new("/dev/input/by-path");
@@ -106,23 +112,13 @@ pub fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn s
                 if name.ends_with("-event-kbd") {
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        if seen_paths.contains(&p) {
+                        if !seen_paths.insert(p) {
                             continue;
                         }
-                        let phys_opt = get_device_phys_id(&real_path);
-                        if let Some(phys_id) = &phys_opt {
-                            if seen_phys_ids.contains(phys_id) {
-                                continue;
-                            }
-                        }
-                        seen_paths.insert(p);
                         match evdev::Device::open(&real_path) {
                             Ok(device) => {
                                 let dev_name = device.name().unwrap_or("unknown").to_string();
                                 if is_valid_keyboard(&device) {
-                                    if let Some(pid) = phys_opt {
-                                        seen_phys_ids.insert(pid);
-                                    }
                                     log_info(&format!(
                                         "[vietc] Found keyboard (by-path): {} ({})",
                                         real_path.display(),
@@ -152,23 +148,13 @@ pub fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn s
                 if name.ends_with("-event-kbd") {
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        if seen_paths.contains(&p) {
+                        if !seen_paths.insert(p) {
                             continue;
                         }
-                        let phys_opt = get_device_phys_id(&real_path);
-                        if let Some(phys_id) = &phys_opt {
-                            if seen_phys_ids.contains(phys_id) {
-                                continue;
-                            }
-                        }
-                        seen_paths.insert(p);
                         match evdev::Device::open(&real_path) {
                             Ok(device) => {
                                 let dev_name = device.name().unwrap_or("unknown").to_string();
                                 if is_valid_keyboard(&device) {
-                                    if let Some(pid) = phys_opt {
-                                        seen_phys_ids.insert(pid);
-                                    }
                                     log_info(&format!(
                                         "[vietc] Found keyboard (by-id): {} ({})",
                                         real_path.display(),
@@ -189,7 +175,7 @@ pub fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn s
         }
     }
 
-    // Strategy 3: Scan /dev/input/event* for Bluetooth & direct devices without by-path/by-id symlinks
+    // Strategy 3: Scan /dev/input/event* for Bluetooth, NKRO secondary interfaces, & direct devices
     let dir = std::path::Path::new("/dev/input");
     if dir.exists() {
         if let Ok(rd) = fs::read_dir(dir) {
@@ -199,23 +185,13 @@ pub fn open_keyboard_devices() -> Result<Vec<(evdev::Device, String)>, Box<dyn s
                     total_event_count += 1;
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        if seen_paths.contains(&p) {
+                        if !seen_paths.insert(p) {
                             continue;
                         }
-                        let phys_opt = get_device_phys_id(&real_path);
-                        if let Some(phys_id) = &phys_opt {
-                            if seen_phys_ids.contains(phys_id) {
-                                continue;
-                            }
-                        }
-                        seen_paths.insert(p);
                         match evdev::Device::open(&real_path) {
                             Ok(device) => {
                                 let dev_name = device.name().unwrap_or("unknown").to_string();
                                 if is_valid_keyboard(&device) {
-                                    if let Some(pid) = phys_opt {
-                                        seen_phys_ids.insert(pid);
-                                    }
                                     log_info(&format!(
                                         "[vietc] Found keyboard (bluetooth/direct): {} ({})",
                                         real_path.display(),

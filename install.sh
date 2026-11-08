@@ -638,7 +638,7 @@ cat > /usr/lib/systemd/user/vietc.service << 'EOF'
 [Unit]
 Description=Viet+ Vietnamese IME Daemon (rootless)
 PartOf=graphical-session.target
-After=graphical-session.target
+After=graphical-session.target omarchy-fcitx5.service fcitx5.service
 # IBus engine path (Ubuntu GNOME Wayland fix) needs no DISPLAY — it talks
 # to ibus-daemon over D-Bus and covers native Wayland apps. Legacy X11 path
 # still works when DISPLAY is present. No ConditionEnvironment so service

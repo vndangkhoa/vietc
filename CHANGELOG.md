@@ -4,6 +4,16 @@
   <a href="CHANGELOG.vi.md">Tiếng Việt</a>
 </p>
 
+## v0.1.26 (2026-11-08)
+
+### Fixed
+
+- **Eliminate double Copy / Paste (`Ctrl+C`, `Ctrl+V`) on NKRO & mechanical keyboards**:
+  - Open and grab all valid keyboard HID interfaces by canonical `/dev/input/eventX` path (`daemon/src/device.rs`, `daemon/src/evdev_loop.rs`) so secondary NKRO endpoints (e.g. `usb-.../input1` alongside `usb-.../input0`) cannot leak ungrabbed keystrokes directly to Hyprland/Wayland, while sharing modifier state (`Ctrl`/`Shift`/`Alt`/`Super`) and deduplicating cross-interface echoes across sibling `phys` endpoints.
+  - Add `ChordGuard` in `daemon/src/evdev_loop.rs` to emit atomic press+release taps for printable modifier chords (`Ctrl+C`, `Ctrl+V`, `Ctrl+Shift+C/V`, `Super+C/V`), debounce switch chatter within `200ms` (including post-chord key-up bounce when `Ctrl` lifts slightly before `C`/`V`), suppress accidental 250ms repeat on clipboard shortcuts, and reset the IME composition buffer on shortcuts.
+  - Fix `omarchy-fcitx5.service` / `fcitx5.service` login boot race by checking `ActiveState` (`active`, `activating`, `reloading`), re-checking once after startup (`daemon/src/main.rs`), and ordering `vietc.service` `After=omarchy-fcitx5.service fcitx5.service`.
+
+
 ## v0.1.25 (2026-11-07)
 
 ### Fixed

@@ -4,6 +4,16 @@
   <a href="CHANGELOG.md">English</a>
 </p>
 
+## v0.1.26 (2026-11-08)
+
+### Sửa lỗi
+
+- **Triệt tiêu lỗi lặp phím khi Copy / Paste (`Ctrl+C`, `Ctrl+V`) trên bàn phím cơ & đa giao diện NKRO**:
+  - Mở và grab đầy đủ mọi giao diện HID bàn phím hợp lệ theo đường dẫn `/dev/input/eventX` (`daemon/src/device.rs`, `daemon/src/evdev_loop.rs`) để giao diện phụ NKRO (`usb-.../input1`) không lọt phím thẳng vào Hyprland/Wayland, đồng thời gộp trạng thái phím bổ trợ (`Ctrl`/`Shift`/`Alt`/`Super`) và khử trùng lặp chéo giữa các endpoint cùng `phys`.
+  - Bổ sung `ChordGuard` trong `daemon/src/evdev_loop.rs` để phát tổ hợp nhấn+nhả nguyên tử cho phím tắt (`Ctrl+C`, `Ctrl+V`, `Ctrl+Shift+C/V`, `Super+C/V`), chống dội công tắc cơ trong `200ms` (kể cả khi nhả `Ctrl` trước `C`/`V`), chặn tự lặp 250ms ngoài ý muốn và xóa bộ đệm âm tiết khi bấm phím tắt.
+  - Khắc phục triệt để xung đột khởi động cùng lúc với `omarchy-fcitx5.service` / `fcitx5.service` khi đăng nhập bằng kiểm tra `ActiveState` (`active`, `activating`, `reloading`), kiểm tra bù sau khởi chạy (`daemon/src/main.rs`) và cấu hình `After=omarchy-fcitx5.service fcitx5.service` trong `vietc.service`.
+
+
 ## v0.1.25 (2026-11-07)
 
 ### Sửa lỗi

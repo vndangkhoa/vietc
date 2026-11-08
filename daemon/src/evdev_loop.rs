@@ -1,22 +1,179 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::unix::io::AsRawFd;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::daemon::Daemon;
 use crate::display;
 #[cfg(feature = "x11")]
 use crate::display::DisplayServer;
 use crate::event::{
-    is_caps_lock_on, is_flush_char,
-    is_modifier_pressed, is_modifier_held_shift, is_toggle_combination_state,
-    is_toggle_key, is_vn_control_key, key_to_char,
+    is_caps_lock_on, is_flush_char, is_modifier_held_shift, is_modifier_key,
+    is_modifier_pressed, is_toggle_combination_state, is_toggle_key, is_vn_control_key,
+    key_to_char,
 };
 use crate::inject::{create_injector, execute_commands};
 use crate::log::log_info;
 use crate::signal::SIGNAL_EXIT;
 use crate::commands::OutputCommand;
+
+const CHORD_BOUNCE_WINDOW: Duration = Duration::from_millis(200);
+const CHORD_HOLD_REPEAT_DELAY: Duration = Duration::from_millis(650);
+const CHORD_HOLD_REPEAT_INTERVAL: Duration = Duration::from_millis(120);
+const CROSS_INTERFACE_DEDUP_WINDOW: Duration = Duration::from_millis(50);
+const TOGGLE_DEBOUNCE_WINDOW: Duration = Duration::from_millis(180);
+
+struct DeviceState {
+    key_state: evdev::AttributeSet<evdev::Key>,
+    caps: bool,
+    consumed_keys: HashSet<u16>,
+    path: String,
+    phys_id: Option<String>,
+}
+
+/// Compute aggregate held keys across sibling HID interfaces belonging to the
+/// same physical keyboard (e.g. `input0` boot + modifiers and `input1` NKRO
+/// bitmap without modifier bits on USB gaming keyboards).
+fn effective_key_state(states: &[DeviceState], idx: usize) -> evdev::AttributeSet<evdev::Key> {
+    let mut out = states[idx].key_state.clone();
+    if let Some(ref pid) = states[idx].phys_id {
+        for (j, st) in states.iter().enumerate() {
+            if j != idx && st.phys_id.as_ref() == Some(pid) {
+                for k in st.key_state.iter() {
+                    out.insert(k);
+                }
+            }
+        }
+    }
+    out
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ChordAction {
+    ForwardRaw(u16, i32),
+    AtomicTap(u16),
+    Drop,
+}
+
+#[derive(Debug, Default)]
+struct ChordGuard {
+    last_chord: Option<(u16, Instant)>,
+    last_chord_repeat: Option<Instant>,
+}
+
+impl ChordGuard {
+    fn handle_modifier_chord(
+        &mut self,
+        key: evdev::Key,
+        value: i32,
+        consumed_keys: &mut HashSet<u16>,
+        now: Instant,
+    ) -> (ChordAction, bool) {
+        let keycode = key.code();
+        if is_modifier_key(key) {
+            return if value == 1 || value == 0 {
+                (ChordAction::ForwardRaw(keycode, value), false)
+            } else {
+                (ChordAction::Drop, false)
+            };
+        }
+
+        if value == 1 {
+            if let Some((prev_code, prev_t)) = self.last_chord {
+                if prev_code == keycode && now.saturating_duration_since(prev_t) < CHORD_BOUNCE_WINDOW {
+                    consumed_keys.insert(keycode);
+                    return (ChordAction::Drop, false);
+                }
+            }
+            self.last_chord = Some((keycode, now));
+            self.last_chord_repeat = None;
+            if key_to_char(key).is_some() {
+                consumed_keys.insert(keycode);
+                return (ChordAction::AtomicTap(keycode), true);
+            }
+            return (ChordAction::ForwardRaw(keycode, 1), true);
+        }
+
+        if value == 2 {
+            if key_to_char(key).is_some() {
+                // Never autorepeat one-shot clipboard/selection/save chords
+                if matches!(
+                    key,
+                    evdev::Key::KEY_C
+                        | evdev::Key::KEY_X
+                        | evdev::Key::KEY_A
+                        | evdev::Key::KEY_S
+                ) {
+                    return (ChordAction::Drop, false);
+                }
+                if let Some((prev_code, prev_t)) = self.last_chord {
+                    if prev_code == keycode
+                        && now.saturating_duration_since(prev_t) >= CHORD_HOLD_REPEAT_DELAY
+                    {
+                        let can_repeat = self
+                            .last_chord_repeat
+                            .map(|rt| now.saturating_duration_since(rt) >= CHORD_HOLD_REPEAT_INTERVAL)
+                            .unwrap_or(true);
+                        if can_repeat {
+                            self.last_chord_repeat = Some(now);
+                            return (ChordAction::AtomicTap(keycode), false);
+                        }
+                    }
+                }
+                return (ChordAction::Drop, false);
+            }
+            if consumed_keys.contains(&keycode) {
+                return (ChordAction::Drop, false);
+            }
+            return (ChordAction::ForwardRaw(keycode, 2), false);
+        }
+
+        if consumed_keys.remove(&keycode) {
+            (ChordAction::Drop, false)
+        } else {
+            (ChordAction::ForwardRaw(keycode, 0), false)
+        }
+    }
+
+    fn is_post_chord_bounce(&self, keycode: u16, now: Instant) -> bool {
+        if let Some((prev_code, prev_t)) = self.last_chord {
+            prev_code == keycode && now.saturating_duration_since(prev_t) < CHORD_BOUNCE_WINDOW
+        } else {
+            false
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct CrossInterfaceDedup {
+    recent_press: HashMap<(String, u16), (String, Instant)>,
+}
+
+impl CrossInterfaceDedup {
+    fn should_drop(
+        &mut self,
+        phys_id: Option<&str>,
+        dev_path: &str,
+        keycode: u16,
+        now: Instant,
+    ) -> bool {
+        let Some(pid) = phys_id else {
+            return false;
+        };
+        let key = (pid.to_string(), keycode);
+        if let Some((prev_path, prev_t)) = self.recent_press.get(&key) {
+            if prev_path != dev_path
+                && now.saturating_duration_since(*prev_t) < CROSS_INTERFACE_DEDUP_WINDOW
+            {
+                return true;
+            }
+        }
+        self.recent_press.insert(key, (dev_path.to_string(), now));
+        false
+    }
+}
 
 pub fn run_with_evdev(
     devices: &mut Vec<(evdev::Device, String)>,
@@ -57,15 +214,10 @@ pub fn run_with_evdev(
     }
     let grabbed = any_grabbed;
 
-    // Track currently opened device paths and physical IDs so newly connected keyboards can be hotplugged without duplicates
+    // Track currently opened device paths so newly connected keyboards can be hotplugged without duplicates
     let mut known_paths: HashSet<String> = HashSet::new();
-    let mut known_phys_ids: HashSet<String> = HashSet::new();
     for (_, n) in devices.iter() {
-        let p = dev_path_of(n);
-        known_paths.insert(p.clone());
-        if let Some(phys) = crate::device::get_device_phys_id(std::path::Path::new(&p)) {
-            known_phys_ids.insert(phys);
-        }
+        known_paths.insert(dev_path_of(n));
     }
 
     if !grabbed {
@@ -83,20 +235,29 @@ pub fn run_with_evdev(
         }
     }
 
-    let mut device_states: Vec<(evdev::AttributeSet<evdev::Key>, bool)> = devices
+    let mut device_states: Vec<DeviceState> = devices
         .iter()
-        .map(|(d, _)| {
-            let caps = is_caps_lock_on(d);
-            (evdev::AttributeSet::new(), caps)
+        .map(|(d, n)| {
+            let path = dev_path_of(n);
+            let phys_id = crate::device::get_device_phys_id(std::path::Path::new(&path));
+            DeviceState {
+                key_state: evdev::AttributeSet::new(),
+                caps: is_caps_lock_on(d),
+                consumed_keys: HashSet::new(),
+                path,
+                phys_id,
+            }
         })
         .collect();
 
-    let mut consumed_keys: HashSet<u16> = HashSet::new();
     let mut dedup = crate::key_dedup::DedupState::new();
+    let mut chord_guard = ChordGuard::default();
+    let mut cross_dedup = CrossInterfaceDedup::default();
+    let mut last_toggle_time: Option<Instant> = None;
     let mut last_active_window = String::new();
     let mut last_window_class = String::new();
     let mut password_check_counter: u32 = 0;
-    let mut last_key_time = std::time::Instant::now();
+    let mut last_key_time = Instant::now();
 
     log_info("[vietc] Event loop started");
 
@@ -146,18 +307,26 @@ pub fn run_with_evdev(
                 }
             }
             // Hotplug: dynamically attach keyboards connected after startup
-            let new_devs = discover_new_keyboards(&known_paths, &mut known_phys_ids);
+            let new_devs = discover_new_keyboards(&known_paths);
             for (mut dev, name) in new_devs {
-                known_paths.insert(dev_path_of(&name));
+                let path = dev_path_of(&name);
+                known_paths.insert(path.clone());
                 if daemon.grab_enabled {
                     if dev.grab().is_ok() {
                         log_info(&format!("[vietc] Hotplug grabbed keyboard: {}", name));
                     }
                 }
                 let caps = is_caps_lock_on(&dev);
+                let phys_id = crate::device::get_device_phys_id(std::path::Path::new(&path));
                 log_info(&format!("[vietc] Hotplug connected keyboard: {}", name));
                 devices.push((dev, name.clone()));
-                device_states.push((evdev::AttributeSet::new(), caps));
+                device_states.push(DeviceState {
+                    key_state: evdev::AttributeSet::new(),
+                    caps,
+                    consumed_keys: HashSet::new(),
+                    path,
+                    phys_id,
+                });
             }
             continue;
         }
@@ -183,8 +352,7 @@ pub fn run_with_evdev(
             }
 
             let (ref mut device, ref _name) = devices[i];
-            let caps = device_states[i].1;
-            let mut key_state = std::mem::take(&mut device_states[i].0);
+            let caps = device_states[i].caps;
 
             let event_list = match device.fetch_events() {
                 Ok(events) => events.collect::<Vec<_>>(),
@@ -208,17 +376,42 @@ pub fn run_with_evdev(
                 let keycode = event.code();
                 let value = event.value();
                 let key = evdev::Key(keycode);
+                let now = Instant::now();
 
-                // Update key state dynamically
+                // Update key state dynamically on this HID endpoint
                 if value == 1 {
-                    key_state.insert(key);
+                    device_states[i].key_state.insert(key);
                 } else if value == 0 {
-                    key_state.remove(key);
+                    device_states[i].key_state.remove(key);
                 }
+
+                // Drop duplicate key press echoed across a sibling HID interface of the same physical keyboard
+                if value == 1
+                    && cross_dedup.should_drop(
+                        device_states[i].phys_id.as_deref(),
+                        &device_states[i].path,
+                        keycode,
+                        now,
+                    )
+                {
+                    if debug_logging {
+                        log_info(&format!(
+                            "[vietc] cross-interface dedup dropped keycode {} on {}",
+                            keycode, device_states[i].path
+                        ));
+                    }
+                    device_states[i].consumed_keys.insert(keycode);
+                    continue;
+                }
+
+                let eff_key_state = effective_key_state(&device_states, i);
 
                 // Completely bypass all IME processing for terminal emulators, IDE terminals, and games
                 if daemon.is_current_app_bypassed() {
                     if grabbed {
+                        if value == 0 && device_states[i].consumed_keys.remove(&keycode) {
+                            continue;
+                        }
                         injector.send_key_event(keycode, value);
                     }
                     continue;
@@ -226,42 +419,47 @@ pub fn run_with_evdev(
 
                 if value == 1
                     && is_toggle_key(key, &daemon.config.toggle_key)
-                    && is_toggle_combination_state(&key_state, &daemon.config.toggle_key)
+                    && is_toggle_combination_state(&eff_key_state, &daemon.config.toggle_key)
                 {
-                    consumed_keys.insert(keycode);
-                    daemon.toggle_method();
+                    device_states[i].consumed_keys.insert(keycode);
+                    let debounced = last_toggle_time
+                        .map(|t| now.saturating_duration_since(t) < TOGGLE_DEBOUNCE_WINDOW)
+                        .unwrap_or(false);
+                    if !debounced {
+                        last_toggle_time = Some(now);
+                        daemon.toggle_method();
+                    }
                     continue;
                 }
 
                 if value == 1 && daemon.config.deduplicate_keys {
-                    let dedupable = keycode < 256 && !is_modifier_pressed(&key_state);
+                    let dedupable = keycode < 256 && !is_modifier_key(key);
                     if dedup.observe(
                         keycode as u32,
                         dedupable,
                         keycode == 57,
                         daemon.config.deduplicate_two_back,
                         daemon.config.deduplicate_window_ms,
-                        std::time::Instant::now(),
+                        now,
                     ) {
                         if debug_logging {
-                            log_info(&format!("[vietc] dedup dropped keycode {} (window {}ms)", keycode, daemon.config.deduplicate_window_ms));
+                            log_info(&format!(
+                                "[vietc] dedup dropped keycode {} (window {}ms)",
+                                keycode, daemon.config.deduplicate_window_ms
+                            ));
                         }
-                        consumed_keys.insert(keycode);
+                        device_states[i].consumed_keys.insert(keycode);
                         continue;
                     }
                 }
 
-                // Duplicate interfaces of the same physical device are already
-                // deduplicated by `phys` ID, and vietc's own uinput device is
-                // excluded in `is_valid_keyboard`, so every entry in `devices`
-                // is a distinct keyboard and must be processed in both grabbed
-                // and non-grabbed modes (e.g. external USB/BT keyboard alongside
-                // a laptop keyboard or gaming mouse macro HID).
                 if !grabbed {
                     if value != 1 {
                         continue;
                     }
-                    if is_modifier_pressed(&key_state) {
+                    if is_modifier_pressed(&eff_key_state) {
+                        daemon.engine.reset();
+                        daemon.replay_reset();
                         continue;
                     }
                     if !daemon.engine.is_enabled() {
@@ -306,8 +504,41 @@ pub fn run_with_evdev(
                         execute_commands(&*injector, &commands);
                     }
                 } else {
-                    if is_modifier_pressed(&key_state) {
-                        injector.send_key_event(keycode, value);
+                    if is_modifier_pressed(&eff_key_state) {
+                        let (action, reset_engine) = chord_guard.handle_modifier_chord(
+                            key,
+                            value,
+                            &mut device_states[i].consumed_keys,
+                            now,
+                        );
+                        if reset_engine {
+                            daemon.engine.reset();
+                            daemon.replay_reset();
+                            dedup.reset();
+                        }
+                        match action {
+                            ChordAction::ForwardRaw(code, val) => {
+                                injector.send_key_event(code, val);
+                            }
+                            ChordAction::AtomicTap(code) => {
+                                injector.send_key_event(code, 1);
+                                injector.send_key_event(code, 0);
+                            }
+                            ChordAction::Drop => {}
+                        }
+                        continue;
+                    }
+
+                    // Guard against switch bounce on key-up right after a modifier chord
+                    // (e.g. releasing Ctrl slightly before C/V in Ctrl+C / Ctrl+V)
+                    if value == 1 && chord_guard.is_post_chord_bounce(keycode, now) {
+                        if debug_logging {
+                            log_info(&format!(
+                                "[vietc] dropped post-chord bounce keycode {}",
+                                keycode
+                            ));
+                        }
+                        device_states[i].consumed_keys.insert(keycode);
                         continue;
                     }
 
@@ -316,12 +547,14 @@ pub fn run_with_evdev(
                     if !daemon.engine.is_enabled() {
                         if key_to_char(key).is_some() {
                             if value == 1 || value == 2 {
-                                consumed_keys.insert(keycode);
+                                device_states[i].consumed_keys.insert(keycode);
                                 injector.send_key_event(keycode, 1);
                                 injector.send_key_event(keycode, 0);
                             } else if value == 0 {
-                                consumed_keys.remove(&keycode);
+                                device_states[i].consumed_keys.remove(&keycode);
                             }
+                        } else if value == 0 && device_states[i].consumed_keys.remove(&keycode) {
+                            // Consumed during an earlier chord before modifier lifted
                         } else {
                             injector.send_key_event(keycode, value);
                         }
@@ -334,7 +567,7 @@ pub fn run_with_evdev(
                             injector.send_key_event(14, 1);
                             injector.send_key_event(14, 0);
                         }
-                        consumed_keys.insert(keycode);
+                        device_states[i].consumed_keys.insert(keycode);
                         continue;
                     }
 
@@ -348,12 +581,10 @@ pub fn run_with_evdev(
                                 daemon.engine.is_enabled(),
                             ));
                         }
-                        if consumed_keys.contains(&keycode) {
-                            consumed_keys.remove(&keycode);
-                        }
+                        device_states[i].consumed_keys.remove(&keycode);
                         if let Some(mut ch) = key_to_char(key) {
                             let gap = last_key_time.elapsed();
-                            last_key_time = std::time::Instant::now();
+                            last_key_time = now;
 
                             let active_window_id = shared_active_window.lock().unwrap().clone();
                             let active_window_class = shared_window_class.lock().unwrap().clone();
@@ -429,7 +660,7 @@ pub fn run_with_evdev(
                                 }
                             }
 
-                            let shift = is_modifier_held_shift(&key_state);
+                            let shift = is_modifier_held_shift(&eff_key_state);
                             if ch.is_ascii_alphabetic() && (shift ^ caps) {
                                 ch = ch.to_ascii_uppercase();
                             }
@@ -443,11 +674,11 @@ pub fn run_with_evdev(
                                         commands,
                                     ));
                                 }
-                                consumed_keys.insert(keycode);
+                                device_states[i].consumed_keys.insert(keycode);
                                 // Temporarily release Shift on uinput during Backspace + Unicode replacement
                                 // so Shift+BackSpace or shifted wtype keymap never corrupts output.
-                                let lshift = key_state.contains(evdev::Key::KEY_LEFTSHIFT);
-                                let rshift = key_state.contains(evdev::Key::KEY_RIGHTSHIFT);
+                                let lshift = eff_key_state.contains(evdev::Key::KEY_LEFTSHIFT);
+                                let rshift = eff_key_state.contains(evdev::Key::KEY_RIGHTSHIFT);
                                 if lshift {
                                     injector.send_key_event(42, 0);
                                 }
@@ -475,7 +706,7 @@ pub fn run_with_evdev(
                                         ch.escape_default(),
                                     ));
                                 }
-                                consumed_keys.insert(keycode);
+                                device_states[i].consumed_keys.insert(keycode);
                             } else {
                                 if debug_logging {
                                     log_info(&format!(
@@ -485,7 +716,7 @@ pub fn run_with_evdev(
                                 }
                                 // Send atomic tap (down + up) so printable keys are never left
                                 // held down on uinput during fast rollover or Wayland key-repeat
-                                consumed_keys.insert(keycode);
+                                device_states[i].consumed_keys.insert(keycode);
                                 injector.send_key_event(keycode, 1);
                                 injector.send_key_event(keycode, 0);
                             }
@@ -502,21 +733,18 @@ pub fn run_with_evdev(
                             }
                             continue;
                         }
-                        if consumed_keys.contains(&keycode) {
+                        if device_states[i].consumed_keys.contains(&keycode) {
                             continue;
                         }
                         injector.send_key_event(keycode, 2);
                     } else if value == 0 {
-                        if consumed_keys.remove(&keycode) {
+                        if device_states[i].consumed_keys.remove(&keycode) {
                             continue;
                         }
                         injector.send_key_event(keycode, 0);
                     }
                 }
             }
-
-            // Save updated key state back
-            device_states[i].0 = key_state;
         }
 
         // Remove any devices that errored out (e.g. a uinput virtual keyboard
@@ -530,18 +758,6 @@ pub fn run_with_evdev(
                 device_states.remove(d);
                 let path = dev_path_of(&name);
                 known_paths.remove(&path);
-                // Rebuild phys set from remaining paths — virtual uinput
-                // devices disappear from sysfs on close, so recomputing phys_id
-                // for the dead path would return None and leave a stale entry
-                // that blocks the next virtual keyboard with the same input
-                // number (e.g. re-used /dev/input/event31 → same
-                // sysfs:/sys/devices/virtual/input/input31).
-                known_phys_ids.clear();
-                for p in known_paths.iter() {
-                    if let Some(pid) = crate::device::get_device_phys_id(std::path::Path::new(p)) {
-                        known_phys_ids.insert(pid);
-                    }
-                }
                 log_info(&format!("[vietc] Device disconnected/removed: {}", name));
             }
         }
@@ -554,18 +770,9 @@ fn dev_path_of(label: &str) -> String {
     label.split(" (").next().unwrap_or(label).to_string()
 }
 
-/// Look up the label for a device index that still exists (used only when
-/// removing devices, where `d` is always < devices.len()).
-fn devices_name_at(devices: &[(evdev::Device, String)], d: usize) -> &str {
-    &devices[d].1
-}
-
 /// Discover keyboard devices present in /dev/input that are not already known.
 /// Used for hotplug so newly connected keyboards (USB/wireless/virtual) are attached dynamically.
-fn discover_new_keyboards(
-    existing_paths: &HashSet<String>,
-    existing_phys: &mut HashSet<String>,
-) -> Vec<(evdev::Device, String)> {
+fn discover_new_keyboards(existing_paths: &HashSet<String>) -> Vec<(evdev::Device, String)> {
     let mut out = Vec::new();
     let mut added_paths = HashSet::new();
 
@@ -578,24 +785,12 @@ fn discover_new_keyboards(
                 if name.ends_with("-event-kbd") {
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        let phys_opt = crate::device::get_device_phys_id(&real_path);
-                        if let Some(phys_id) = &phys_opt {
-                            if existing_phys.contains(phys_id) {
-                                continue;
-                            }
-                        }
-                        if existing_paths.contains(&p) {
-                            continue;
-                        }
-                        if !added_paths.insert(p.clone()) {
+                        if existing_paths.contains(&p) || !added_paths.insert(p) {
                             continue;
                         }
                         if let Ok(device) = evdev::Device::open(&real_path) {
                             let dev_name = device.name().unwrap_or("unknown").to_string();
                             if crate::device::is_valid_keyboard(&device) {
-                                if let Some(pid) = phys_opt {
-                                    existing_phys.insert(pid);
-                                }
                                 out.push((device, format!("{} ({})", real_path.display(), dev_name)));
                             }
                         }
@@ -614,24 +809,12 @@ fn discover_new_keyboards(
                 if name.ends_with("-event-kbd") {
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        let phys_opt = crate::device::get_device_phys_id(&real_path);
-                        if let Some(phys_id) = &phys_opt {
-                            if existing_phys.contains(phys_id) {
-                                continue;
-                            }
-                        }
-                        if existing_paths.contains(&p) {
-                            continue;
-                        }
-                        if !added_paths.insert(p.clone()) {
+                        if existing_paths.contains(&p) || !added_paths.insert(p) {
                             continue;
                         }
                         if let Ok(device) = evdev::Device::open(&real_path) {
                             let dev_name = device.name().unwrap_or("unknown").to_string();
                             if crate::device::is_valid_keyboard(&device) {
-                                if let Some(pid) = phys_opt {
-                                    existing_phys.insert(pid);
-                                }
                                 out.push((device, format!("{} ({})", real_path.display(), dev_name)));
                             }
                         }
@@ -641,7 +824,7 @@ fn discover_new_keyboards(
         }
     }
 
-    // 3. Scan /dev/input/event* for Bluetooth & direct devices without by-path/by-id symlinks
+    // 3. Scan /dev/input/event* for Bluetooth, NKRO secondary interfaces, & direct devices
     let dir = std::path::Path::new("/dev/input");
     if dir.exists() {
         if let Ok(rd) = fs::read_dir(dir) {
@@ -650,24 +833,12 @@ fn discover_new_keyboards(
                 if name_str.starts_with("event") {
                     if let Ok(real_path) = fs::canonicalize(entry.path()) {
                         let p = real_path.to_string_lossy().to_string();
-                        let phys_opt = crate::device::get_device_phys_id(&real_path);
-                        if let Some(phys_id) = &phys_opt {
-                            if existing_phys.contains(phys_id) {
-                                continue;
-                            }
-                        }
-                        if existing_paths.contains(&p) {
-                            continue;
-                        }
-                        if !added_paths.insert(p.clone()) {
+                        if existing_paths.contains(&p) || !added_paths.insert(p) {
                             continue;
                         }
                         if let Ok(device) = evdev::Device::open(&real_path) {
                             let dev_name = device.name().unwrap_or("unknown").to_string();
                             if crate::device::is_valid_keyboard(&device) {
-                                if let Some(pid) = phys_opt {
-                                    existing_phys.insert(pid);
-                                }
                                 out.push((device, format!("{} ({})", real_path.display(), dev_name)));
                             }
                         }
@@ -678,4 +849,135 @@ fn discover_new_keyboards(
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ctrl_c_and_ctrl_v_emit_single_atomic_tap_and_drop_bounce() {
+        let mut guard = ChordGuard::default();
+        let mut consumed = HashSet::new();
+        let t0 = Instant::now();
+
+        // Ctrl down forwards raw
+        assert_eq!(
+            guard.handle_modifier_chord(evdev::Key::KEY_LEFTCTRL, 1, &mut consumed, t0),
+            (ChordAction::ForwardRaw(evdev::Key::KEY_LEFTCTRL.code(), 1), false)
+        );
+
+        // First C press -> single AtomicTap + reset engine
+        assert_eq!(
+            guard.handle_modifier_chord(
+                evdev::Key::KEY_C,
+                1,
+                &mut consumed,
+                t0 + Duration::from_millis(20)
+            ),
+            (ChordAction::AtomicTap(evdev::Key::KEY_C.code()), true)
+        );
+
+        // Switch bounce on C 15ms later while Ctrl still held -> dropped!
+        assert_eq!(
+            guard.handle_modifier_chord(
+                evdev::Key::KEY_C,
+                0,
+                &mut consumed,
+                t0 + Duration::from_millis(30)
+            ),
+            (ChordAction::Drop, false)
+        );
+        assert_eq!(
+            guard.handle_modifier_chord(
+                evdev::Key::KEY_C,
+                1,
+                &mut consumed,
+                t0 + Duration::from_millis(38)
+            ),
+            (ChordAction::Drop, false)
+        );
+
+        // Holding Ctrl+C past 250ms repeat_delay never repeats Copy
+        assert_eq!(
+            guard.handle_modifier_chord(
+                evdev::Key::KEY_C,
+                2,
+                &mut consumed,
+                t0 + Duration::from_millis(300)
+            ),
+            (ChordAction::Drop, false)
+        );
+        assert_eq!(
+            guard.handle_modifier_chord(
+                evdev::Key::KEY_C,
+                0,
+                &mut consumed,
+                t0 + Duration::from_millis(310)
+            ),
+            (ChordAction::Drop, false)
+        );
+
+        // Ctrl+V -> single AtomicTap, no double paste at 250ms, post-chord bounce after Ctrl up is dropped
+        let tv = t0 + Duration::from_millis(500);
+        assert_eq!(
+            guard.handle_modifier_chord(evdev::Key::KEY_V, 1, &mut consumed, tv),
+            (ChordAction::AtomicTap(evdev::Key::KEY_V.code()), true)
+        );
+        // Repeat at 260ms is dropped (no accidental double paste)
+        assert_eq!(
+            guard.handle_modifier_chord(
+                evdev::Key::KEY_V,
+                2,
+                &mut consumed,
+                tv + Duration::from_millis(260)
+            ),
+            (ChordAction::Drop, false)
+        );
+        // User lifts Ctrl at +70ms, then V bounces at +95ms -> post-chord guard drops trailing 'v'
+        let tv2 = tv + Duration::from_millis(1000);
+        assert_eq!(
+            guard.handle_modifier_chord(evdev::Key::KEY_V, 1, &mut consumed, tv2),
+            (ChordAction::AtomicTap(evdev::Key::KEY_V.code()), true)
+        );
+        assert!(guard.is_post_chord_bounce(
+            evdev::Key::KEY_V.code(),
+            tv2 + Duration::from_millis(60)
+        ));
+        assert!(!guard.is_post_chord_bounce(
+            evdev::Key::KEY_V.code(),
+            tv2 + Duration::from_millis(250)
+        ));
+    }
+
+    #[test]
+    fn cross_interface_dedup_drops_sibling_echo_but_keeps_same_device_double_tap() {
+        let mut dedup = CrossInterfaceDedup::default();
+        let t0 = Instant::now();
+
+        // Rapid Telex double-tap 'e' + 'e' on the SAME interface (/dev/input/event7) is NOT dropped
+        assert!(!dedup.should_drop(Some("phys:usb-1"), "/dev/input/event7", 18, t0));
+        assert!(!dedup.should_drop(
+            Some("phys:usb-1"),
+            "/dev/input/event7",
+            18,
+            t0 + Duration::from_millis(10)
+        ));
+
+        // Simultaneous echo on sibling NKRO interface (/dev/input/event10) within 50ms IS dropped
+        assert!(dedup.should_drop(
+            Some("phys:usb-1"),
+            "/dev/input/event10",
+            18,
+            t0 + Duration::from_millis(14)
+        ));
+
+        // Different physical keyboard is NOT dropped
+        assert!(!dedup.should_drop(
+            Some("phys:usb-2"),
+            "/dev/input/event6",
+            18,
+            t0 + Duration::from_millis(15)
+        ));
+    }
 }

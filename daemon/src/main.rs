@@ -63,6 +63,18 @@ static FCITX_OMARCHY_STOPPED: AtomicBool = AtomicBool::new(false);
 static FCITX_UNIT_STOPPED: AtomicBool = AtomicBool::new(false);
 static FCITX_PROC_STOPPED: AtomicBool = AtomicBool::new(false);
 
+fn is_systemd_unit_active_or_starting(unit: &str) -> bool {
+    std::process::Command::new("systemctl")
+        .args(["--user", "show", "-P", "ActiveState", unit])
+        .output()
+        .ok()
+        .map(|o| {
+            let state = String::from_utf8_lossy(&o.stdout);
+            matches!(state.trim(), "active" | "activating" | "reloading")
+        })
+        .unwrap_or(false)
+}
+
 /// Stop any running IBus / Fcitx5 daemon so it does not compete with vietc as a
 /// second X11/Wayland input method. On Hyprland/Wayland (including Omarchy's
 /// `omarchy-fcitx5.service`), an active `fcitx5` holds `zwp_input_method_v2`
@@ -82,13 +94,9 @@ fn stop_competing_imes() {
         }
     }
 
-    // Check systemd user services for fcitx5 first (e.g. Omarchy's omarchy-fcitx5.service has Restart=always)
-    if std::process::Command::new("systemctl")
-        .args(["--user", "is-active", "--quiet", "omarchy-fcitx5.service"])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-    {
+    // Check systemd user services for fcitx5 first (including `activating` state at
+    // login, since `omarchy-fcitx5.service` is `Type=dbus` with `Restart=always`).
+    if is_systemd_unit_active_or_starting("omarchy-fcitx5.service") {
         if std::process::Command::new("systemctl")
             .args(["--user", "stop", "omarchy-fcitx5.service"])
             .status()
@@ -101,12 +109,7 @@ fn stop_competing_imes() {
         }
     }
 
-    if std::process::Command::new("systemctl")
-        .args(["--user", "is-active", "--quiet", "fcitx5.service"])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-    {
+    if is_systemd_unit_active_or_starting("fcitx5.service") {
         if std::process::Command::new("systemctl")
             .args(["--user", "stop", "fcitx5.service"])
             .status()
@@ -373,6 +376,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(mut devices) => {
             if !devices.is_empty() {
                 stop_competing_imes();
+                // Catch boot-time race where graphical-session starts fcitx5/ibus a few seconds after vietc
+                thread::spawn(|| {
+                    for _ in 0..2 {
+                        for _ in 0..10 {
+                            if crate::signal::SIGNAL_EXIT.load(Ordering::SeqCst) {
+                                return;
+                            }
+                            thread::sleep(std::time::Duration::from_millis(500));
+                        }
+                        if !crate::signal::SIGNAL_EXIT.load(Ordering::SeqCst) {
+                            stop_competing_imes();
+                        }
+                    }
+                });
             }
             match run_with_evdev(
                 &mut devices,
