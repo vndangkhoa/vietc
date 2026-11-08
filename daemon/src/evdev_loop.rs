@@ -11,8 +11,8 @@ use crate::display;
 use crate::display::DisplayServer;
 use crate::event::{
     is_caps_lock_on, is_flush_char, is_modifier_held_shift, is_modifier_key,
-    is_modifier_pressed, is_toggle_combination_state, is_toggle_key, is_vn_control_key,
-    key_to_char,
+    is_modifier_pressed, is_navigation_key, is_repeatable_navigation_key,
+    is_toggle_combination_state, is_toggle_key, is_vn_control_key, key_to_char,
 };
 use crate::inject::{create_injector, execute_commands};
 use crate::log::log_info;
@@ -22,6 +22,10 @@ use crate::commands::OutputCommand;
 const CHORD_BOUNCE_WINDOW: Duration = Duration::from_millis(200);
 const CHORD_HOLD_REPEAT_DELAY: Duration = Duration::from_millis(650);
 const CHORD_HOLD_REPEAT_INTERVAL: Duration = Duration::from_millis(120);
+const NAV_PRESS_BOUNCE_WINDOW: Duration = Duration::from_millis(85);
+const NAV_RELEASE_BOUNCE_WINDOW: Duration = Duration::from_millis(40);
+const NAV_HOLD_REPEAT_DELAY: Duration = Duration::from_millis(400);
+const NAV_HOLD_REPEAT_INTERVAL: Duration = Duration::from_millis(65);
 const CROSS_INTERFACE_DEDUP_WINDOW: Duration = Duration::from_millis(50);
 const TOGGLE_DEBOUNCE_WINDOW: Duration = Duration::from_millis(180);
 
@@ -146,6 +150,97 @@ impl ChordGuard {
     }
 }
 
+/// Ensures arrow and navigation keys move strictly one character/step per press
+/// without mechanical switch chatter or Wayland/compositor `250ms`/`40Hz` double-repeat.
+#[derive(Debug, Default)]
+struct NavGuard {
+    active_hold: Option<(usize, u16, Instant)>,
+    last_accepted_press: Option<(u16, Instant)>,
+    last_release: Option<(u16, Instant)>,
+    last_repeat: Option<Instant>,
+}
+
+impl NavGuard {
+    fn handle_nav_key(
+        &mut self,
+        dev_idx: usize,
+        key: evdev::Key,
+        value: i32,
+        consumed_keys: &mut HashSet<u16>,
+        now: Instant,
+    ) -> (ChordAction, bool) {
+        let keycode = key.code();
+        if value == 1 {
+            if let Some((prev_code, prev_t)) = self.last_accepted_press {
+                if prev_code == keycode
+                    && now.saturating_duration_since(prev_t) < NAV_PRESS_BOUNCE_WINDOW
+                {
+                    consumed_keys.insert(keycode);
+                    return (ChordAction::Drop, false);
+                }
+            }
+            if let Some((rel_code, rel_t)) = self.last_release {
+                if rel_code == keycode
+                    && now.saturating_duration_since(rel_t) < NAV_RELEASE_BOUNCE_WINDOW
+                {
+                    consumed_keys.insert(keycode);
+                    return (ChordAction::Drop, false);
+                }
+            }
+            self.active_hold = Some((dev_idx, keycode, now));
+            self.last_accepted_press = Some((keycode, now));
+            self.last_repeat = None;
+            consumed_keys.insert(keycode);
+            return (ChordAction::AtomicTap(keycode), true);
+        }
+
+        if value == 2 {
+            if !is_repeatable_navigation_key(key) {
+                return (ChordAction::Drop, false);
+            }
+            if let Some((hold_dev, hold_code, press_t)) = self.active_hold {
+                if hold_dev == dev_idx
+                    && hold_code == keycode
+                    && now.saturating_duration_since(press_t) >= NAV_HOLD_REPEAT_DELAY
+                {
+                    let can_repeat = self
+                        .last_repeat
+                        .map(|rt| now.saturating_duration_since(rt) >= NAV_HOLD_REPEAT_INTERVAL)
+                        .unwrap_or(true);
+                    if can_repeat {
+                        self.last_repeat = Some(now);
+                        return (ChordAction::AtomicTap(keycode), false);
+                    }
+                }
+            }
+            return (ChordAction::Drop, false);
+        }
+
+        let was_consumed = consumed_keys.remove(&keycode);
+        if self
+            .active_hold
+            .map(|(d, c, _)| d == dev_idx && c == keycode)
+            .unwrap_or(false)
+        {
+            self.active_hold = None;
+            self.last_repeat = None;
+            self.last_release = Some((keycode, now));
+        } else if self
+            .last_release
+            .map(|(c, t)| c == keycode && now.saturating_duration_since(t) < Duration::from_millis(120))
+            .unwrap_or(false)
+        {
+            self.last_release = Some((keycode, now));
+        }
+
+        if was_consumed {
+            (ChordAction::Drop, false)
+        } else {
+            (ChordAction::ForwardRaw(keycode, 0), false)
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct CrossInterfaceDedup {
     recent_press: HashMap<(String, u16), (String, Instant)>,
@@ -252,6 +347,7 @@ pub fn run_with_evdev(
 
     let mut dedup = crate::key_dedup::DedupState::new();
     let mut chord_guard = ChordGuard::default();
+    let mut nav_guard = NavGuard::default();
     let mut cross_dedup = CrossInterfaceDedup::default();
     let mut last_toggle_time: Option<Instant> = None;
     let mut last_active_window = String::new();
@@ -457,7 +553,7 @@ pub fn run_with_evdev(
                     if value != 1 {
                         continue;
                     }
-                    if is_modifier_pressed(&eff_key_state) {
+                    if is_modifier_pressed(&eff_key_state) || is_navigation_key(key) {
                         daemon.engine.reset();
                         daemon.replay_reset();
                         continue;
@@ -504,6 +600,32 @@ pub fn run_with_evdev(
                         execute_commands(&*injector, &commands);
                     }
                 } else {
+                    if is_navigation_key(key) {
+                        let (action, reset_engine) = nav_guard.handle_nav_key(
+                            i,
+                            key,
+                            value,
+                            &mut device_states[i].consumed_keys,
+                            now,
+                        );
+                        if reset_engine {
+                            daemon.engine.reset();
+                            daemon.replay_reset();
+                            dedup.reset();
+                        }
+                        match action {
+                            ChordAction::ForwardRaw(code, val) => {
+                                injector.send_key_event(code, val);
+                            }
+                            ChordAction::AtomicTap(code) => {
+                                injector.send_key_event(code, 1);
+                                injector.send_key_event(code, 0);
+                            }
+                            ChordAction::Drop => {}
+                        }
+                        continue;
+                    }
+
                     if is_modifier_pressed(&eff_key_state) {
                         let (action, reset_engine) = chord_guard.handle_modifier_chord(
                             key,
@@ -553,8 +675,12 @@ pub fn run_with_evdev(
                             } else if value == 0 {
                                 device_states[i].consumed_keys.remove(&keycode);
                             }
-                        } else if value == 0 && device_states[i].consumed_keys.remove(&keycode) {
-                            // Consumed during an earlier chord before modifier lifted
+                        } else if (value == 0 || value == 2)
+                            && device_states[i].consumed_keys.contains(&keycode)
+                        {
+                            if value == 0 {
+                                device_states[i].consumed_keys.remove(&keycode);
+                            }
                         } else {
                             injector.send_key_event(keycode, value);
                         }
@@ -979,5 +1105,119 @@ mod tests {
             18,
             t0 + Duration::from_millis(15)
         ));
+    }
+
+    #[test]
+    fn nav_guard_steps_arrow_keys_one_by_one_and_drops_switch_bounce() {
+        let mut nav = NavGuard::default();
+        let mut consumed = HashSet::new();
+        let t0 = Instant::now();
+        let left = evdev::Key::KEY_LEFT;
+
+        // 1. Initial press -> single AtomicTap + resets engine
+        assert_eq!(
+            nav.handle_nav_key(0, left, 1, &mut consumed, t0),
+            (ChordAction::AtomicTap(left.code()), true)
+        );
+
+        // 2. Make-bounce within 85ms -> dropped
+        assert_eq!(
+            nav.handle_nav_key(0, left, 0, &mut consumed, t0 + Duration::from_millis(10)),
+            (ChordAction::Drop, false)
+        );
+        assert_eq!(
+            nav.handle_nav_key(0, left, 1, &mut consumed, t0 + Duration::from_millis(22)),
+            (ChordAction::Drop, false)
+        );
+        assert_eq!(
+            nav.handle_nav_key(0, left, 0, &mut consumed, t0 + Duration::from_millis(30)),
+            (ChordAction::Drop, false)
+        );
+
+        // 3. Brisk intentional second tap (+140ms, >40ms after release) -> steps cleanly 1 char
+        let t1 = t0 + Duration::from_millis(140);
+        assert_eq!(
+            nav.handle_nav_key(0, left, 1, &mut consumed, t1),
+            (ChordAction::AtomicTap(left.code()), true)
+        );
+
+        // 4. Casual 320ms press crosses kernel 250ms repeat_delay -> still moves ONLY 1 char!
+        assert_eq!(
+            nav.handle_nav_key(0, left, 2, &mut consumed, t1 + Duration::from_millis(250)),
+            (ChordAction::Drop, false)
+        );
+        assert_eq!(
+            nav.handle_nav_key(0, left, 2, &mut consumed, t1 + Duration::from_millis(320)),
+            (ChordAction::Drop, false)
+        );
+        assert_eq!(
+            nav.handle_nav_key(0, left, 0, &mut consumed, t1 + Duration::from_millis(330)),
+            (ChordAction::Drop, false)
+        );
+
+        // 5. Break-bounce 15ms after release -> dropped!
+        assert_eq!(
+            nav.handle_nav_key(0, left, 1, &mut consumed, t1 + Duration::from_millis(345)),
+            (ChordAction::Drop, false)
+        );
+        assert_eq!(
+            nav.handle_nav_key(0, left, 0, &mut consumed, t1 + Duration::from_millis(352)),
+            (ChordAction::Drop, false)
+        );
+
+        // 6. Different arrow key (KEY_DOWN) 10ms later -> accepted immediately with zero lag
+        let down = evdev::Key::KEY_DOWN;
+        assert_eq!(
+            nav.handle_nav_key(0, down, 1, &mut consumed, t1 + Duration::from_millis(362)),
+            (ChordAction::AtomicTap(down.code()), true)
+        );
+        assert_eq!(
+            nav.handle_nav_key(0, down, 0, &mut consumed, t1 + Duration::from_millis(400)),
+            (ChordAction::Drop, false)
+        );
+    }
+
+    #[test]
+    fn nav_guard_repeats_smoothly_on_long_hold_and_never_repeats_home() {
+        let mut nav = NavGuard::default();
+        let mut consumed = HashSet::new();
+        let t0 = Instant::now();
+        let right = evdev::Key::KEY_RIGHT;
+
+        assert_eq!(
+            nav.handle_nav_key(0, right, 1, &mut consumed, t0),
+            (ChordAction::AtomicTap(right.code()), true)
+        );
+        // At 410ms (>= 400ms hold delay): first smooth repeat fires
+        assert_eq!(
+            nav.handle_nav_key(0, right, 2, &mut consumed, t0 + Duration::from_millis(410)),
+            (ChordAction::AtomicTap(right.code()), false)
+        );
+        // Next kernel tick 33ms later (443ms, < 65ms interval): throttled
+        assert_eq!(
+            nav.handle_nav_key(0, right, 2, &mut consumed, t0 + Duration::from_millis(443)),
+            (ChordAction::Drop, false)
+        );
+        // Next kernel tick at 476ms (66ms >= 65ms interval): second smooth repeat fires
+        assert_eq!(
+            nav.handle_nav_key(0, right, 2, &mut consumed, t0 + Duration::from_millis(476)),
+            (ChordAction::AtomicTap(right.code()), false)
+        );
+        assert_eq!(
+            nav.handle_nav_key(0, right, 0, &mut consumed, t0 + Duration::from_millis(500)),
+            (ChordAction::Drop, false)
+        );
+
+        // One-shot navigation keys (Home, Esc) never autorepeat on hold
+        let t2 = t0 + Duration::from_millis(700);
+        let home = evdev::Key::KEY_HOME;
+        assert_eq!(
+            nav.handle_nav_key(0, home, 1, &mut consumed, t2),
+            (ChordAction::AtomicTap(home.code()), true)
+        );
+        assert_eq!(
+            nav.handle_nav_key(0, home, 2, &mut consumed, t2 + Duration::from_millis(600)),
+            (ChordAction::Drop, false)
+        );
     }
 }

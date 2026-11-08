@@ -4,6 +4,16 @@
   <a href="CHANGELOG.md">English</a>
 </p>
 
+## v0.1.27 (2026-11-08)
+
+### Sửa lỗi
+
+- **Sửa lỗi phím mũi tên & điều hướng nhảy nhiều ký tự thay vì di chuyển từng ký tự một**:
+  - Bổ sung `is_navigation_key` / `is_repeatable_navigation_key` (`daemon/src/event.rs`) và `NavGuard` (`daemon/src/evdev_loop.rs`) để các phím mũi tên (`Left`, `Right`, `Up`, `Down`), `Home`, `End`, `PageUp`, `PageDown`, `Delete`, `Insert`, `Tab`, `Esc` gửi tổ hợp nhấn+nhả nguyên tử qua `uinput` thay vì giữ trạng thái thô (`1`/`2`/`0`), triệt tiêu hiện tượng lặp kép giữa bộ đếm `250ms` / `40Hz` của Hyprland/Wayland và sự kiện lặp `value=2` của kernel `evdev`.
+  - Chống dội công tắc cơ khi nhấn (`85ms`) và khi nhả (`40ms`) trên phím điều hướng nhưng vẫn giữ trọn các nhịp bấm liên tiếp chủ đích và đổi hướng tức thì; điều tiết mượt mà khi nhấn giữ lâu (`>= 400ms`) ở tốc độ `65ms`/bước (~15 ký tự/giây).
+  - Tự động xóa bộ đệm gõ tiếng Việt (`daemon.engine.reset()`, `daemon.replay_reset()`) khi di chuyển con trỏ bằng phím điều hướng để không xóa nhầm chữ tại vị trí con trỏ mới.
+
+
 ## v0.1.26 (2026-11-08)
 
 ### Sửa lỗi

@@ -39,6 +39,38 @@ pub fn is_modifier_key(key: evdev::Key) -> bool {
     )
 }
 
+pub fn is_navigation_key(key: evdev::Key) -> bool {
+    matches!(
+        key,
+        evdev::Key::KEY_LEFT
+            | evdev::Key::KEY_RIGHT
+            | evdev::Key::KEY_UP
+            | evdev::Key::KEY_DOWN
+            | evdev::Key::KEY_HOME
+            | evdev::Key::KEY_END
+            | evdev::Key::KEY_PAGEUP
+            | evdev::Key::KEY_PAGEDOWN
+            | evdev::Key::KEY_DELETE
+            | evdev::Key::KEY_INSERT
+            | evdev::Key::KEY_TAB
+            | evdev::Key::KEY_ESC
+    )
+}
+
+pub fn is_repeatable_navigation_key(key: evdev::Key) -> bool {
+    matches!(
+        key,
+        evdev::Key::KEY_LEFT
+            | evdev::Key::KEY_RIGHT
+            | evdev::Key::KEY_UP
+            | evdev::Key::KEY_DOWN
+            | evdev::Key::KEY_PAGEUP
+            | evdev::Key::KEY_PAGEDOWN
+            | evdev::Key::KEY_DELETE
+            | evdev::Key::KEY_TAB
+    )
+}
+
 pub fn is_modifier_held_shift(key_state: &evdev::AttributeSet<evdev::Key>) -> bool {
     key_state.contains(evdev::Key::KEY_LEFTSHIFT) || key_state.contains(evdev::Key::KEY_RIGHTSHIFT)
 }

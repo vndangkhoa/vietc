@@ -4,6 +4,16 @@
   <a href="CHANGELOG.vi.md">Tiếng Việt</a>
 </p>
 
+## v0.1.27 (2026-11-08)
+
+### Fixed
+
+- **Fix arrow & navigation keys jumping multiple characters instead of moving one-by-one**:
+  - Add `is_navigation_key` / `is_repeatable_navigation_key` (`daemon/src/event.rs`) and `NavGuard` (`daemon/src/evdev_loop.rs`) so Arrow (`Left`, `Right`, `Up`, `Down`), `Home`, `End`, `PageUp`, `PageDown`, `Delete`, `Insert`, `Tab`, and `Esc` emit single atomic press+release `uinput` taps instead of raw held states (`1`/`2`/`0`). This prevents Wayland/Hyprland's `250ms` / `40Hz` repeat timer from racing alongside kernel `evdev` `value=2` repeats.
+  - Suppress mechanical switch make-bounce (`85ms`) and break-bounce (`40ms` post-release) on navigation keys while preserving brisk intentional repeated taps and zero-latency direction changes, and pace intentional continuous holds (`>= 400ms`) smoothly at `65ms`/step (~15 chars/sec).
+  - Reset the Vietnamese composition & replay buffers (`daemon.engine.reset()`, `daemon.replay_reset()`) whenever navigation keys move the cursor, preventing stale preedit backspaces at the new cursor position.
+
+
 ## v0.1.26 (2026-11-08)
 
 ### Fixed
