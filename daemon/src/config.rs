@@ -272,6 +272,7 @@ fn default_vietnamese_apps() -> Vec<String> {
         "discord".into(),
         "slack".into(),
         "zalo".into(),
+        "olaz".into(),
         "firefox".into(),
         "chromium".into(),
         "thunderbird".into(),

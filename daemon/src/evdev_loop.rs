@@ -19,7 +19,8 @@ use crate::log::log_info;
 use crate::signal::SIGNAL_EXIT;
 use crate::commands::OutputCommand;
 
-const CHORD_BOUNCE_WINDOW: Duration = Duration::from_millis(200);
+const CHORD_BOUNCE_WINDOW: Duration = Duration::from_millis(220);
+const CHORD_RELEASE_BOUNCE_WINDOW: Duration = Duration::from_millis(80);
 const CHORD_HOLD_REPEAT_DELAY: Duration = Duration::from_millis(650);
 const CHORD_HOLD_REPEAT_INTERVAL: Duration = Duration::from_millis(120);
 const NAV_PRESS_BOUNCE_WINDOW: Duration = Duration::from_millis(85);
@@ -64,6 +65,7 @@ enum ChordAction {
 #[derive(Debug, Default)]
 struct ChordGuard {
     last_chord: Option<(u16, Instant)>,
+    last_chord_release: Option<(u16, Instant)>,
     last_chord_repeat: Option<Instant>,
 }
 
@@ -86,7 +88,17 @@ impl ChordGuard {
 
         if value == 1 {
             if let Some((prev_code, prev_t)) = self.last_chord {
-                if prev_code == keycode && now.saturating_duration_since(prev_t) < CHORD_BOUNCE_WINDOW {
+                if prev_code == keycode
+                    && now.saturating_duration_since(prev_t) < CHORD_BOUNCE_WINDOW
+                {
+                    consumed_keys.insert(keycode);
+                    return (ChordAction::Drop, false);
+                }
+            }
+            if let Some((rel_code, rel_t)) = self.last_chord_release {
+                if rel_code == keycode
+                    && now.saturating_duration_since(rel_t) < CHORD_RELEASE_BOUNCE_WINDOW
+                {
                     consumed_keys.insert(keycode);
                     return (ChordAction::Drop, false);
                 }
@@ -102,13 +114,21 @@ impl ChordGuard {
 
         if value == 2 {
             if key_to_char(key).is_some() {
-                // Never autorepeat one-shot clipboard/selection/save chords
+                // Never autorepeat one-shot clipboard/selection/save/window chords (1 press = 1 action)
                 if matches!(
                     key,
                     evdev::Key::KEY_C
+                        | evdev::Key::KEY_V
                         | evdev::Key::KEY_X
                         | evdev::Key::KEY_A
                         | evdev::Key::KEY_S
+                        | evdev::Key::KEY_T
+                        | evdev::Key::KEY_N
+                        | evdev::Key::KEY_W
+                        | evdev::Key::KEY_Q
+                        | evdev::Key::KEY_P
+                        | evdev::Key::KEY_F
+                        | evdev::Key::KEY_R
                 ) {
                     return (ChordAction::Drop, false);
                 }
@@ -134,7 +154,11 @@ impl ChordGuard {
             return (ChordAction::ForwardRaw(keycode, 2), false);
         }
 
-        if consumed_keys.remove(&keycode) {
+        let was_consumed = consumed_keys.remove(&keycode);
+        if key_to_char(key).is_some() {
+            self.last_chord_release = Some((keycode, now));
+        }
+        if was_consumed {
             (ChordAction::Drop, false)
         } else {
             (ChordAction::ForwardRaw(keycode, 0), false)
@@ -142,11 +166,17 @@ impl ChordGuard {
     }
 
     fn is_post_chord_bounce(&self, keycode: u16, now: Instant) -> bool {
-        if let Some((prev_code, prev_t)) = self.last_chord {
-            prev_code == keycode && now.saturating_duration_since(prev_t) < CHORD_BOUNCE_WINDOW
-        } else {
-            false
-        }
+        let within_press = self
+            .last_chord
+            .map(|(c, t)| c == keycode && now.saturating_duration_since(t) < CHORD_BOUNCE_WINDOW)
+            .unwrap_or(false);
+        let within_release = self
+            .last_chord_release
+            .map(|(c, t)| {
+                c == keycode && now.saturating_duration_since(t) < CHORD_RELEASE_BOUNCE_WINDOW
+            })
+            .unwrap_or(false);
+        within_press || within_release
     }
 }
 
@@ -1050,13 +1080,41 @@ mod tests {
             guard.handle_modifier_chord(evdev::Key::KEY_V, 1, &mut consumed, tv),
             (ChordAction::AtomicTap(evdev::Key::KEY_V.code()), true)
         );
-        // Repeat at 260ms is dropped (no accidental double paste)
+        // Repeat at 260ms AND 900ms is dropped (Ctrl+V never autorepeats multiple copies)
         assert_eq!(
             guard.handle_modifier_chord(
                 evdev::Key::KEY_V,
                 2,
                 &mut consumed,
                 tv + Duration::from_millis(260)
+            ),
+            (ChordAction::Drop, false)
+        );
+        assert_eq!(
+            guard.handle_modifier_chord(
+                evdev::Key::KEY_V,
+                2,
+                &mut consumed,
+                tv + Duration::from_millis(900)
+            ),
+            (ChordAction::Drop, false)
+        );
+        // Release V at +920ms, then mechanical break-bounce on V at +940ms -> dropped!
+        assert_eq!(
+            guard.handle_modifier_chord(
+                evdev::Key::KEY_V,
+                0,
+                &mut consumed,
+                tv + Duration::from_millis(920)
+            ),
+            (ChordAction::Drop, false)
+        );
+        assert_eq!(
+            guard.handle_modifier_chord(
+                evdev::Key::KEY_V,
+                1,
+                &mut consumed,
+                tv + Duration::from_millis(940)
             ),
             (ChordAction::Drop, false)
         );

@@ -4,6 +4,16 @@
   <a href="CHANGELOG.vi.md">Tiếng Việt</a>
 </p>
 
+## v0.1.28 (2026-11-09)
+
+### Fixed
+
+- **Fix `vietc-tray` autostart hijacking login with stale `/usr/bin/vietc-daemon` and `Ctrl+V` multi-paste**:
+  - Update `vietc-tray` (`ui/src/main.rs`) to start and stop `vietc.service` via `systemctl --user` when the systemd user unit is installed (and check `~/.local/bin/vietc-daemon` before `/usr/bin`), and order `vietc.service` `Before=xdg-desktop-autostart.target` so XDG autostart never races `vietc.service` with an older system binary on reboot.
+  - Make `Ctrl+V` strictly non-autorepeating on key-hold and add post-release break-bounce protection (`80ms`) in `ChordGuard` (`daemon/src/evdev_loop.rs`) so holding or releasing `Ctrl+V` never pastes multiple copies.
+  - Add `olaz` (Zalo desktop wrapper window class) to default `vietnamese_apps` (`daemon/src/config.rs`, `vietc.toml`).
+
+
 ## v0.1.27 (2026-11-08)
 
 ### Fixed

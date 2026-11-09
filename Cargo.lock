@@ -613,7 +613,7 @@ dependencies = [
 
 [[package]]
 name = "vietc-daemon"
-version = "0.1.27"
+version = "0.1.28"
 dependencies = [
  "dbus",
  "dirs",
@@ -632,7 +632,7 @@ dependencies = [
 
 [[package]]
 name = "vietc-engine"
-version = "0.1.27"
+version = "0.1.28"
 dependencies = [
  "insta",
  "serde",

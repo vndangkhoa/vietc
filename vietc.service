@@ -2,6 +2,7 @@
 Description=Viet+ Vietnamese IME Daemon (rootless)
 PartOf=graphical-session.target
 After=graphical-session.target omarchy-fcitx5.service fcitx5.service
+Before=xdg-desktop-autostart.target
 # IBus engine path (Ubuntu GNOME Wayland fix) needs no DISPLAY — it talks
 # to ibus-daemon over D-Bus and covers native Wayland apps. The legacy
 # rootless X11 path (XQueryKeymap+XTEST) still needs DISPLAY/XWayland.

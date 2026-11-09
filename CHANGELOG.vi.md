@@ -4,6 +4,16 @@
   <a href="CHANGELOG.md">English</a>
 </p>
 
+## v0.1.28 (2026-11-09)
+
+### Sửa lỗi
+
+- **Sửa lỗi `vietc-tray` tự khởi chạy bản cũ `/usr/bin/vietc-daemon` sau khi reboot và lỗi `Ctrl+V` dán lặp nhiều bản**:
+  - Cập nhật `vietc-tray` (`ui/src/main.rs`) ưu tiên khởi động/dừng qua `systemctl --user start/stop vietc.service` khi có systemd user service (và ưu tiên `~/.local/bin/vietc-daemon` trước `/usr/bin`), đồng thời cấu hình `Before=xdg-desktop-autostart.target` trong `vietc.service` để XDG autostart không bao giờ tranh quyền chạy bản nhị phân cũ khi khởi động lại máy.
+  - Chặn hoàn toàn tự lặp khi nhấn giữ `Ctrl+V` và bổ sung chống dội công tắc khi nhả phím (`80ms`) trong `ChordGuard` (`daemon/src/evdev_loop.rs`) để 1 lần bấm `Ctrl+V` luôn chỉ dán đúng 1 bản duy nhất.
+  - Bổ sung `olaz` (window class của Zalo trên Linux) vào danh sách `vietnamese_apps` mặc định (`daemon/src/config.rs`, `vietc.toml`).
+
+
 ## v0.1.27 (2026-11-08)
 
 ### Sửa lỗi

@@ -15,6 +15,19 @@ fn exe_dir() -> PathBuf {
 }
 
 fn find_sibling_binary(name: &str) -> String {
+    if !is_flatpak() {
+        if let Some(home) = dirs::home_dir() {
+            let local_bin = home.join(".local").join("bin");
+            let local_daemon = local_bin.join(format!("{}-daemon", name));
+            if local_daemon.exists() {
+                return local_daemon.to_string_lossy().into_owned();
+            }
+            let local_exact = local_bin.join(name);
+            if local_exact.exists() {
+                return local_exact.to_string_lossy().into_owned();
+            }
+        }
+    }
     let dir = exe_dir();
     // Try exact name (e.g. "vietc" outside Flatpak)
     let sibling = dir.join(name);
@@ -27,6 +40,19 @@ fn find_sibling_binary(name: &str) -> String {
         return daemon.to_string_lossy().into_owned();
     }
     name.to_string()
+}
+
+fn has_systemd_service() -> bool {
+    if is_flatpak() {
+        return false;
+    }
+    std::process::Command::new("systemctl")
+        .args(["--user", "cat", "vietc.service"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 fn is_daemon_running() -> bool {
@@ -132,6 +158,29 @@ fn prompt_password() -> String {
 }
 
 fn start_daemon() {
+    if is_daemon_running() {
+        return;
+    }
+
+    // Prefer systemd user service when installed so tray autostart never races or
+    // spawns an older binary outside `vietc.service` supervision.
+    if has_systemd_service() && !needs_root() {
+        eprintln!("[vietc-tray] Starting daemon via systemctl --user start vietc.service");
+        if std::process::Command::new("systemctl")
+            .args(["--user", "start", "vietc.service"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            for _ in 0..15 {
+                if is_daemon_running() {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        }
+    }
+
     let daemon_bin = find_sibling_binary("vietc");
 
     let flag_path = config_path().join(".first-launch-done");
@@ -225,6 +274,15 @@ fn start_daemon() {
 }
 
 pub fn stop_daemon() {
+    if has_systemd_service() {
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "stop", "vietc.service"])
+            .status();
+        if !is_daemon_running() {
+            return;
+        }
+    }
+
     let pid = DAEMON_PID.load(Ordering::SeqCst);
     if pid > 0 {
         eprintln!("[vietc-tray] Stopping daemon (PID {})", pid);
