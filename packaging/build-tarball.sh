@@ -5,7 +5,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-VERSION=$(grep '^version' "$PROJECT_ROOT/engine/Cargo.toml" | head -1 | sed 's/.*"\(.*\)"/\1/')
+VERSION="${1:-}"
+if [ -z "$VERSION" ]; then
+    VERSION=$(grep '^version' "$PROJECT_ROOT/engine/Cargo.toml" | head -1 | sed 's/.*"\(.*\)"/\1/')
+fi
 
 PACKAGE_NAME="vietc_${VERSION}_linux_amd64"
 DIST_DIR="$PROJECT_ROOT/target/dist"

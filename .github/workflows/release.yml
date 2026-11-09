@@ -17,15 +17,16 @@ jobs:
             libdbus-1-dev libevdev-dev libwayland-dev libxkbcommon-dev
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Build binaries
         run: |
           cargo build --release
           (cd ui && cargo build --release)
           gcc -O2 -o target/release/vietc-xrecord packaging/deb/vietc-xrecord.c -lX11 -lXtst
       - name: Package tarball
-        run: bash packaging/build-tarball.sh
+        run: bash packaging/build-tarball.sh "${GITHUB_REF_NAME#v}"
       - name: Upload tarball to release
-        run: |
-          gh release upload "${{ github.ref_name }}" target/dist/*.tar.gz
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/dist/*.tar.gz
+          generate_release_notes: true
